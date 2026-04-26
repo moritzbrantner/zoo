@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Zoo Game Three.js MVP</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body class="is-menu-open">
+    <main id="app">
+      <canvas id="zoo-scene" aria-label="Three dimensional zoo game visualization"></canvas>
+
+      <section class="main-menu" aria-label="Main menu">
+        <div class="main-menu-content">
+          <p class="menu-kicker">Staffing sim</p>
+          <h1>Zoo Frontier</h1>
+          <div class="menu-actions">
+            <button id="start-zoo" class="menu-button primary-button" type="button">
+              <span class="play-icon" aria-hidden="true"></span>
+              Start Zoo
+            </button>
+            <button
+              id="open-settings-menu"
+              class="menu-button secondary-button"
+              type="button"
+              data-open-settings
+            >
+              Settings
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-panel" aria-label="Settings" aria-hidden="true">
+        <div
+          class="settings-panel-content"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-title"
+        >
+          <div class="settings-header">
+            <h2 id="settings-title">Settings</h2>
+            <button
+              id="close-settings"
+              class="close-button"
+              type="button"
+              title="Close settings"
+              aria-label="Close settings"
+            >
+              x
+            </button>
+          </div>
+
+          <div class="settings-field">
+            <div class="settings-line">
+              <label for="sim-speed">Simulation speed</label>
+              <output id="sim-speed-value" for="sim-speed">1x</output>
+            </div>
+            <input id="sim-speed" type="range" min="0.5" max="2" value="1" step="0.25" />
+          </div>
+
+          <label class="settings-check" for="motion-effects">
+            <input id="motion-effects" type="checkbox" checked />
+            <span>Motion effects</span>
+          </label>
+
+          <label class="settings-check" for="shadow-toggle">
+            <input id="shadow-toggle" type="checkbox" checked />
+            <span>Shadows</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="hud" aria-label="Zoo state">
+        <div class="hud-header">
+          <div>
+            <h1>Zoo Operations</h1>
+            <p id="phase-label">Staffing needed</p>
+            <p id="sync-status" class="sync-status">Sync: local demo</p>
+          </div>
+          <output id="clock">0s</output>
+        </div>
+        <div class="pricing-control">
+          <div class="pricing-line">
+            <label for="entry-fee">Entry fee</label>
+            <output id="entry-fee-value" for="entry-fee">$12</output>
+          </div>
+          <input id="entry-fee" type="range" min="0" max="80" value="12" step="1" />
+          <div class="pricing-metrics" aria-live="polite">
+            <span id="willingness-value">$0 willing</span>
+            <span id="demand-value">0% demand</span>
+          </div>
+        </div>
+        <div id="resource-list" class="resource-list"></div>
+      </section>
+
+      <section class="inspector" aria-label="Selected element">
+        <h2 id="inspector-title">Zoo Map</h2>
+        <p id="inspector-summary">Select an element to inspect it.</p>
+        <div id="inspector-actions" class="inspector-actions"></div>
+        <dl id="inspector-details"></dl>
+      </section>
+
+      <div class="context-menu" role="menu" aria-label="Quick actions" aria-hidden="true">
+        <p id="context-menu-title">Zoo Actions</p>
+        <p id="context-menu-summary">Choose an action.</p>
+        <button id="context-menu-inspect" type="button" role="menuitem">Inspect</button>
+        <button id="context-menu-build" type="button" role="menuitem">Build</button>
+        <button id="context-menu-worker" type="button" role="menuitem">Assign Worker</button>
+        <button id="context-menu-reset" type="button" role="menuitem">Reset View</button>
+      </div>
+
+      <aside class="build-menu" aria-label="Build menu" aria-hidden="true">
+        <div class="build-menu-header">
+          <div>
+            <h2>Build</h2>
+            <p id="build-menu-status">Choose a building or map tool.</p>
+          </div>
+          <button
+            id="close-build-menu"
+            class="close-button"
+            type="button"
+            title="Close build menu"
+            aria-label="Close build menu"
+          >
+            x
+          </button>
+        </div>
+        <div id="build-options" class="build-options" role="list"></div>
+        <div class="path-builder" aria-label="Map builder">
+          <button id="draw-path" class="path-builder-button" type="button" aria-pressed="false">
+            Draw Path
+          </button>
+          <button
+            id="confirm-path"
+            class="path-builder-button primary-path-button"
+            type="button"
+            disabled
+          >
+            Confirm Path
+          </button>
+          <button id="cancel-path" class="path-builder-button" type="button" disabled>
+            Cancel
+          </button>
+          <button id="draw-area" class="path-builder-button" type="button" aria-pressed="false">
+            Define Area
+          </button>
+          <button
+            id="confirm-area"
+            class="path-builder-button primary-path-button"
+            type="button"
+            disabled
+          >
+            Confirm Area
+          </button>
+          <button id="draw-fence" class="path-builder-button" type="button" aria-pressed="false">
+            Build Fence
+          </button>
+          <button
+            id="confirm-fence"
+            class="path-builder-button primary-path-button"
+            type="button"
+            disabled
+          >
+            Confirm Fence
+          </button>
+        </div>
+      </aside>
+
+      <nav class="controls" aria-label="Game controls">
+        <button id="reset-view" type="button" title="Reset camera" aria-label="Reset camera">
+          ^
+        </button>
+        <button
+          id="build-menu-toggle"
+          type="button"
+          title="Place building"
+          aria-label="Place building"
+          aria-pressed="false"
+        >
+          <span class="build-icon" aria-hidden="true"></span>
+        </button>
+        <button
+          id="main-menu-toggle"
+          type="button"
+          title="Return to main menu"
+          aria-label="Return to main menu"
+        >
+          <span class="menu-icon" aria-hidden="true"></span>
+        </button>
+        <button
+          id="open-settings-game"
+          type="button"
+          title="Settings"
+          aria-label="Settings"
+          data-open-settings
+        >
+          <span class="settings-icon" aria-hidden="true"></span>
+        </button>
+      </nav>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

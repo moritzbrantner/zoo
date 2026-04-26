@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ZooTickRequest",
+  "type": "object",
+  "required": [
+    "delta_seconds"
+  ],
+  "properties": {
+    "delta_seconds": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    }
+  }
+}
