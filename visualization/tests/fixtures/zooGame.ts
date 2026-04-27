@@ -14,14 +14,14 @@ class ZooGame {
   async start(state = "staffingNeeded") {
     await this.page.goto("/?e2e=1");
     await this.ensureTestApiReady();
-    await this.page.getByRole("button", { name: "Start Zoo" }).click();
+    await this.page.getByRole("button", { name: /^(Start|Continue) Game$/ }).click();
     await this.page.evaluate(() => window.__zooTestApi.setMotionEffects(false));
     await this.setState(state);
     await expect(this.page.getByLabel("Quick actions")).toBeHidden();
   }
 
   async ensureTestApiReady() {
-    const startButton = this.page.getByRole("button", { name: "Start Zoo" });
+    const startButton = this.page.getByRole("button", { name: /^(Start|Continue) Game$/ });
     await expect(startButton).toBeVisible();
     const ready = await this.page
       .waitForFunction(() => Boolean(window.__zooTestApi?.ready), {
@@ -94,6 +94,15 @@ class ZooGame {
   async clickGround(x, z, options = {}) {
     const point = await this.groundPoint(x, z);
     await this.page.mouse.click(point.x, point.y, options);
+  }
+
+  async dragGround(fromX, fromZ, toX, toZ) {
+    const start = await this.groundPoint(fromX, fromZ);
+    const end = await this.groundPoint(toX, toZ);
+    await this.page.mouse.move(start.x, start.y);
+    await this.page.mouse.down();
+    await this.page.mouse.move(end.x, end.y);
+    await this.page.mouse.up();
   }
 }
 

@@ -93,11 +93,19 @@ input {
   text-shadow: 0 8px 34px rgba(0, 0, 0, 0.48);
 }
 
+.menu-summary {
+  max-width: 34ch;
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
 .menu-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 12px;
   margin-top: 24px;
+  width: min(320px, 100%);
 }
 
 .menu-button {
@@ -175,6 +183,21 @@ input {
   display: none;
 }
 
+.wiki-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(8, 13, 11, 0.66);
+  backdrop-filter: blur(5px);
+}
+
+.wiki-panel[aria-hidden="true"] {
+  display: none;
+}
+
 .settings-panel-content {
   width: min(420px, 100%);
   padding: 18px;
@@ -182,6 +205,19 @@ input {
   border-radius: 8px;
   background: var(--panel-strong);
   box-shadow: 0 22px 72px rgba(0, 0, 0, 0.34);
+}
+
+.wiki-panel-content {
+  width: min(940px, 100%);
+  max-height: min(88vh, 920px);
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 18%),
+    var(--panel-strong);
+  box-shadow: 0 22px 72px rgba(0, 0, 0, 0.34);
+  overflow: hidden;
 }
 
 .settings-header,
@@ -256,6 +292,75 @@ input {
 #entry-fee {
   width: 100%;
   accent-color: var(--water);
+}
+
+.wiki-subtitle {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.wiki-sections {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+  padding-right: 6px;
+  max-height: calc(min(88vh, 920px) - 108px);
+  overflow: auto;
+}
+
+.wiki-section {
+  display: grid;
+  gap: 12px;
+}
+
+.wiki-section-header {
+  display: grid;
+  gap: 4px;
+}
+
+.wiki-section-header h3,
+.wiki-card h4 {
+  margin: 0;
+}
+
+.wiki-section-header p,
+.wiki-card p {
+  margin: 0;
+}
+
+.wiki-section-header p {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.wiki-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.wiki-card {
+  display: grid;
+  gap: 8px;
+  min-height: 100%;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.wiki-card p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.wiki-card-meta {
+  color: var(--sun);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .settings-check {
@@ -422,6 +527,8 @@ dd,
   right: auto;
   bottom: 88px;
   width: min(760px, calc(100vw - 36px));
+  max-height: calc(100vh - 124px);
+  overflow-y: auto;
   padding: 14px 16px;
   border-radius: 8px;
   transform: translateX(-50%);
@@ -454,6 +561,87 @@ dd,
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.animal-roster {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.animal-roster[hidden] {
+  display: none;
+}
+
+.animal-roster-header h3 {
+  font-size: 0.82rem;
+}
+
+.animal-roster-header p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.animal-roster-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.animal-roster-item {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.animal-roster-item:hover:not(:disabled),
+.animal-roster-item:focus-visible:not(:disabled) {
+  border-color: rgba(69, 166, 183, 0.72);
+  background: rgba(69, 166, 183, 0.16);
+  outline: none;
+}
+
+.animal-roster-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.animal-roster-item.is-available {
+  border-color: rgba(225, 180, 79, 0.5);
+}
+
+.animal-roster-item-title,
+.animal-roster-item-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.animal-roster-item-title strong {
+  font-size: 0.8rem;
+}
+
+.animal-roster-item-title span,
+.animal-roster-item-meta span,
+.animal-roster-item-copy {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.animal-roster-item-meta {
+  margin-top: 7px;
+}
+
+.animal-roster-item-copy {
+  margin-top: 6px;
+  line-height: 1.35;
 }
 
 .inspector-action {
@@ -573,6 +761,49 @@ dd,
   display: grid;
   gap: 10px;
   margin-top: 12px;
+}
+
+.land-actions {
+  margin-top: 12px;
+}
+
+.land-actions .path-builder-button {
+  width: 100%;
+}
+
+.fence-options {
+  margin-top: 12px;
+}
+
+.fence-options-title {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.fence-options-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.fence-option {
+  min-height: 38px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.fence-option:hover,
+.fence-option[aria-pressed="true"] {
+  border-color: rgba(69, 166, 183, 0.82);
+  background: rgba(69, 166, 183, 0.2);
 }
 
 .build-option {

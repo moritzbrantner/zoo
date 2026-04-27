@@ -118,7 +118,7 @@ mod tests {
         assert!(
             view.animal_species
                 .iter()
-                .any(|species| species.kind == ZEBRA_HERD && species.unlocked)
+                .any(|species| species.kind == RABBIT_COLONY && species.unlocked)
         );
         assert!(
             view.animal_species
@@ -200,7 +200,7 @@ mod tests {
         state.advance_time(18).unwrap();
 
         assert!(matches!(
-            buy_animal_group(&mut state, ZEBRA_HERD, animal_area),
+            buy_animal_group(&mut state, RABBIT_COLONY, animal_area),
             Err(ZooError::Animal(
                 AnimalPurchaseError::AnimalAreaRequirementsNotMet { .. }
             ))
@@ -209,13 +209,12 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
-        state.inventory_mut().add(ANIMAL_FEED, 20).unwrap();
-        let zebra = buy_animal_group(&mut state, ZEBRA_HERD, animal_area).unwrap();
+        let rabbit = buy_animal_group(&mut state, RABBIT_COLONY, animal_area).unwrap();
         assert_eq!(
-            state.entity_stat(zebra, HABITAT_ID).unwrap(),
+            state.entity_stat(rabbit, HABITAT_ID).unwrap(),
             animal_area.get() as i64
         );
-        assert_eq!(state.entity(zebra).unwrap().kind(), ZEBRA_HERD);
+        assert_eq!(state.entity(rabbit).unwrap().kind(), RABBIT_COLONY);
     }
 
     #[test]
@@ -225,7 +224,7 @@ mod tests {
             .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
             .unwrap();
         state.advance_time(18).unwrap();
-        state.inventory_mut().add(VISITORS, 56).unwrap();
+        state.inventory_mut().add(VISITORS, 141).unwrap();
         unlock_species_for_current_visitors(&mut state);
         state
             .place_fence(
@@ -267,9 +266,9 @@ mod tests {
         let lion =
             buy_named_animal_group(&mut state, LION_PRIDE, "North Lions", animal_area).unwrap();
 
-        assert_eq!(state.inventory().amount(COINS), coins_before - 80);
-        assert_eq!(state.inventory().amount(MEAT), meat_before - 16);
-        assert_eq!(state.inventory().amount(WATER), water_before - 6);
+        assert_eq!(state.inventory().amount(COINS), coins_before - 116);
+        assert_eq!(state.inventory().amount(MEAT), meat_before - 18);
+        assert_eq!(state.inventory().amount(WATER), water_before - 8);
         assert_eq!(
             state.entity(lion).unwrap().name.as_deref(),
             Some("North Lions")
@@ -293,17 +292,19 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
+        let vegetables = state.inventory().amount(VEGETABLES);
+        state.inventory_mut().remove(VEGETABLES, vegetables).unwrap();
         let inventory_before = state.inventory().clone();
 
         assert!(matches!(
-            buy_animal_group(&mut state, ZEBRA_HERD, animal_area),
+            buy_animal_group(&mut state, RABBIT_COLONY, animal_area),
             Err(ZooError::Engine(EngineError::Resource(
                 ResourceError::Insufficient {
                     resource,
-                    needed: 8,
-                    available: 0,
+                    needed: 4,
+                    available: 0
                 }
-            ))) if resource.as_str() == ANIMAL_FEED
+            ))) if resource.as_str() == VEGETABLES
         ));
 
         assert_eq!(state.inventory(), &inventory_before);
@@ -323,7 +324,7 @@ mod tests {
             .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
             .unwrap();
         state.advance_time(18).unwrap();
-        state.inventory_mut().add(VISITORS, 8).unwrap();
+        state.inventory_mut().add(VISITORS, 16).unwrap();
         unlock_species_for_current_visitors(&mut state);
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
@@ -331,16 +332,14 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 15), MapLocation::new(9, 15))
             .unwrap();
-        state.inventory_mut().add(ANIMAL_FEED, 20).unwrap();
-
-        buy_animal_group(&mut state, ZEBRA_HERD, animal_area).unwrap();
+        buy_animal_group(&mut state, RABBIT_COLONY, animal_area).unwrap();
         assert!(matches!(
             buy_animal_group(&mut state, TORTOISE_GROUP, animal_area),
             Err(ZooError::Animal(AnimalPurchaseError::MixedAnimalKinds {
                 existing_kind,
                 requested_kind,
                 ..
-            })) if existing_kind == ZEBRA_HERD && requested_kind == TORTOISE_GROUP
+            })) if existing_kind == RABBIT_COLONY && requested_kind == TORTOISE_GROUP
         ));
     }
 
@@ -357,16 +356,15 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
-        state.inventory_mut().add(ANIMAL_FEED, 20).unwrap();
-        let zebra = buy_animal_group(&mut state, ZEBRA_HERD, first_area).unwrap();
-        let original_location = state.entity(zebra).unwrap().location;
+        let rabbit = buy_animal_group(&mut state, RABBIT_COLONY, first_area).unwrap();
+        let original_location = state.entity(rabbit).unwrap().location;
         let second_location = state.building(second_area).unwrap().location;
 
         assert!(matches!(
             apply_zoo_command(
                 &mut state,
                 GameCommand::MoveEntity {
-                    entity: zebra,
+                    entity: rabbit,
                     location: second_location,
                 },
             ),
@@ -374,9 +372,9 @@ mod tests {
                 AnimalPurchaseError::AnimalAreaRequirementsNotMet { .. }
             ))
         ));
-        assert_eq!(state.entity(zebra).unwrap().location, original_location);
+        assert_eq!(state.entity(rabbit).unwrap().location, original_location);
         assert_eq!(
-            state.entity_stat(zebra, HABITAT_ID).unwrap(),
+            state.entity_stat(rabbit, HABITAT_ID).unwrap(),
             first_area.get() as i64
         );
 
@@ -390,16 +388,16 @@ mod tests {
         let outcome = apply_zoo_command(
             &mut state,
             GameCommand::MoveEntity {
-                entity: zebra,
+                entity: rabbit,
                 location: second_location,
             },
         )
         .unwrap();
 
-        assert_eq!(outcome.events, vec![GameEvent::EntityMoved(zebra)]);
-        assert_eq!(state.entity(zebra).unwrap().location, second_location);
+        assert_eq!(outcome.events, vec![GameEvent::EntityMoved(rabbit)]);
+        assert_eq!(state.entity(rabbit).unwrap().location, second_location);
         assert_eq!(
-            state.entity_stat(zebra, HABITAT_ID).unwrap(),
+            state.entity_stat(rabbit, HABITAT_ID).unwrap(),
             second_area.get() as i64
         );
     }
@@ -414,13 +412,12 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
-        state.inventory_mut().add(ANIMAL_FEED, 20).unwrap();
         let animal_area_location = state.building(animal_area).unwrap().location;
 
         let outcome = apply_zoo_command(
             &mut state,
             GameCommand::SpawnEntity {
-                blueprint: EntityBlueprintRef::Npc(ZEBRA_HERD.into()),
+                blueprint: EntityBlueprintRef::Npc(RABBIT_COLONY.into()),
                 name: None,
                 location: animal_area_location,
             },
@@ -434,7 +431,7 @@ mod tests {
         assert_eq!(
             state
                 .entities()
-                .filter(|entity| entity.blueprint == EntityBlueprintRef::Npc(ZEBRA_HERD.into()))
+                .filter(|entity| entity.blueprint == EntityBlueprintRef::Npc(RABBIT_COLONY.into()))
                 .count(),
             1
         );
@@ -442,9 +439,9 @@ mod tests {
 
     #[test]
     fn entry_fee_creates_customer_demand_sweet_spot_from_animals() {
-        let mut free = zebra_pricing_state();
-        let mut sweet = zebra_pricing_state();
-        let mut expensive = zebra_pricing_state();
+        let mut free = rabbit_pricing_state();
+        let mut sweet = rabbit_pricing_state();
+        let mut expensive = rabbit_pricing_state();
         let sweet_fee = zoo_view(&sweet).summary.customer_willingness;
 
         set_entry_fee_with_command(&mut free, 0);
@@ -526,9 +523,8 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
-        state.inventory_mut().add(ANIMAL_FEED, 20).unwrap();
         let animal =
-            buy_named_animal_group(&mut state, ZEBRA_HERD, "Starter Zebra Herd", animal_area)
+            buy_named_animal_group(&mut state, RABBIT_COLONY, "Starter Rabbit Colony", animal_area)
                 .unwrap();
         let mut logic = ZooLogic;
         state.advance_time_with_logic(30, &mut logic).unwrap();
@@ -544,14 +540,141 @@ mod tests {
     }
 
     #[test]
-    fn fresh_zoo_only_unlocks_zebra_species() {
+    fn staffed_animal_areas_receive_food_deliveries_from_main_building_for_coins() {
+        let (mut staffed, animal_area, animal, house) = rabbit_animal_area_state(true);
+        let (mut unstaffed, _, _, _) = rabbit_animal_area_state(false);
+        let house_feed_before = staffed
+            .building_inventory(house)
+            .unwrap()
+            .amount(ANIMAL_FEED);
+
+        let mut staffed_logic = ZooLogic;
+        let outcome = staffed
+            .advance_time_and_collect_events_with_logic(30, &mut staffed_logic)
+            .unwrap();
+        let mut unstaffed_logic = ZooLogic;
+        unstaffed
+            .advance_time_with_logic(30, &mut unstaffed_logic)
+            .unwrap();
+
+        assert!(outcome.events.iter().any(|event| {
+            matches!(
+                event,
+                GameEvent::DomainEvent { kind } if kind == &format!("zoo.feed_delivery.{}", animal_area.get())
+            )
+        }));
+        assert_eq!(
+            staffed.inventory().amount(COINS) + 5,
+            unstaffed.inventory().amount(COINS)
+        );
+        assert_eq!(
+            staffed
+                .building_inventory(house)
+                .unwrap()
+                .amount(ANIMAL_FEED),
+            house_feed_before - 3
+        );
+        assert_eq!(
+            staffed
+                .building_inventory(animal_area)
+                .unwrap()
+                .amount(ANIMAL_FEED),
+            2
+        );
+        assert!(staffed.entity_stat(animal, HUNGER).unwrap() < 20);
+    }
+
+    #[test]
+    fn unstaffed_animal_areas_do_not_receive_food_deliveries() {
+        let (mut state, animal_area, animal, house) = rabbit_animal_area_state(false);
+        let house_feed_before = state.building_inventory(house).unwrap().amount(ANIMAL_FEED);
+
+        let mut logic = ZooLogic;
+        state.advance_time_with_logic(30, &mut logic).unwrap();
+
+        assert_eq!(
+            state.building_inventory(house).unwrap().amount(ANIMAL_FEED),
+            house_feed_before
+        );
+        assert_eq!(
+            state
+                .building_inventory(animal_area)
+                .unwrap()
+                .amount(ANIMAL_FEED),
+            0
+        );
+        assert!(state.entity_stat(animal, HUNGER).unwrap() > 20);
+    }
+
+    #[test]
+    fn fresh_zoo_only_unlocks_rabbit_species() {
         let state = new_zoo_state().unwrap();
 
-        assert!(is_species_unlocked(&state, ZEBRA_HERD));
+        assert!(is_species_unlocked(&state, RABBIT_COLONY));
         assert!(!is_species_unlocked(&state, TORTOISE_GROUP));
+        assert!(!is_species_unlocked(&state, ZEBRA_HERD));
         assert!(!is_species_unlocked(&state, FLAMINGO_FLOCK));
         assert!(!is_species_unlocked(&state, PARROT_PAIR));
+        assert!(!is_species_unlocked(&state, WOLF_PACK));
         assert!(!is_species_unlocked(&state, LION_PRIDE));
+        assert!(!is_species_unlocked(&state, GORILLA_TROOP));
+        assert!(!is_species_unlocked(&state, ELEPHANT_HERD));
+    }
+
+    #[test]
+    fn species_unlock_progression_matches_roster_thresholds() {
+        let thresholds = [
+            (RABBIT_COLONY, 0_u64),
+            (TORTOISE_GROUP, 10),
+            (ZEBRA_HERD, 20),
+            (FLAMINGO_FLOCK, 32),
+            (PARROT_PAIR, 48),
+            (WOLF_PACK, 68),
+            (LION_PRIDE, 90),
+            (GORILLA_TROOP, 115),
+            (ELEPHANT_HERD, 145),
+        ];
+
+        for (kind, threshold) in thresholds {
+            let mut state = new_zoo_state().unwrap();
+            let current = state.inventory().amount(VISITORS);
+            if threshold > current {
+                state.inventory_mut().add(VISITORS, threshold - current).unwrap();
+            }
+            let events = unlock_species_for_current_visitors(&mut state);
+            assert!(
+                is_species_unlocked(&state, kind),
+                "{kind} should unlock at {threshold} visitors"
+            );
+            assert!(
+                threshold == 0
+                    || events.iter().any(|event| {
+                        matches!(
+                            event,
+                            GameEvent::DomainEvent { kind: event_kind }
+                                if event_kind == &format!("zoo.species_unlocked.{kind}")
+                        )
+                    })
+            );
+        }
+    }
+
+    #[test]
+    fn animal_species_roster_is_monotonic_by_progression_tier() {
+        let species = animal_species_definitions();
+        assert_eq!(species.len(), 9);
+
+        for pair in species.windows(2) {
+            let [current, next] = pair else { continue };
+            assert!(current.required_visitors < next.required_visitors);
+            assert!(current.appeal < next.appeal);
+            assert!(
+                purchase_cost_amount(current, COINS) < purchase_cost_amount(next, COINS),
+                "coin cost should rise from {} to {}",
+                current.kind,
+                next.kind
+            );
+        }
     }
 
     #[test]
@@ -579,7 +702,7 @@ mod tests {
         assert!(matches!(
             buy_named_animal_group(&mut state, LION_PRIDE, "North Lions", animal_area),
             Err(ZooError::Animal(AnimalPurchaseError::SpeciesLocked {
-                required_visitors: 60,
+                required_visitors: 90,
                 current_visitors: 4,
                 ..
             }))
@@ -589,7 +712,7 @@ mod tests {
     #[test]
     fn species_unlocks_persist_after_visitors_drop() {
         let mut state = new_zoo_state().unwrap();
-        state.inventory_mut().add(VISITORS, 36).unwrap();
+        state.inventory_mut().add(VISITORS, 44).unwrap();
 
         let events = unlock_species_for_current_visitors(&mut state);
         assert!(events.iter().any(|event| {
@@ -600,7 +723,7 @@ mod tests {
         }));
         assert!(is_species_unlocked(&state, PARROT_PAIR));
 
-        state.inventory_mut().remove(VISITORS, 40).unwrap();
+        state.inventory_mut().remove(VISITORS, 48).unwrap();
         assert_eq!(state.inventory().amount(VISITORS), 0);
         assert!(is_species_unlocked(&state, PARROT_PAIR));
     }
@@ -612,7 +735,7 @@ mod tests {
             .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
             .unwrap();
         state.advance_time(18).unwrap();
-        state.inventory_mut().add(VISITORS, 56).unwrap();
+        state.inventory_mut().add(VISITORS, 141).unwrap();
         unlock_species_for_current_visitors(&mut state);
         state
             .place_fence(
@@ -631,7 +754,7 @@ mod tests {
         let lion =
             buy_named_animal_group(&mut state, LION_PRIDE, "North Lions", animal_area).unwrap();
 
-        state.inventory_mut().remove(VISITORS, 60).unwrap();
+        state.inventory_mut().remove(VISITORS, 145).unwrap();
         state.set_stat(ANIMAL_UNLOCK_LION_PRIDE, 0);
         assert!(!is_species_unlocked(&state, LION_PRIDE));
 
@@ -691,29 +814,68 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
-        state.inventory_mut().add(ANIMAL_FEED, 20).unwrap();
-        buy_named_animal_group(&mut state, ZEBRA_HERD, "Starter Zebra Herd", animal_area).unwrap();
+        buy_named_animal_group(&mut state, RABBIT_COLONY, "Starter Rabbit Colony", animal_area)
+            .unwrap();
 
         let view = zoo_view(&state);
-        let zebra = view
+        let rabbit = view
             .animal_species
             .iter()
-            .find(|species| species.kind == ZEBRA_HERD)
-            .expect("zebra species should be present");
-        let lion = view
+            .find(|species| species.kind == RABBIT_COLONY)
+            .expect("rabbit species should be present");
+        let elephant = view
             .animal_species
             .iter()
-            .find(|species| species.kind == LION_PRIDE)
-            .expect("lion species should be present");
+            .find(|species| species.kind == ELEPHANT_HERD)
+            .expect("elephant species should be present");
 
-        assert!(zebra.unlocked);
-        assert_eq!(zebra.placed_count, 1);
-        assert_eq!(zebra.appeal, 12);
-        assert!(!lion.unlocked);
-        assert_eq!(lion.required_visitors, 60);
+        assert!(rabbit.unlocked);
+        assert_eq!(rabbit.placed_count, 1);
+        assert_eq!(rabbit.appeal, 6);
+        assert_eq!(rabbit.animal_area_kind, ANIMAL_AREA);
+        assert_eq!(rabbit.fence_kind, WOOD_FENCE);
+        assert_eq!(rabbit.min_fence_count, 1);
+        assert_eq!(rabbit.purchase_cost.len(), 3);
+        assert!(!elephant.unlocked);
+        assert_eq!(elephant.required_visitors, 145);
+        assert_eq!(elephant.min_fence_count, 4);
     }
 
-    fn zebra_pricing_state() -> GameState {
+    #[test]
+    fn elephant_purchase_requires_four_steel_fences() {
+        let mut state = new_zoo_state().unwrap();
+        let animal_area = state
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .unwrap();
+        state.advance_time(18).unwrap();
+        state.inventory_mut().add(VISITORS, 141).unwrap();
+        unlock_species_for_current_visitors(&mut state);
+        for (start, end) in [
+            (MapLocation::new(8, 13), MapLocation::new(9, 13)),
+            (MapLocation::new(8, 15), MapLocation::new(9, 15)),
+            (MapLocation::new(7, 14), MapLocation::new(7, 15)),
+        ] {
+            state.place_fence(STEEL_FENCE, start, end).unwrap();
+        }
+
+        assert!(matches!(
+            buy_animal_group(&mut state, ELEPHANT_HERD, animal_area),
+            Err(ZooError::Animal(
+                AnimalPurchaseError::AnimalAreaRequirementsNotMet { requirements, .. }
+            )) if requirements.min_fence_count == 4 && requirements.fence_kind == STEEL_FENCE
+        ));
+
+        state
+            .place_fence(STEEL_FENCE, MapLocation::new(9, 14), MapLocation::new(9, 15))
+            .unwrap();
+        state.inventory_mut().add(MEDICINE, 8).unwrap();
+        let elephant =
+            buy_named_animal_group(&mut state, ELEPHANT_HERD, "Matriarch Herd", animal_area)
+                .unwrap();
+        assert_eq!(state.entity(elephant).unwrap().kind(), ELEPHANT_HERD);
+    }
+
+    fn rabbit_pricing_state() -> GameState {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
             .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
@@ -722,9 +884,48 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
-        state.inventory_mut().add(ANIMAL_FEED, 20).unwrap();
-        buy_animal_group(&mut state, ZEBRA_HERD, animal_area).unwrap();
+        buy_animal_group(&mut state, RABBIT_COLONY, animal_area).unwrap();
         state
+    }
+
+    fn rabbit_animal_area_state(
+        assign_keeper: bool,
+    ) -> (GameState, BuildingId, EntityId, BuildingId) {
+        let mut state = new_zoo_state().unwrap();
+        let animal_area = state
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .unwrap();
+        state.advance_time(18).unwrap();
+        state
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .unwrap();
+        let animal =
+            buy_named_animal_group(&mut state, RABBIT_COLONY, "Starter Rabbit Colony", animal_area)
+                .unwrap();
+        if assign_keeper {
+            let keeper = state
+                .entity_ids_of_blueprint(EntityBlueprintRef::Unit(ZOOKEEPER.into()))
+                .into_iter()
+                .next()
+                .expect("seeded zookeeper should exist");
+            state
+                .assign_entity_to_building(keeper, animal_area)
+                .unwrap();
+        }
+        let house = state
+            .buildings()
+            .find(|building| building.kind.as_str() == ZOOKEEPER_HOUSE)
+            .expect("zookeeper house should exist")
+            .id;
+        (state, animal_area, animal, house)
+    }
+
+    fn purchase_cost_amount(species: &animals::AnimalSpeciesDefinition, resource: &str) -> u64 {
+        species
+            .purchase_cost
+            .iter()
+            .find_map(|(kind, amount)| (*kind == resource).then_some(*amount))
+            .unwrap_or(0)
     }
 
     fn set_entry_fee_with_command(state: &mut GameState, value: i64) {

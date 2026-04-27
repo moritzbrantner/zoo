@@ -176,6 +176,19 @@ fn animal_species_views(state: &GameState, animals: &[EntityView]) -> Vec<Animal
                 .filter(|animal| animal.kind == species.kind)
                 .count() as u32,
             appeal: species.appeal,
+            purchase_cost: species
+                .purchase_cost
+                .iter()
+                .map(|(resource_id, amount)| AnimalSpeciesCostView {
+                    resource_id: (*resource_id).to_owned(),
+                    label: label_for(resource_id).to_owned(),
+                    amount: *amount,
+                })
+                .collect(),
+            animal_area_kind: species.animal_area_kind.to_owned(),
+            min_level: species.min_level,
+            fence_kind: species.fence_kind.to_owned(),
+            min_fence_count: species.min_fence_count,
         })
         .collect()
 }
@@ -243,6 +256,42 @@ fn zoo_alerts(state: &GameState, summary: &ZooSummary) -> Vec<AlertView> {
         alerts.push(AlertView {
             severity: "critical".to_owned(),
             message: "Animal welfare needs immediate staff or supply support.".to_owned(),
+        });
+    }
+    let animals_need_food_support = state
+        .entities()
+        .filter(|entity| is_animal_kind(entity.kind()))
+        .any(|animal| {
+            let habitat_id = animal
+                .stats
+                .get(&StatId::from(HABITAT_ID))
+                .copied()
+                .and_then(|id| u64::try_from(id).ok())
+                .and_then(std::num::NonZeroU64::new)
+                .map(BuildingId::new);
+            let Some(habitat) = habitat_id else {
+                return true;
+            };
+            state.entity_ids_assigned_to_building(habitat).is_empty()
+                || state
+                    .building_inventory(habitat)
+                    .map(|inventory| inventory.amount(ANIMAL_FEED) == 0)
+                    .unwrap_or(true)
+        });
+    if animals_need_food_support {
+        alerts.push(AlertView {
+            severity: "warning".to_owned(),
+            message: "Animals need a staffed habitat and regular food deliveries from the zookeeper house.".to_owned(),
+        });
+    }
+    let main_building_feed_empty = state
+        .buildings()
+        .find(|building| building.kind.as_str() == ZOOKEEPER_HOUSE)
+        .is_some_and(|building| building.inventory.amount(ANIMAL_FEED) == 0);
+    if summary.animal_count > 0 && main_building_feed_empty {
+        alerts.push(AlertView {
+            severity: "warning".to_owned(),
+            message: "The zookeeper house is out of animal feed for delivery runs.".to_owned(),
         });
     }
     if state.inventory().amount(VISITORS)

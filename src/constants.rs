@@ -52,17 +52,25 @@ pub const MECHANIC: &str = "mechanic";
 pub const EDUCATOR: &str = "educator";
 
 pub const GUEST: &str = "guest";
+pub const RABBIT_COLONY: &str = "rabbit_colony";
 pub const ZEBRA_HERD: &str = "zebra_herd";
 pub const LION_PRIDE: &str = "lion_pride";
 pub const FLAMINGO_FLOCK: &str = "flamingo_flock";
 pub const TORTOISE_GROUP: &str = "tortoise_group";
 pub const PARROT_PAIR: &str = "parrot_pair";
+pub const WOLF_PACK: &str = "wolf_pack";
+pub const GORILLA_TROOP: &str = "gorilla_troop";
+pub const ELEPHANT_HERD: &str = "elephant_herd";
 
+pub const ANIMAL_UNLOCK_RABBIT_COLONY: &str = "animal_unlock_rabbit_colony";
 pub const ANIMAL_UNLOCK_ZEBRA_HERD: &str = "animal_unlock_zebra_herd";
 pub const ANIMAL_UNLOCK_TORTOISE_GROUP: &str = "animal_unlock_tortoise_group";
 pub const ANIMAL_UNLOCK_FLAMINGO_FLOCK: &str = "animal_unlock_flamingo_flock";
 pub const ANIMAL_UNLOCK_PARROT_PAIR: &str = "animal_unlock_parrot_pair";
+pub const ANIMAL_UNLOCK_WOLF_PACK: &str = "animal_unlock_wolf_pack";
 pub const ANIMAL_UNLOCK_LION_PRIDE: &str = "animal_unlock_lion_pride";
+pub const ANIMAL_UNLOCK_GORILLA_TROOP: &str = "animal_unlock_gorilla_troop";
+pub const ANIMAL_UNLOCK_ELEPHANT_HERD: &str = "animal_unlock_elephant_herd";
 pub const GUEST_DEPARTURES_LAST_TICK: &str = "guest_departures_last_tick";
 
 pub const EXCITEMENT: &str = "excitement";
@@ -72,10 +80,12 @@ pub const WELFARE: &str = "welfare";
 pub const HUNGER: &str = "hunger";
 pub const HEALTH: &str = "health";
 pub const HABITAT_ID: &str = "habitat_id";
+pub const FEED_PROGRESS: &str = "feed_progress";
 pub const CLEANLINESS: &str = "cleanliness";
 pub const WEAR: &str = "wear";
 pub const APPEAL: &str = "appeal";
 pub const ENTRY_FEE: &str = "entry_fee";
+pub const LAST_FEED_DELIVERY_AT: &str = "last_feed_delivery_at";
 
 pub const BASIC_HUSBANDRY: &str = "basic_husbandry";
 pub const VETERINARY_CARE: &str = "veterinary_care";

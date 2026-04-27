@@ -1,5 +1,4 @@
 export const animalAttractionProfiles = {
-  animal_area: { kind: "Zebra Herd", appeal: 12 },
   savanna_habitat: { kind: "Lion Pride", appeal: 32 },
   wetlands_habitat: { kind: "Flamingo Flock", appeal: 18 },
   aviary: { kind: "Parrot Pair", appeal: 24 },

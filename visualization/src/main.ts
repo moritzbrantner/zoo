@@ -2,7 +2,7 @@
 import "./styles.css";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { buildingManifest, resourceManifest } from "./assets/assetManifest";
+import { buildingManifest, fenceManifest, resourceManifest } from "./assets/assetManifest";
 import {
   DEFAULT_ENTRY_FEE,
   LONG_PRESS_MS,
@@ -17,10 +17,16 @@ import { createZooClient } from "./sync/zooClient";
 const canvas = document.querySelector("#zoo-scene");
 const mainMenuEl = document.querySelector(".main-menu");
 const startZooEl = document.querySelector("#start-zoo");
+const startZooLabelEl = document.querySelector("#start-zoo-label");
+const mainMenuSummaryEl = document.querySelector("#main-menu-summary");
 const mainMenuToggleEl = document.querySelector("#main-menu-toggle");
 const openSettingsEls = document.querySelectorAll("[data-open-settings]");
+const openWikiEls = document.querySelectorAll("[data-open-wiki]");
 const settingsPanelEl = document.querySelector(".settings-panel");
 const closeSettingsEl = document.querySelector("#close-settings");
+const wikiPanelEl = document.querySelector(".wiki-panel");
+const closeWikiEl = document.querySelector("#close-wiki");
+const wikiSectionsEl = document.querySelector("#wiki-sections");
 const simSpeedEl = document.querySelector("#sim-speed");
 const simSpeedValueEl = document.querySelector("#sim-speed-value");
 const motionEffectsEl = document.querySelector("#motion-effects");
@@ -37,6 +43,9 @@ const resourceListEl = document.querySelector("#resource-list");
 const inspectorTitleEl = document.querySelector("#inspector-title");
 const inspectorSummaryEl = document.querySelector("#inspector-summary");
 const inspectorActionsEl = document.querySelector("#inspector-actions");
+const animalRosterEl = document.querySelector("#animal-roster");
+const animalRosterSummaryEl = document.querySelector("#animal-roster-summary");
+const animalRosterListEl = document.querySelector("#animal-roster-list");
 const inspectorDetailsEl = document.querySelector("#inspector-details");
 const contextMenuEl = document.querySelector(".context-menu");
 const contextMenuTitleEl = document.querySelector("#context-menu-title");
@@ -49,6 +58,8 @@ const buildMenuEl = document.querySelector(".build-menu");
 const buildMenuToggleEl = document.querySelector("#build-menu-toggle");
 const closeBuildMenuEl = document.querySelector("#close-build-menu");
 const buildOptionsEl = document.querySelector("#build-options");
+const buyLandEl = document.querySelector("#buy-land");
+const fenceOptionsEl = document.querySelector("#fence-options");
 const buildMenuStatusEl = document.querySelector("#build-menu-status");
 const drawPathEl = document.querySelector("#draw-path");
 const confirmPathEl = document.querySelector("#confirm-path");
@@ -63,6 +74,167 @@ const resources = resourceManifest;
 const resourceDescriptions = Object.fromEntries(
   resourceManifest.map((resource) => [resource.id, resource.description]),
 );
+const resourceLabels = Object.fromEntries(resourceManifest.map((resource) => [resource.id, resource.label]));
+const fenceLabels = Object.fromEntries(fenceManifest.map((fence) => [fence.kind, fence.label]));
+const buildingCategoryLabels = {
+  entry: "Entry",
+  guest: "Guest Services",
+  staff: "Staff",
+  habitat: "Habitats",
+};
+const animalSpeciesCatalog = [
+  {
+    kind: "rabbit_colony",
+    label: "Rabbit Colony",
+    requiredVisitors: 0,
+    appeal: 6,
+    animalAreaKind: "animal_area",
+    minLevel: 1,
+    fenceKind: "wood_fence",
+    minFenceCount: 1,
+    purchaseCost: [
+      { resource_id: "coins", label: "Coins", amount: 18 },
+      { resource_id: "vegetables", label: "Vegetables", amount: 4 },
+      { resource_id: "water", label: "Water", amount: 2 },
+    ],
+  },
+  {
+    kind: "tortoise_group",
+    label: "Tortoise Group",
+    requiredVisitors: 10,
+    appeal: 10,
+    animalAreaKind: "animal_area",
+    minLevel: 1,
+    fenceKind: "wood_fence",
+    minFenceCount: 2,
+    purchaseCost: [
+      { resource_id: "coins", label: "Coins", amount: 28 },
+      { resource_id: "vegetables", label: "Vegetables", amount: 8 },
+      { resource_id: "medicine", label: "Medicine", amount: 2 },
+    ],
+  },
+  {
+    kind: "zebra_herd",
+    label: "Zebra Herd",
+    requiredVisitors: 20,
+    appeal: 14,
+    animalAreaKind: "animal_area",
+    minLevel: 1,
+    fenceKind: "wood_fence",
+    minFenceCount: 2,
+    purchaseCost: [
+      { resource_id: "coins", label: "Coins", amount: 40 },
+      { resource_id: "animal_feed", label: "Animal Feed", amount: 8 },
+      { resource_id: "water", label: "Water", amount: 4 },
+    ],
+  },
+  {
+    kind: "flamingo_flock",
+    label: "Flamingo Flock",
+    requiredVisitors: 32,
+    appeal: 18,
+    animalAreaKind: "animal_area",
+    minLevel: 1,
+    fenceKind: "glass_barrier",
+    minFenceCount: 1,
+    purchaseCost: [
+      { resource_id: "coins", label: "Coins", amount: 56 },
+      { resource_id: "fish", label: "Fish", amount: 12 },
+      { resource_id: "water", label: "Water", amount: 10 },
+    ],
+  },
+  {
+    kind: "parrot_pair",
+    label: "Parrot Pair",
+    requiredVisitors: 48,
+    appeal: 22,
+    animalAreaKind: "animal_area",
+    minLevel: 1,
+    fenceKind: "glass_barrier",
+    minFenceCount: 2,
+    purchaseCost: [
+      { resource_id: "coins", label: "Coins", amount: 72 },
+      { resource_id: "animal_feed", label: "Animal Feed", amount: 10 },
+      { resource_id: "research_points", label: "Research", amount: 4 },
+    ],
+  },
+  {
+    kind: "wolf_pack",
+    label: "Wolf Pack",
+    requiredVisitors: 68,
+    appeal: 28,
+    animalAreaKind: "animal_area",
+    minLevel: 1,
+    fenceKind: "steel_fence",
+    minFenceCount: 1,
+    purchaseCost: [
+      { resource_id: "coins", label: "Coins", amount: 92 },
+      { resource_id: "meat", label: "Meat", amount: 14 },
+      { resource_id: "water", label: "Water", amount: 6 },
+    ],
+  },
+  {
+    kind: "lion_pride",
+    label: "Lion Pride",
+    requiredVisitors: 90,
+    appeal: 34,
+    animalAreaKind: "animal_area",
+    minLevel: 1,
+    fenceKind: "steel_fence",
+    minFenceCount: 2,
+    purchaseCost: [
+      { resource_id: "coins", label: "Coins", amount: 116 },
+      { resource_id: "meat", label: "Meat", amount: 18 },
+      { resource_id: "water", label: "Water", amount: 8 },
+    ],
+  },
+  {
+    kind: "gorilla_troop",
+    label: "Gorilla Troop",
+    requiredVisitors: 115,
+    appeal: 42,
+    animalAreaKind: "animal_area",
+    minLevel: 1,
+    fenceKind: "steel_fence",
+    minFenceCount: 3,
+    purchaseCost: [
+      { resource_id: "coins", label: "Coins", amount: 138 },
+      { resource_id: "vegetables", label: "Vegetables", amount: 14 },
+      { resource_id: "animal_feed", label: "Animal Feed", amount: 8 },
+      { resource_id: "medicine", label: "Medicine", amount: 6 },
+    ],
+  },
+  {
+    kind: "elephant_herd",
+    label: "Elephant Herd",
+    requiredVisitors: 145,
+    appeal: 52,
+    animalAreaKind: "animal_area",
+    minLevel: 1,
+    fenceKind: "steel_fence",
+    minFenceCount: 4,
+    purchaseCost: [
+      { resource_id: "coins", label: "Coins", amount: 172 },
+      { resource_id: "vegetables", label: "Vegetables", amount: 24 },
+      { resource_id: "water", label: "Water", amount: 18 },
+      { resource_id: "medicine", label: "Medicine", amount: 8 },
+    ],
+  },
+];
+const animalSpeciesByKind = Object.fromEntries(
+  animalSpeciesCatalog.map((species) => [species.kind, species]),
+);
+const animalVisualProfiles = {
+  rabbit_colony: { color: 0xe9dcc9, scale: 0.44, behavior: "Scampering" },
+  tortoise_group: { color: 0x6f7d5a, scale: 0.54, behavior: "Sunbathing" },
+  zebra_herd: { color: 0xd8d3c5, scale: 0.68, behavior: "Grazing" },
+  flamingo_flock: { color: 0xef9bb1, scale: 0.58, behavior: "Wading" },
+  parrot_pair: { color: 0x6cbc65, scale: 0.5, behavior: "Perching" },
+  wolf_pack: { color: 0x7b746c, scale: 0.7, behavior: "Pacing" },
+  lion_pride: { color: 0x9b7a52, scale: 0.78, behavior: "Resting" },
+  gorilla_troop: { color: 0x58514c, scale: 0.84, behavior: "Foraging" },
+  elephant_herd: { color: 0x8f8f92, scale: 0.98, behavior: "Roaming" },
+};
 
 const buildings = [
   {
@@ -166,20 +338,30 @@ const GLOBAL_HOTKEYS = {
   resetView: "v",
 };
 
-const playableArea = {
-  width: 12,
-  depth: 9,
-  minX: -6,
-  maxX: 6,
-  minZ: -4.5,
-  maxZ: 4.5,
-};
-
 const PATH_TILE_SIZE = 1;
 const PATH_TILE_VISUAL_SIZE = 0.82;
 const PATH_TILE_EPSILON = 1e-6;
-const GRID_COLUMNS = Math.round(playableArea.width / PATH_TILE_SIZE);
-const GRID_ROWS = Math.round(playableArea.depth / PATH_TILE_SIZE);
+const INITIAL_GRID_COLUMNS = 12;
+const INITIAL_GRID_ROWS = 9;
+const LAND_EXPANSION_COLUMNS = 2;
+const LAND_EXPANSION_ROWS = 2;
+const LAND_PURCHASE_BASE_COST = 120;
+const LAND_PURCHASE_COST_STEP = 60;
+
+let gridColumns = INITIAL_GRID_COLUMNS;
+let gridRows = INITIAL_GRID_ROWS;
+let playableArea = createPlayableArea(gridColumns, gridRows);
+
+function createPlayableArea(columns, rows) {
+  return {
+    width: columns * PATH_TILE_SIZE,
+    depth: rows * PATH_TILE_SIZE,
+    minX: -6,
+    maxX: -6 + columns * PATH_TILE_SIZE,
+    minZ: -4.5,
+    maxZ: -4.5 + rows * PATH_TILE_SIZE,
+  };
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x98c7d5);
@@ -287,11 +469,19 @@ const animals = [];
 const workers = [];
 const resourceRows = new Map();
 const buildOptionButtons = new Map();
+const fenceOptionButtons = new Map();
 const playerPlacedBuildings = [];
+const localAnimalGroups = [];
+const localAnimalAreaUnlocks = new Set(["rabbit_colony"]);
+const localResourceSpend = Object.create(null);
 const settings = {
   speedMultiplier: Number(simSpeedEl.value),
   motionEffects: motionEffectsEl.checked,
   shadows: shadowToggleEl.checked,
+};
+const landState = {
+  purchases: 0,
+  coinsSpent: 0,
 };
 const pricing = {
   entryFee: Number(entryFeeEl?.value ?? DEFAULT_ENTRY_FEE),
@@ -319,9 +509,16 @@ let currentTime = 0;
 let selectedElement = null;
 let selectedRoot = null;
 let simulationStarted = false;
+let hasStartedGame = false;
 let lastFrame = performance.now();
 let settingsTriggerEl = null;
+let wikiTriggerEl = null;
 let placementSurface = null;
+let boardGround = null;
+let boardSurroundings = null;
+let boardGridGroup = null;
+let boundaryFenceGroup = null;
+let perimeterSceneryGroup = null;
 let placementPreview = null;
 let placementPreviewMaterial = null;
 let activeBuildItem = null;
@@ -341,12 +538,14 @@ let areaPreviewGroup = null;
 let areaPreviewValid = false;
 let playerAreaCount = 0;
 let activeFenceTool = false;
+let activeFenceKind = "wood_fence";
 let fenceDrawing = false;
 let fenceAnchorTile = null;
 let fenceDraftTiles = [];
 let fencePreviewGroup = null;
 let fencePreviewValid = false;
 let playerFenceCount = 0;
+let localAnimalCount = 0;
 let spawnedWorkerCount = 0;
 let contextMenuSelection = null;
 let contextMenuRoot = null;
@@ -366,6 +565,8 @@ createBuildings();
 createVisitors();
 createResourceRows();
 createBuildOptions();
+createFenceOptions();
+populateWiki();
 updatePathBuilderUi();
 updateState(0);
 const defaultSelectionRoot = buildingMeshes.get(buildings[1].id);
@@ -404,6 +605,7 @@ startZooEl.addEventListener("click", startZoo);
 buildMenuToggleEl.addEventListener("click", toggleBuildMenu);
 closeBuildMenuEl.addEventListener("click", closeBuildMenu);
 mainMenuToggleEl.addEventListener("click", showMainMenu);
+buyLandEl.addEventListener("click", buyLand);
 drawPathEl.addEventListener("click", startPathBuilder);
 confirmPathEl.addEventListener("click", confirmPathDraft);
 cancelPathEl.addEventListener("click", cancelMapBuilder);
@@ -428,9 +630,16 @@ contextMenuResetEl.addEventListener("click", () => {
 for (const button of openSettingsEls) {
   button.addEventListener("click", openSettings);
 }
+for (const button of openWikiEls) {
+  button.addEventListener("click", openWiki);
+}
 closeSettingsEl.addEventListener("click", closeSettings);
+closeWikiEl.addEventListener("click", closeWiki);
 settingsPanelEl.addEventListener("pointerdown", (event) => {
   if (event.target === settingsPanelEl) closeSettings();
+});
+wikiPanelEl.addEventListener("pointerdown", (event) => {
+  if (event.target === wikiPanelEl) closeWiki();
 });
 
 simSpeedEl.addEventListener("input", () => {
@@ -489,6 +698,10 @@ document.addEventListener("keydown", (event) => {
     closeBuildMenu();
     return;
   }
+  if (event.key === "Escape" && wikiPanelEl.getAttribute("aria-hidden") !== "true") {
+    closeWiki();
+    return;
+  }
   if (event.key === "Escape" && settingsPanelEl.getAttribute("aria-hidden") !== "true") {
     closeSettings();
   }
@@ -498,12 +711,17 @@ function startZoo() {
   hideContextMenu();
   cancelWorkerCommand();
   closeSettings();
+  closeWiki();
   closeBuildMenu();
-  currentTime = 0;
+  if (!hasStartedGame) {
+    currentTime = 0;
+    updateState(currentTime);
+    connectServerWorld();
+  }
+  hasStartedGame = true;
   simulationStarted = true;
   setMenuOpen(false);
-  updateState(currentTime);
-  connectServerWorld();
+  updateMainMenu();
 }
 
 async function connectServerWorld() {
@@ -531,9 +749,11 @@ function showMainMenu() {
   hideContextMenu();
   cancelWorkerCommand();
   closeSettings();
+  closeWiki();
   closeBuildMenu();
   simulationStarted = false;
   setMenuOpen(true);
+  updateMainMenu();
   startZooEl.focus();
 }
 
@@ -547,12 +767,14 @@ function setMenuOpen(open) {
   for (const element of gameplayEls) {
     element.inert = open;
   }
+  updateMainMenu();
 }
 
 function openSettings(event) {
   hideContextMenu();
   cancelWorkerCommand();
   closeBuildMenu();
+  closeWiki();
   settingsTriggerEl = event.currentTarget;
   settingsPanelEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("is-settings-open");
@@ -565,6 +787,25 @@ function closeSettings() {
   document.body.classList.remove("is-settings-open");
   if (settingsTriggerEl?.isConnected) settingsTriggerEl.focus();
   settingsTriggerEl = null;
+}
+
+function openWiki(event) {
+  hideContextMenu();
+  cancelWorkerCommand();
+  closeBuildMenu();
+  closeSettings();
+  wikiTriggerEl = event.currentTarget;
+  wikiPanelEl.setAttribute("aria-hidden", "false");
+  document.body.classList.add("is-wiki-open");
+  closeWikiEl.focus();
+}
+
+function closeWiki() {
+  if (wikiPanelEl.getAttribute("aria-hidden") === "true") return;
+  wikiPanelEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("is-wiki-open");
+  if (wikiTriggerEl?.isConnected) wikiTriggerEl.focus();
+  wikiTriggerEl = null;
 }
 
 function toggleBuildMenu() {
@@ -594,6 +835,121 @@ function closeBuildMenu() {
   buildMenuEl.setAttribute("aria-hidden", "true");
   document.body.classList.remove("is-build-menu-open");
   buildMenuToggleEl.setAttribute("aria-pressed", "false");
+}
+
+function updateMainMenu() {
+  const nextLabel = hasStartedGame ? "Continue Game" : "Start Game";
+  startZooLabelEl.textContent = nextLabel;
+  startZooEl.setAttribute("aria-label", nextLabel);
+  mainMenuSummaryEl.textContent = hasStartedGame
+    ? `Paused at ${Math.floor(currentTime)}s. Continue your zoo, adjust settings, or browse the wiki.`
+    : "Start a new zoo run, adjust settings, or browse the zoo wiki.";
+}
+
+function populateWiki() {
+  const sections = [
+    {
+      title: "Getting Started",
+      description: "The current zoo loop in one screen.",
+      cards: [
+        {
+          title: "Core Loop",
+          summary:
+            "Place guest and staff buildings, keep habitats staffed, and expand once demand and resources support it.",
+          meta: "Use the build menu to place structures and map tools.",
+        },
+        {
+          title: "Entry Fees",
+          summary:
+            "Higher ticket prices raise coin income, but they also push down demand when visitors are not willing to pay.",
+          meta: "Tune the entry fee slider while watching willingness and demand.",
+        },
+        {
+          title: "Expansion",
+          summary:
+            "Animal areas need enough visitors and the right fencing before you can add more valuable species.",
+          meta: "Buy land, draw paths, define areas, and build fences from the build menu.",
+        },
+      ],
+    },
+    {
+      title: "Resources",
+      description: "Starting stock and storage limits for the current run.",
+      cards: resourceManifest.map((resource) => {
+        const startingValue = baseResourceState.values[resource.id] ?? 0;
+        const capacity = baseResourceState.capacities[resource.id];
+        return {
+          title: resource.label,
+          summary: resource.description,
+          meta: capacity ? `Start ${startingValue} • Cap ${capacity}` : `Start ${startingValue}`,
+        };
+      }),
+    },
+    {
+      title: "Buildings",
+      description: "Every placeable or starter structure in the current build catalog.",
+      cards: buildCatalog.map((building) => ({
+        title: building.label,
+        summary:
+          building.details?.Role ??
+          `${buildingCategoryLabels[building.category] ?? "Zoo"} structure for the management loop.`,
+        meta: `${buildingCategoryLabels[building.category] ?? "Zoo"} • ${building.cost} • ${staffingLabel(building.requiredWorkers)}`,
+      })),
+    },
+    {
+      title: "Animal Groups",
+      description: "Unlock requirements, appeal, and enclosure needs for each species group.",
+      cards: animalSpeciesCatalog.map((species) => ({
+        title: species.label,
+        summary: `Cost: ${species.purchaseCost.map((item) => `${item.amount} ${item.label}`).join(", ")}.`,
+        meta: `Unlock ${species.requiredVisitors} visitors • Appeal ${species.appeal} • ${fenceLabels[species.fenceKind]} x${species.minFenceCount}`,
+      })),
+    },
+  ];
+
+  const fragment = document.createDocumentFragment();
+
+  for (const section of sections) {
+    const sectionEl = document.createElement("section");
+    sectionEl.className = "wiki-section";
+
+    const headerEl = document.createElement("div");
+    headerEl.className = "wiki-section-header";
+
+    const titleEl = document.createElement("h3");
+    titleEl.textContent = section.title;
+
+    const descriptionEl = document.createElement("p");
+    descriptionEl.textContent = section.description;
+
+    headerEl.append(titleEl, descriptionEl);
+
+    const cardGridEl = document.createElement("div");
+    cardGridEl.className = "wiki-card-grid";
+
+    for (const card of section.cards) {
+      const cardEl = document.createElement("article");
+      cardEl.className = "wiki-card";
+
+      const cardTitleEl = document.createElement("h4");
+      cardTitleEl.textContent = card.title;
+
+      const cardSummaryEl = document.createElement("p");
+      cardSummaryEl.textContent = card.summary;
+
+      const cardMetaEl = document.createElement("p");
+      cardMetaEl.className = "wiki-card-meta";
+      cardMetaEl.textContent = card.meta;
+
+      cardEl.append(cardTitleEl, cardSummaryEl, cardMetaEl);
+      cardGridEl.append(cardEl);
+    }
+
+    sectionEl.append(headerEl, cardGridEl);
+    fragment.append(sectionEl);
+  }
+
+  wikiSectionsEl.replaceChildren(fragment);
 }
 
 function configureHotkeyLabels() {
@@ -773,6 +1129,42 @@ function updateBuildOptionStyles() {
   }
 }
 
+function updateLandPurchaseUi(resourceState = currentResourceState()) {
+  const cost = landPurchaseCost();
+  const availableCoins = resourceState.values.coins ?? 0;
+  buyLandEl.textContent = `Buy Land for ${formatMoney(cost)}`;
+  buyLandEl.disabled = availableCoins < cost;
+  buyLandEl.setAttribute(
+    "aria-label",
+    `Buy more land for ${formatMoney(cost)} and expand the zoo to ${gridColumns + LAND_EXPANSION_COLUMNS} by ${
+      gridRows + LAND_EXPANSION_ROWS
+    } tiles`,
+  );
+}
+
+function buyLand() {
+  const resourceState = currentResourceState();
+  const cost = landPurchaseCost();
+  const availableCoins = resourceState.values.coins ?? 0;
+
+  if (availableCoins < cost) {
+    buildMenuStatusEl.textContent = `Need ${formatMoney(cost)} to buy more land.`;
+    updateLandPurchaseUi(resourceState);
+    return;
+  }
+
+  cancelPlacement();
+  cancelPathBuilder({ resetStatus: false });
+  cancelAreaBuilder({ resetStatus: false });
+  cancelFenceBuilder({ resetStatus: false });
+  landState.purchases += 1;
+  landState.coinsSpent += cost;
+  setPlayableAreaSize(gridColumns + LAND_EXPANSION_COLUMNS, gridRows + LAND_EXPANSION_ROWS);
+  refreshPlayableAreaGeometry();
+  updateState(currentTime);
+  buildMenuStatusEl.textContent = `Zoo grounds expanded to ${playableAreaFootprintLabel()} for ${formatMoney(cost)}.`;
+}
+
 function formatSpeed(value) {
   return `${value.toFixed(2).replace(/\.?0+$/, "")}x`;
 }
@@ -822,35 +1214,31 @@ function setupLights() {
 }
 
 function createBoard() {
-  const surroundings = new THREE.Mesh(
+  boardSurroundings = new THREE.Mesh(
     new THREE.BoxGeometry(playableArea.width + 12, 0.16, playableArea.depth + 10),
     new THREE.MeshStandardMaterial({ color: 0x6f9d55, roughness: 1 }),
   );
-  surroundings.position.y = -0.28;
-  surroundings.receiveShadow = true;
-  scene.add(surroundings);
+  boardSurroundings.position.y = -0.28;
+  boardSurroundings.receiveShadow = true;
+  scene.add(boardSurroundings);
 
-  const ground = new THREE.Mesh(
+  boardGround = new THREE.Mesh(
     new THREE.BoxGeometry(playableArea.width, 0.22, playableArea.depth),
     new THREE.MeshStandardMaterial({ color: 0x77a859, roughness: 0.9 }),
   );
-  ground.position.y = -0.14;
-  ground.receiveShadow = true;
-  scene.add(ground);
-  placementSurface = ground;
+  boardGround.position.y = -0.14;
+  boardGround.receiveShadow = true;
+  scene.add(boardGround);
+  placementSurface = boardGround;
   tagSelectable(
-    ground,
-    createStaticInfo({
-      id: "terrain-zoo-grounds",
-      label: "Zoo Grounds",
-      category: "Terrain",
-      summary: "The playable board that holds paths, buildings, and habitats.",
-      details: {
-        Footprint: "12 x 9 tiles",
-        Role: "Build surface",
-      },
-    }),
+    boardGround,
+    createTerrainInfo(),
   );
+
+  boardGridGroup = new THREE.Group();
+  boundaryFenceGroup = new THREE.Group();
+  perimeterSceneryGroup = new THREE.Group();
+  scene.add(boardGridGroup, boundaryFenceGroup, perimeterSceneryGroup);
 
   const garden = new THREE.Mesh(
     new THREE.CircleGeometry(1.05, 36),
@@ -880,22 +1268,76 @@ function createBoard() {
   addPathSegment("Feed Shed Path", -3.5, 2.4, 2.3, 0.72);
   addPathSegment("Plaza Path", 3.05, 2.4, 2.55, 0.72);
 
-  addTileGrid();
-
-  addBoardFence();
-  addPerimeterScenery();
-
-  for (let x = -5.6; x <= 5.6; x += 2.8) {
-    addTree(x, -4.1, 0.7 + ((x + 6) % 1));
-  }
-  for (let z = -3.7; z <= 3.6; z += 2.4) {
-    addTree(-5.65, z, 0.78);
-    addTree(5.65, z + 0.4, 0.72);
-  }
+  refreshPlayableAreaGeometry();
 }
 
-function addTileGrid() {
-  const grid = new THREE.Group();
+function createTerrainInfo() {
+  return {
+    id: "terrain-zoo-grounds",
+    label: "Zoo Grounds",
+    category: "Terrain",
+    summary: "The playable board that holds paths, buildings, habitats, and new land deeds.",
+    getDetails: () => ({
+      Type: "Terrain",
+      Footprint: playableAreaFootprintLabel(),
+      Expansion: `${landState.purchases} purchase${landState.purchases === 1 ? "" : "s"}`,
+      "Next Land Cost": formatMoney(landPurchaseCost()),
+      Role: "Build surface",
+    }),
+  };
+}
+
+function createBoundaryFenceInfo() {
+  return {
+    id: "boundary-fence",
+    label: "Zoo Fence",
+    category: "Boundary",
+    summary: "A perimeter fence that moves outward when the zoo buys more land.",
+    getDetails: () => ({
+      Type: "Boundary",
+      Footprint: playableAreaFootprintLabel(),
+      Expansion: `${landState.purchases} purchase${landState.purchases === 1 ? "" : "s"}`,
+      "Next Land Cost": formatMoney(landPurchaseCost()),
+      Role: "Boundary",
+    }),
+  };
+}
+
+function playableAreaFootprintLabel() {
+  return `${gridColumns} x ${gridRows} tiles`;
+}
+
+function landPurchaseCost() {
+  return LAND_PURCHASE_BASE_COST + landState.purchases * LAND_PURCHASE_COST_STEP;
+}
+
+function setPlayableAreaSize(columns, rows) {
+  gridColumns = columns;
+  gridRows = rows;
+  playableArea = createPlayableArea(columns, rows);
+}
+
+function refreshPlayableAreaGeometry() {
+  boardSurroundings.geometry.dispose();
+  boardSurroundings.geometry = new THREE.BoxGeometry(
+    playableArea.width + 12,
+    0.16,
+    playableArea.depth + 10,
+  );
+
+  boardGround.geometry.dispose();
+  boardGround.geometry = new THREE.BoxGeometry(playableArea.width, 0.22, playableArea.depth);
+
+  rebuildTileGrid();
+  rebuildBoundaryFence();
+  rebuildPerimeterScenery();
+  controls.maxDistance = Math.max(18, Math.max(playableArea.width, playableArea.depth) * 2.2);
+  updateSelectionStyles();
+}
+
+function rebuildTileGrid() {
+  clearGroup(boardGridGroup);
+
   const material = new THREE.LineBasicMaterial({
     color: 0xd8e7c7,
     transparent: true,
@@ -904,29 +1346,29 @@ function addTileGrid() {
   });
   const lineY = 0.012;
 
-  for (let col = 0; col <= GRID_COLUMNS; col += 1) {
+  for (let col = 0; col <= gridColumns; col += 1) {
     const x = playableArea.minX + col * PATH_TILE_SIZE;
     const geometry = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(x, lineY, playableArea.minZ),
       new THREE.Vector3(x, lineY, playableArea.maxZ),
     ]);
-    grid.add(new THREE.Line(geometry, material));
+    boardGridGroup.add(new THREE.Line(geometry, material));
   }
 
-  for (let row = 0; row <= GRID_ROWS; row += 1) {
+  for (let row = 0; row <= gridRows; row += 1) {
     const z = playableArea.minZ + row * PATH_TILE_SIZE;
     const geometry = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(playableArea.minX, lineY, z),
       new THREE.Vector3(playableArea.maxX, lineY, z),
     ]);
-    grid.add(new THREE.Line(geometry, material));
+    boardGridGroup.add(new THREE.Line(geometry, material));
   }
-
-  scene.add(grid);
 }
 
-function addBoardFence() {
-  const group = new THREE.Group();
+function rebuildBoundaryFence() {
+  removeSelectableEntries(boundaryFenceGroup);
+  clearGroup(boundaryFenceGroup);
+
   const railMaterial = new THREE.MeshStandardMaterial({
     color: 0x8a6646,
     roughness: 0.88,
@@ -942,66 +1384,88 @@ function addBoardFence() {
   const halfWidth = playableArea.width / 2;
   const halfDepth = playableArea.depth / 2;
   const gateWidth = 1.2;
+  const leftGateEdge = -gateWidth / 2;
+  const rightGateEdge = gateWidth / 2;
+  const lowerFenceCenterX = playableArea.minX + playableArea.width / 2;
+  const lowerFenceCenterZ = playableArea.minZ + playableArea.depth / 2;
+  const leftGateRailWidth = leftGateEdge - playableArea.minX;
+  const rightGateRailWidth = playableArea.maxX - rightGateEdge;
 
-  addFenceRail(group, [0, 0.52, -halfDepth], [playableArea.width, 0.09, 0.09], railMaterial);
-  addFenceRail(group, [0, 0.24, -halfDepth], [playableArea.width, 0.08, 0.08], railMaterial);
   addFenceRail(
-    group,
-    [-(halfWidth + gateWidth / 2) / 2, 0.52, halfDepth],
-    [halfWidth - gateWidth / 2, 0.09, 0.09],
+    boundaryFenceGroup,
+    [lowerFenceCenterX, 0.52, playableArea.minZ],
+    [playableArea.width, 0.09, 0.09],
     railMaterial,
   );
   addFenceRail(
-    group,
-    [(halfWidth + gateWidth / 2) / 2, 0.52, halfDepth],
-    [halfWidth - gateWidth / 2, 0.09, 0.09],
+    boundaryFenceGroup,
+    [lowerFenceCenterX, 0.24, playableArea.minZ],
+    [playableArea.width, 0.08, 0.08],
     railMaterial,
   );
-  addFenceRail(group, [-halfWidth, 0.52, 0], [0.09, 0.09, playableArea.depth], railMaterial);
-  addFenceRail(group, [halfWidth, 0.52, 0], [0.09, 0.09, playableArea.depth], railMaterial);
-  addFenceRail(group, [-halfWidth, 0.24, 0], [0.08, 0.08, playableArea.depth], railMaterial);
-  addFenceRail(group, [halfWidth, 0.24, 0], [0.08, 0.08, playableArea.depth], railMaterial);
+  addFenceRail(
+    boundaryFenceGroup,
+    [playableArea.minX + leftGateRailWidth / 2, 0.52, playableArea.maxZ],
+    [leftGateRailWidth, 0.09, 0.09],
+    railMaterial,
+  );
+  addFenceRail(
+    boundaryFenceGroup,
+    [rightGateEdge + rightGateRailWidth / 2, 0.52, playableArea.maxZ],
+    [rightGateRailWidth, 0.09, 0.09],
+    railMaterial,
+  );
+  addFenceRail(
+    boundaryFenceGroup,
+    [playableArea.minX, 0.52, lowerFenceCenterZ],
+    [0.09, 0.09, playableArea.depth],
+    railMaterial,
+  );
+  addFenceRail(
+    boundaryFenceGroup,
+    [playableArea.maxX, 0.52, lowerFenceCenterZ],
+    [0.09, 0.09, playableArea.depth],
+    railMaterial,
+  );
+  addFenceRail(
+    boundaryFenceGroup,
+    [playableArea.minX, 0.24, lowerFenceCenterZ],
+    [0.08, 0.08, playableArea.depth],
+    railMaterial,
+  );
+  addFenceRail(
+    boundaryFenceGroup,
+    [playableArea.maxX, 0.24, lowerFenceCenterZ],
+    [0.08, 0.08, playableArea.depth],
+    railMaterial,
+  );
 
-  for (let x = -halfWidth; x <= halfWidth + 0.01; x += 1.5) {
+  for (let x = playableArea.minX; x <= playableArea.maxX + 0.01; x += 1.5) {
     if (Math.abs(x) < gateWidth / 2) continue;
-    addFencePost(group, [x, 0.36, -halfDepth], postMaterial);
-    addFencePost(group, [x, 0.36, halfDepth], postMaterial);
+    addFencePost(boundaryFenceGroup, [x, 0.36, playableArea.minZ], postMaterial);
+    addFencePost(boundaryFenceGroup, [x, 0.36, playableArea.maxZ], postMaterial);
   }
-  for (let z = -halfDepth + 1.5; z <= halfDepth - 1.49; z += 1.5) {
-    addFencePost(group, [-halfWidth, 0.36, z], postMaterial);
-    addFencePost(group, [halfWidth, 0.36, z], postMaterial);
+  for (let z = playableArea.minZ + 1.5; z <= playableArea.maxZ - 1.49; z += 1.5) {
+    addFencePost(boundaryFenceGroup, [playableArea.minX, 0.36, z], postMaterial);
+    addFencePost(boundaryFenceGroup, [playableArea.maxX, 0.36, z], postMaterial);
   }
 
-  addFencePost(group, [-gateWidth / 2, 0.43, halfDepth], postMaterial);
-  addFencePost(group, [gateWidth / 2, 0.43, halfDepth], postMaterial);
+  addFencePost(boundaryFenceGroup, [-gateWidth / 2, 0.43, playableArea.maxZ], postMaterial);
+  addFencePost(boundaryFenceGroup, [gateWidth / 2, 0.43, playableArea.maxZ], postMaterial);
   addFenceRail(
-    group,
-    [-gateWidth / 4, 0.36, halfDepth + 0.05],
+    boundaryFenceGroup,
+    [-gateWidth / 4, 0.36, playableArea.maxZ + 0.05],
     [gateWidth / 2, 0.08, 0.08],
     gateMaterial,
   );
   addFenceRail(
-    group,
-    [gateWidth / 4, 0.36, halfDepth + 0.05],
+    boundaryFenceGroup,
+    [gateWidth / 4, 0.36, playableArea.maxZ + 0.05],
     [gateWidth / 2, 0.08, 0.08],
     gateMaterial,
   );
 
-  scene.add(group);
-  tagSelectable(
-    group,
-    createStaticInfo({
-      id: "boundary-fence",
-      label: "Zoo Fence",
-      category: "Boundary",
-      summary: "A perimeter fence marking the playable zoo area.",
-      details: {
-        Footprint: "12 x 9 tiles",
-        Role: "Boundary",
-      },
-    }),
-    group,
-  );
+  tagSelectable(boundaryFenceGroup, createBoundaryFenceInfo(), boundaryFenceGroup);
 }
 
 function addFenceRail(group, position, size, material) {
@@ -1020,28 +1484,57 @@ function addFencePost(group, position, material) {
   group.add(post);
 }
 
-function addPerimeterScenery() {
+function clearGroup(group) {
+  while (group.children.length > 0) {
+    const child = group.children[0];
+    group.remove(child);
+    disposeObject3D(child);
+  }
+}
+
+function removeSelectableEntries(root) {
+  const removed = new Set();
+  root.traverse((child) => {
+    if (child.isMesh) removed.add(child);
+  });
+
+  let writeIndex = 0;
+  for (const candidate of selectable) {
+    if (removed.has(candidate)) continue;
+    selectable[writeIndex] = candidate;
+    writeIndex += 1;
+  }
+  selectable.length = writeIndex;
+}
+
+function rebuildPerimeterScenery() {
+  clearGroup(perimeterSceneryGroup);
   const stones = [
-    [-7.6, -3.4, 0.24],
-    [-7.9, 2.8, 0.18],
-    [7.4, -2.5, 0.22],
-    [7.9, 3.5, 0.2],
-    [-2.7, -5.7, 0.2],
-    [3.2, -5.9, 0.25],
-    [-4.4, 5.8, 0.18],
-    [4.8, 5.6, 0.23],
+    [playableArea.minX - 1.6, playableArea.minZ + 1.1, 0.24],
+    [playableArea.minX - 1.9, playableArea.maxZ - 1.7, 0.18],
+    [playableArea.maxX + 1.4, playableArea.minZ + 2, 0.22],
+    [playableArea.maxX + 1.9, playableArea.maxZ - 1, 0.2],
+    [playableArea.minX + 3.3, playableArea.minZ - 1.2, 0.2],
+    [playableArea.maxX - 2.8, playableArea.minZ - 1.4, 0.25],
+    [playableArea.minX + 1.6, playableArea.maxZ + 1.3, 0.18],
+    [playableArea.maxX - 1.2, playableArea.maxZ + 1.1, 0.23],
   ];
   for (const [x, z, radius] of stones) {
-    addRock(x, z, radius);
+    addRock(x, z, radius, perimeterSceneryGroup);
   }
 
-  for (let x = -9; x <= 9; x += 3) {
-    addTree(x, -6.8, 0.62 + ((x + 9) % 2) * 0.08);
-    addTree(x + 0.9, 6.6, 0.58 + ((x + 6) % 2) * 0.08);
+  for (let x = playableArea.minX - 3; x <= playableArea.maxX + 3; x += 3) {
+    addTree(x, playableArea.minZ - 2.3, 0.62 + ((x + 9) % 2) * 0.08, perimeterSceneryGroup);
+    addTree(
+      x + 0.9,
+      playableArea.maxZ + 2.1,
+      0.58 + ((x + 6) % 2) * 0.08,
+      perimeterSceneryGroup,
+    );
   }
-  for (let z = -4.8; z <= 4.8; z += 2.4) {
-    addTree(-8.4, z, 0.64);
-    addTree(8.4, z + 0.7, 0.6);
+  for (let z = playableArea.minZ - 0.3; z <= playableArea.maxZ + 0.3; z += 2.4) {
+    addTree(playableArea.minX - 2.4, z, 0.64, perimeterSceneryGroup);
+    addTree(playableArea.maxX + 2.4, z + 0.7, 0.6, perimeterSceneryGroup);
   }
 }
 
@@ -1307,28 +1800,14 @@ function addWater(group, position, size) {
   group.add(mesh);
 }
 
-function addTree(x, z, scale) {
+function addTree(x, z, scale, parent = scene) {
   const group = new THREE.Group();
   addTreeToGroup(group, [0, 0, 0], scale);
   group.position.set(x, 0, z);
-  scene.add(group);
-  tagSelectable(
-    group,
-    createStaticInfo({
-      id: `tree-${x.toFixed(1)}-${z.toFixed(1)}`,
-      label: "Shade Tree",
-      category: "Scenery",
-      summary: "A boundary tree that adds visual cover around the zoo.",
-      details: {
-        Role: "Scenery",
-        Scale: scale.toFixed(2),
-      },
-    }),
-    group,
-  );
+  parent.add(group);
 }
 
-function addRock(x, z, radius) {
+function addRock(x, z, radius, parent = scene) {
   const rock = new THREE.Mesh(
     new THREE.DodecahedronGeometry(radius, 0),
     new THREE.MeshStandardMaterial({ color: 0x87917d, roughness: 1 }),
@@ -1338,20 +1817,7 @@ function addRock(x, z, radius) {
   rock.scale.y = 0.55;
   rock.castShadow = true;
   rock.receiveShadow = true;
-  scene.add(rock);
-  tagSelectable(
-    rock,
-    createStaticInfo({
-      id: `rock-${x.toFixed(1)}-${z.toFixed(1)}`,
-      label: "Field Stone",
-      category: "Scenery",
-      summary: "A small landscape marker outside the playable fence.",
-      details: {
-        Role: "Scenery",
-        Radius: radius.toFixed(2),
-      },
-    }),
-  );
+  parent.add(rock);
 }
 
 function addTreeToGroup(group, position, scale) {
@@ -1378,7 +1844,16 @@ function addAnimal(
   color,
   scale,
   label,
-  { animated = true, selectable: selectableAnimal = true } = {},
+  {
+    animated = true,
+    selectable: selectableAnimal = true,
+    id = `animal-${label.toLowerCase().replaceAll(" ", "-")}`,
+    summary = "A habitat animal with a small idle animation.",
+    details = {
+      Habitat: "Animal Area",
+      Behavior: "Grazing",
+    },
+  } = {},
 ) {
   const animal = new THREE.Group();
   const body = new THREE.Mesh(
@@ -1413,14 +1888,11 @@ function addAnimal(
     tagSelectable(
       animal,
       createStaticInfo({
-        id: `animal-${label.toLowerCase().replaceAll(" ", "-")}`,
+        id,
         label,
         category: "Animal",
-        summary: "A habitat animal with a small idle animation.",
-        details: {
-          Habitat: "Savanna Habitat",
-          Behavior: "Grazing",
-        },
+        summary,
+        details,
       }),
       animal,
     );
@@ -1706,6 +2178,29 @@ function createBuildOptions() {
   buildOptionsEl.append(fragment);
 }
 
+function createFenceOptions() {
+  const fragment = document.createDocumentFragment();
+  for (const fence of fenceManifest) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "fence-option";
+    button.textContent = fence.label;
+    button.setAttribute("aria-pressed", String(fence.kind === activeFenceKind));
+    button.addEventListener("click", () => setActiveFenceKind(fence.kind));
+    fragment.append(button);
+    fenceOptionButtons.set(fence.kind, button);
+  }
+  fenceOptionsEl.append(fragment);
+}
+
+function setActiveFenceKind(kind) {
+  activeFenceKind = kind;
+  for (const [candidate, button] of fenceOptionButtons) {
+    button.setAttribute("aria-pressed", String(candidate === activeFenceKind));
+  }
+  updateFencePreview();
+}
+
 function animate(now) {
   const delta = Math.min((now - lastFrame) / 1000, 0.08);
   lastFrame = now;
@@ -1750,6 +2245,7 @@ function updateState(time) {
   const roundedTime = Math.floor(time);
   const resourceState = currentResourceState();
   const pricingState = currentPricingState(time);
+  syncLocalAnimalUnlocks(resourceState);
 
   clockEl.textContent = `${roundedTime}s`;
   phaseEl.textContent = phaseForSimulation();
@@ -1766,6 +2262,7 @@ function updateState(time) {
       capacity ? Math.min(100, (value / capacity) * 100) : Math.min(100, value)
     }%`;
   }
+  updateLandPurchaseUi(resourceState);
 
   for (const building of buildings) {
     updateBuilding(building, time);
@@ -1809,6 +2306,10 @@ function currentResourceState() {
 
   state.values.visitors = (state.values.visitors ?? 0) + pricingState.arrivalsSinceOpening;
   state.values.coins = (state.values.coins ?? 0) + pricingState.entryRevenueSinceOpening;
+  state.values.coins = Math.max(0, state.values.coins - landState.coinsSpent);
+  for (const [resource, amount] of Object.entries(localResourceSpend)) {
+    state.values[resource] = Math.max(0, (state.values[resource] ?? 0) - amount);
+  }
 
   for (const [resource, capacity] of Object.entries(state.capacities)) {
     if (state.values[resource] !== undefined) {
@@ -1853,6 +2354,14 @@ function currentAnimalAttraction() {
     count += 1;
     appeal += profile.appeal;
     counts.set(profile.kind, (counts.get(profile.kind) ?? 0) + 1);
+  }
+
+  for (const animal of localAnimalGroups) {
+    const species = animalSpeciesByKind[animal.kind];
+    if (!species) continue;
+    count += 1;
+    appeal += species.appeal;
+    counts.set(species.label, (counts.get(species.label) ?? 0) + 1);
   }
 
   return {
@@ -2058,6 +2567,216 @@ function remainingGuestRoutePoints(t, height) {
   return points.length >= 2 ? points : null;
 }
 
+function syncLocalAnimalUnlocks(resourceState = currentResourceState()) {
+  const visitors = resourceState.values.visitors ?? 0;
+  for (const species of animalSpeciesCatalog) {
+    if (visitors >= species.requiredVisitors) {
+      localAnimalAreaUnlocks.add(species.kind);
+    }
+  }
+}
+
+function currentAnimalSpeciesList(resourceState = currentResourceState()) {
+  syncLocalAnimalUnlocks(resourceState);
+  return animalSpeciesCatalog.map((species) => ({
+    ...species,
+    unlocked: localAnimalAreaUnlocks.has(species.kind),
+    placed_count: localAnimalGroups.filter((animal) => animal.kind === species.kind).length,
+  }));
+}
+
+function renderAnimalRoster() {
+  const building = selectedElement?.building;
+  if (!building || !isAnimalAreaBuilding(building)) {
+    animalRosterEl.hidden = true;
+    delete animalRosterEl.dataset.signature;
+    animalRosterListEl.replaceChildren();
+    return;
+  }
+
+  const resourceState = currentResourceState();
+  const speciesList = currentAnimalSpeciesList(resourceState);
+  const fenceCounts = localFenceCountsForBuilding(building);
+  const areaAnimals = animalsForBuilding(building);
+  const areaKind = areaAnimals[0]?.kind ?? null;
+  const groupCount = areaAnimals.length;
+  const constructionReady = constructionProgress(building, currentTime) >= 1;
+
+  animalRosterEl.hidden = false;
+  animalRosterSummaryEl.textContent =
+    groupCount > 0
+      ? `${groupCount} group${groupCount === 1 ? "" : "s"} placed in this area.`
+      : "Choose an animal group for this area.";
+
+  const signature = JSON.stringify({
+    buildingId: building.id,
+    constructionReady,
+    areaKind,
+    fenceCounts,
+    species: speciesList.map((species) => ({
+      kind: species.kind,
+      unlocked: species.unlocked,
+      placedCount: species.placed_count,
+      fenceKind: species.fenceKind,
+      minFenceCount: species.minFenceCount,
+      affordable: species.purchaseCost.every(
+        (cost) => (resourceState.values[cost.resource_id] ?? 0) >= cost.amount,
+      ),
+    })),
+  });
+  if (animalRosterEl.dataset.signature === signature) {
+    return;
+  }
+  animalRosterEl.dataset.signature = signature;
+
+  const fragment = document.createDocumentFragment();
+  for (const species of speciesList) {
+    const button = document.createElement("button");
+    const affordable = species.purchaseCost.every(
+      (cost) => (resourceState.values[cost.resource_id] ?? 0) >= cost.amount,
+    );
+    const matchingFenceCount = fenceCounts[species.fenceKind] ?? 0;
+    const areaHasRequiredFence = matchingFenceCount >= species.minFenceCount;
+    const mixedSpecies = areaKind && areaKind !== species.kind;
+    const available = constructionReady && species.unlocked && areaHasRequiredFence;
+    const purchaseCost = species.purchaseCost
+      .map((cost) => `${cost.amount} ${cost.label}`)
+      .join(", ");
+    const statusCopy = !species.unlocked
+      ? `Unlocks at ${species.requiredVisitors} visitors`
+      : mixedSpecies
+        ? `Area already contains ${animalSpeciesByKind[areaKind]?.label ?? "another species"}`
+        : !constructionReady
+          ? "Area is still under construction"
+          : !areaHasRequiredFence
+            ? `Needs ${species.minFenceCount} ${fenceLabels[species.fenceKind] ?? species.fenceKind} segment${species.minFenceCount === 1 ? "" : "s"}`
+            : !affordable
+              ? "Not enough resources"
+              : "Purchase animal group";
+    button.type = "button";
+    button.className = `animal-roster-item${available ? " is-available" : ""}`;
+    button.disabled = !available;
+    button.innerHTML = `
+      <div class="animal-roster-item-title">
+        <strong>${species.label}</strong>
+        <span>Appeal ${species.appeal}</span>
+      </div>
+      <div class="animal-roster-item-meta">
+        <span>${species.placed_count} placed</span>
+        <span>${species.requiredVisitors} visitors</span>
+      </div>
+      <div class="animal-roster-item-copy">${fenceLabels[species.fenceKind] ?? species.fenceKind} x${species.minFenceCount} • ${purchaseCost}</div>
+      <div class="animal-roster-item-copy">${statusCopy}</div>
+    `;
+    button.addEventListener("click", () => purchaseAnimalForArea(building, species));
+    fragment.append(button);
+  }
+
+  animalRosterListEl.replaceChildren(fragment);
+}
+
+function animalsForBuilding(building) {
+  return localAnimalGroups.filter((animal) => animal.buildingId === building.id);
+}
+
+function localFenceCountsForBuilding(building) {
+  const counts = Object.create(null);
+  for (const segment of playerFenceSegments) {
+    if (!fenceSegmentTouchesBuilding(segment, building)) continue;
+    counts[segment.kind] = (counts[segment.kind] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function purchaseAnimalForArea(building, species) {
+  const resourceState = currentResourceState();
+  syncLocalAnimalUnlocks(resourceState);
+  const areaAnimals = animalsForBuilding(building);
+  const areaKind = areaAnimals[0]?.kind ?? null;
+  const fenceCounts = localFenceCountsForBuilding(building);
+  if (constructionProgress(building, currentTime) < 1) {
+    buildMenuStatusEl.textContent = `${building.label} is still under construction.`;
+    renderAnimalRoster();
+    return;
+  }
+  if (!localAnimalAreaUnlocks.has(species.kind)) {
+    buildMenuStatusEl.textContent = `${species.label} unlocks at ${species.requiredVisitors} visitors.`;
+    renderAnimalRoster();
+    return;
+  }
+  if ((fenceCounts[species.fenceKind] ?? 0) < species.minFenceCount) {
+    buildMenuStatusEl.textContent = `${species.label} needs ${species.minFenceCount} ${fenceLabels[species.fenceKind] ?? species.fenceKind} segment${species.minFenceCount === 1 ? "" : "s"}.`;
+    renderAnimalRoster();
+    return;
+  }
+  if (areaKind && areaKind !== species.kind) {
+    buildMenuStatusEl.textContent = `${building.label} already contains ${animalSpeciesByKind[areaKind]?.label ?? "another species"}.`;
+    renderAnimalRoster();
+    return;
+  }
+  for (const cost of species.purchaseCost) {
+    if ((resourceState.values[cost.resource_id] ?? 0) < cost.amount) {
+      buildMenuStatusEl.textContent = `Need ${cost.amount} ${cost.label} to buy ${species.label}.`;
+      renderAnimalRoster();
+      return;
+    }
+  }
+
+  for (const cost of species.purchaseCost) {
+    localResourceSpend[cost.resource_id] = (localResourceSpend[cost.resource_id] ?? 0) + cost.amount;
+  }
+  addAnimalGroupToBuilding(building, species);
+  updateState(currentTime);
+  buildMenuStatusEl.textContent = `${species.label} added to ${building.label}.`;
+}
+
+function addAnimalGroupToBuilding(building, species) {
+  localAnimalCount += 1;
+  const group = buildingMeshes.get(building.id);
+  if (!group) return;
+  const profile = animalVisualProfiles[species.kind] ?? {
+    color: 0xded6c1,
+    scale: 0.62,
+    behavior: "Idle",
+  };
+  const offset = animalDisplayOffset(building, animalsForBuilding(building).length);
+  addAnimal(
+    group,
+    [offset.x, 0.08, offset.z],
+    profile.color,
+    profile.scale,
+    species.label,
+    {
+      animated: true,
+      selectable: true,
+      details: {
+        Habitat: building.label,
+        Behavior: profile.behavior,
+      },
+      id: `animal-group-${localAnimalCount}`,
+      summary: `${species.label} settled into this enclosure.`,
+    },
+  );
+  localAnimalGroups.push({
+    id: `animal-group-${localAnimalCount}`,
+    buildingId: building.id,
+    kind: species.kind,
+    label: species.label,
+  });
+}
+
+function animalDisplayOffset(building, index) {
+  const columns = 2;
+  const row = Math.floor(index / columns);
+  const col = index % columns;
+  const spacingX = Math.min(0.8, building.size[0] * 0.26);
+  const spacingZ = Math.min(0.7, building.size[1] * 0.24);
+  return {
+    x: -spacingX / 2 + col * spacingX,
+    z: -spacingZ / 2 + row * spacingZ,
+  };
+}
+
 function createBuildingInfo(building) {
   return {
     id: `building-${building.id}`,
@@ -2075,6 +2794,8 @@ function createBuildingInfo(building) {
       const assignedWorkers = assignedWorkersForBuilding(building);
       const requiredWorkers = requiredWorkerCount(building);
       const pricingState = currentPricingState();
+      const areaAnimals = animalsForBuilding(building);
+      const fenceCounts = localFenceCountsForBuilding(building);
       const pricingDetails =
         (building.kind ?? building.id) === "customer_entry"
           ? {
@@ -2082,6 +2803,17 @@ function createBuildingInfo(building) {
               "Guest Willingness": formatMoney(pricingState.willingness),
               Demand: `${pricingState.demandPercent}%`,
               "Expected Guests": `${pricingState.expectedCustomersPerMinute} / min`,
+            }
+          : {};
+      const animalDetails =
+        isAnimalAreaBuilding(building)
+          ? {
+              Animals: areaAnimals.length
+                ? areaAnimals.map((animal) => animal.label).join(", ")
+                : "None",
+              "Wood Fences": fenceCounts.wood_fence ?? 0,
+              "Glass Barriers": fenceCounts.glass_barrier ?? 0,
+              "Steel Fences": fenceCounts.steel_fence ?? 0,
             }
           : {};
 
@@ -2095,6 +2827,7 @@ function createBuildingInfo(building) {
           ? assignedWorkers.map((worker) => worker.label).join(", ")
           : "None",
         ...pricingDetails,
+        ...animalDetails,
         ...building.details,
         Source: building.playerPlaced ? "Player placed" : "Built layout",
       };
@@ -2195,13 +2928,15 @@ function createPlayerAreaInfo(index, tiles) {
 }
 
 function createPlayerFenceInfo(index, segments) {
+  const fenceKind = segments[0]?.kind ?? activeFenceKind;
   return {
     id: `player-fence-${index}`,
-    label: `Fence ${index}`,
+    label: `${fenceLabels[fenceKind] ?? "Fence"} ${index}`,
     category: "Fence",
     summary: "A fence line built across the zoo grounds.",
     getDetails: () => ({
       Type: "Fence",
+      Kind: fenceLabels[fenceKind] ?? fenceKind,
       Status: "Built",
       Source: "Player built",
       Length: `${segments.length} segments`,
@@ -2840,14 +3575,15 @@ function confirmFenceDraft() {
   if (segmentsToBuild.length === 0) return;
 
   playerFenceCount += 1;
-  const group = createFenceMesh(segmentsToBuild);
+  const builtSegments = segmentsToBuild.map((segment) => ({ ...segment, kind: activeFenceKind }));
+  const group = createFenceMesh(builtSegments);
   for (const segment of segmentsToBuild) {
     playerFenceSegmentKeys.add(segment.key);
   }
-  playerFenceSegments.push(...segmentsToBuild);
+  playerFenceSegments.push(...builtSegments);
 
   scene.add(group);
-  const fenceInfo = createPlayerFenceInfo(playerFenceCount, segmentsToBuild);
+  const fenceInfo = createPlayerFenceInfo(playerFenceCount, builtSegments);
   tagSelectable(group, fenceInfo, group);
   selectElement(fenceInfo, group);
 
@@ -2880,14 +3616,14 @@ function updatePathBuilderUi() {
 function pathTileFromPointer(event) {
   const point = groundPointFromPointer(event);
   if (!point) return null;
-  const col = tileIndexForCoordinate(point.x, playableArea.minX, GRID_COLUMNS);
-  const row = tileIndexForCoordinate(point.z, playableArea.minZ, GRID_ROWS);
+  const col = tileIndexForCoordinate(point.x, playableArea.minX, gridColumns);
+  const row = tileIndexForCoordinate(point.z, playableArea.minZ, gridRows);
   return pathTileFromGrid(col, row);
 }
 
 function pathTileFromGrid(col, row) {
-  const maxCol = GRID_COLUMNS - 1;
-  const maxRow = GRID_ROWS - 1;
+  const maxCol = gridColumns - 1;
+  const maxRow = gridRows - 1;
   const clampedCol = THREE.MathUtils.clamp(col, 0, maxCol);
   const clampedRow = THREE.MathUtils.clamp(row, 0, maxRow);
   return {
@@ -2902,14 +3638,14 @@ function pathTileFromGrid(col, row) {
 function fencePointFromPointer(event) {
   const point = groundPointFromPointer(event);
   if (!point) return null;
-  const col = gridLineIndexForCoordinate(point.x, playableArea.minX, GRID_COLUMNS);
-  const row = gridLineIndexForCoordinate(point.z, playableArea.minZ, GRID_ROWS);
+  const col = gridLineIndexForCoordinate(point.x, playableArea.minX, gridColumns);
+  const row = gridLineIndexForCoordinate(point.z, playableArea.minZ, gridRows);
   return fencePointFromGrid(col, row);
 }
 
 function fencePointFromGrid(col, row) {
-  const clampedCol = THREE.MathUtils.clamp(col, 0, GRID_COLUMNS);
-  const clampedRow = THREE.MathUtils.clamp(row, 0, GRID_ROWS);
+  const clampedCol = THREE.MathUtils.clamp(col, 0, gridColumns);
+  const clampedRow = THREE.MathUtils.clamp(row, 0, gridRows);
   return {
     col: clampedCol,
     row: clampedRow,
@@ -2928,8 +3664,8 @@ function gridLineIndexForCoordinate(value, min, count) {
 }
 
 function pathTilesFromBounds(x, z, width, depth) {
-  const maxCol = GRID_COLUMNS - 1;
-  const maxRow = GRID_ROWS - 1;
+  const maxCol = gridColumns - 1;
+  const maxRow = gridRows - 1;
   const minCol = THREE.MathUtils.clamp(
     Math.floor((x - width / 2 - playableArea.minX) / PATH_TILE_SIZE),
     0,
@@ -3052,7 +3788,7 @@ function tilesAdjacentToFenceSegment(segment) {
 }
 
 function tileIsInBounds(col, row) {
-  return col >= 0 && col < GRID_COLUMNS && row >= 0 && row < GRID_ROWS;
+  return col >= 0 && col < gridColumns && row >= 0 && row < gridRows;
 }
 
 function fenceDraftHasRequiredAttachment(segments) {
@@ -3111,19 +3847,13 @@ function buildingBounds(building) {
 
 function createFenceMesh(segments, { preview = false, valid = true } = {}) {
   const group = new THREE.Group();
-  const railMaterial = preview
-    ? valid
-      ? fencePreviewValidMaterial
-      : fencePreviewInvalidMaterial
-    : playerFenceRailMaterial;
-  const postMaterial = preview
-    ? valid
-      ? fencePreviewValidMaterial
-      : fencePreviewInvalidMaterial
-    : playerFencePostMaterial;
   const postKeys = new Set();
 
   for (const segment of segments) {
+    const { rail: railMaterial, post: postMaterial } = fenceMaterialsForKind(
+      segment.kind ?? activeFenceKind,
+      { preview, valid },
+    );
     const horizontal = segment.start.row === segment.end.row;
     const centerX = (segment.start.x + segment.end.x) / 2;
     const centerZ = (segment.start.z + segment.end.z) / 2;
@@ -3142,6 +3872,40 @@ function createFenceMesh(segments, { preview = false, valid = true } = {}) {
   return group;
 }
 
+function fenceMaterialsForKind(kind, { preview = false, valid = true } = {}) {
+  if (preview) {
+    return {
+      rail: valid ? fencePreviewValidMaterial : fencePreviewInvalidMaterial,
+      post: valid ? fencePreviewValidMaterial : fencePreviewInvalidMaterial,
+    };
+  }
+
+  if (kind === "steel_fence") {
+    return {
+      rail: new THREE.MeshStandardMaterial({ color: 0x8f9aa2, roughness: 0.72 }),
+      post: new THREE.MeshStandardMaterial({ color: 0x5b666d, roughness: 0.74 }),
+    };
+  }
+
+  if (kind === "glass_barrier") {
+    return {
+      rail: new THREE.MeshStandardMaterial({
+        color: 0x9ed1da,
+        roughness: 0.16,
+        metalness: 0.08,
+        transparent: true,
+        opacity: 0.82,
+      }),
+      post: new THREE.MeshStandardMaterial({ color: 0x6a8f99, roughness: 0.76 }),
+    };
+  }
+
+  return {
+    rail: playerFenceRailMaterial,
+    post: playerFencePostMaterial,
+  };
+}
+
 function groundPointFromPointer(event) {
   const rect = canvas.getBoundingClientRect();
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -3158,14 +3922,14 @@ function snapPlacementPoint(point, size) {
       point.x,
       playableArea.minX,
       playableArea.maxX,
-      GRID_COLUMNS,
+      gridColumns,
       size[0],
     ),
     z: snapCoordinateToTileCenter(
       point.z,
       playableArea.minZ,
       playableArea.maxZ,
-      GRID_ROWS,
+      gridRows,
       size[1],
     ),
   };
@@ -3226,8 +3990,8 @@ function buildingFootprintIsPathAdjacent(item, position) {
 }
 
 function footprintTiles(x, z, width, depth) {
-  const maxCol = GRID_COLUMNS - 1;
-  const maxRow = GRID_ROWS - 1;
+  const maxCol = gridColumns - 1;
+  const maxRow = gridRows - 1;
   const minCol = THREE.MathUtils.clamp(
     Math.floor((x - width / 2 - playableArea.minX) / PATH_TILE_SIZE),
     0,
@@ -3305,6 +4069,7 @@ function renderSelection() {
       ? "Command mode: click the ground or a target to send this worker there."
       : selectedElement.getSummary?.() ?? selectedElement.summary;
   renderInspectorActions();
+  renderAnimalRoster();
   const entries = selectedElement.getDetails?.() ?? {};
 
   inspectorDetailsEl.replaceChildren(
@@ -3667,7 +4432,10 @@ function onPointerDown(event) {
   }
 
   const hit = selectionHitFromPointer(event);
-  if (hit) selectElement(hit.info, hit.root);
+  if (hit) {
+    closeBuildMenu();
+    selectElement(hit.info, hit.root);
+  }
 }
 
 function onPointerMove(event) {
@@ -3820,8 +4588,31 @@ function currentTestState() {
     simulationStarted,
     selectedId: selectedElement?.id ?? null,
     selectedLabel: selectedElement?.label ?? null,
+    land: {
+      footprint: {
+        columns: gridColumns,
+        rows: gridRows,
+      },
+      purchases: landState.purchases,
+      nextCost: landPurchaseCost(),
+    },
     resources: currentResourceState(),
     pricing: currentPricingState(),
+    animalSpecies: currentAnimalSpeciesList().map((species) => ({
+      kind: species.kind,
+      label: species.label,
+      unlocked: species.unlocked,
+      placedCount: species.placed_count,
+      requiredVisitors: species.requiredVisitors,
+      fenceKind: species.fenceKind,
+      minFenceCount: species.minFenceCount,
+    })),
+    animals: localAnimalGroups.map((animal) => ({
+      id: animal.id,
+      kind: animal.kind,
+      label: animal.label,
+      buildingId: animal.buildingId,
+    })),
     buildings: buildings.map((building) => ({
       id: building.id,
       label: building.label,
@@ -3834,6 +4625,7 @@ function currentTestState() {
       assignedWorkers: assignedWorkerCount(building),
     })),
     fences: playerFenceSegments.map((segment) => ({
+      kind: segment.kind ?? "wood_fence",
       start: {
         col: segment.start.col,
         row: segment.start.row,

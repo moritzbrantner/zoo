@@ -193,6 +193,19 @@ pub struct AnimalSpeciesView {
     pub unlocked: bool,
     pub placed_count: u32,
     pub appeal: i64,
+    pub purchase_cost: Vec<AnimalSpeciesCostView>,
+    pub animal_area_kind: String,
+    pub min_level: u32,
+    pub fence_kind: String,
+    pub min_fence_count: u32,
+}
+
+#[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AnimalSpeciesCostView {
+    pub resource_id: String,
+    pub label: String,
+    pub amount: u64,
 }
 
 #[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]

@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 
 async function startZoo(page) {
   await page.goto("/?e2e=1");
-  const startButton = page.getByRole("button", { name: "Start Zoo" });
+  const startButton = page.getByRole("button", { name: /^(Start|Continue) Game$/ });
   await expect(startButton).toBeVisible();
   const ready = await page
     .waitForFunction(() => Boolean(window.__zooTestApi?.ready), {
@@ -18,7 +18,7 @@ async function startZoo(page) {
       timeout: 15_000,
     });
   }
-  await page.getByRole("button", { name: "Start Zoo" }).click();
+  await page.getByRole("button", { name: /^(Start|Continue) Game$/ }).click();
   await expect(page.getByLabel("Quick actions")).toBeHidden();
 }
 
@@ -164,9 +164,9 @@ test("builds a fence from the build menu", async ({ page }) => {
   await expect(confirmFence).toBeEnabled();
   await confirmFence.click();
 
-  await expect(page.locator("#inspector-title")).toHaveText("Fence 1");
+  await expect(page.locator("#inspector-title")).toHaveText("Wood Fence 1");
   await expect(page.locator("#inspector-details")).toContainText("Player built");
-  await expect(page.locator("#build-menu-status")).toHaveText("Fence 1 built.");
+  await expect(page.locator("#build-menu-status")).toHaveText("Wood Fence 1 built.");
 
   const { fences } = await page.evaluate(() => window.__zooTestApi.getState());
   expect(fences.length).toBeGreaterThan(0);

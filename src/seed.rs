@@ -25,7 +25,7 @@ fn seed_zoo_state(state: &mut GameState) -> Result<(), EngineError> {
     state.set_map_bounds(0, 0, ZOO_SIZE - 1, ZOO_SIZE - 1);
     state.inventory_mut().set_capacity(ANIMAL_FEED, 80);
     state.inventory_mut().set_capacity(MEDICINE, 40);
-    state.inventory_mut().set_capacity(VISITORS, 120);
+    state.inventory_mut().set_capacity(VISITORS, 180);
     state.inventory_mut().set_capacity(WATER, 120);
     state.inventory_mut().set_capacity(RESEARCH_POINTS, 100);
     state.inventory_mut().add_many(&[

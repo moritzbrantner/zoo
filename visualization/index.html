@@ -14,10 +14,13 @@
         <div class="main-menu-content">
           <p class="menu-kicker">Staffing sim</p>
           <h1>Zoo Frontier</h1>
+          <p id="main-menu-summary" class="menu-summary">
+            Start a new zoo run, adjust settings, or browse the zoo wiki.
+          </p>
           <div class="menu-actions">
             <button id="start-zoo" class="menu-button primary-button" type="button">
               <span class="play-icon" aria-hidden="true"></span>
-              Start Zoo
+              <span id="start-zoo-label">Start Game</span>
             </button>
             <button
               id="open-settings-menu"
@@ -26,6 +29,9 @@
               data-open-settings
             >
               Settings
+            </button>
+            <button id="open-wiki-menu" class="menu-button secondary-button" type="button" data-open-wiki>
+              Wiki
             </button>
           </div>
         </div>
@@ -71,6 +77,27 @@
         </div>
       </section>
 
+      <section class="wiki-panel" aria-label="Zoo wiki" aria-hidden="true">
+        <div class="wiki-panel-content" role="dialog" aria-modal="true" aria-labelledby="wiki-title">
+          <div class="settings-header">
+            <div>
+              <h2 id="wiki-title">Zoo Wiki</h2>
+              <p class="wiki-subtitle">Reference for resources, buildings, and unlockable animal groups.</p>
+            </div>
+            <button
+              id="close-wiki"
+              class="close-button"
+              type="button"
+              title="Close wiki"
+              aria-label="Close wiki"
+            >
+              x
+            </button>
+          </div>
+          <div id="wiki-sections" class="wiki-sections"></div>
+        </div>
+      </section>
+
       <section class="hud" aria-label="Zoo state">
         <div class="hud-header">
           <div>
@@ -98,6 +125,13 @@
         <h2 id="inspector-title">Zoo Map</h2>
         <p id="inspector-summary">Select an element to inspect it.</p>
         <div id="inspector-actions" class="inspector-actions"></div>
+        <section id="animal-roster" class="animal-roster" hidden>
+          <div class="animal-roster-header">
+            <h3>Animal Roster</h3>
+            <p id="animal-roster-summary">Choose an animal group for this area.</p>
+          </div>
+          <div id="animal-roster-list" class="animal-roster-list"></div>
+        </section>
         <dl id="inspector-details"></dl>
       </section>
 
@@ -127,6 +161,15 @@
           </button>
         </div>
         <div id="build-options" class="build-options" role="list"></div>
+        <div class="land-actions">
+          <button id="buy-land" class="path-builder-button primary-path-button" type="button">
+            Buy Land
+          </button>
+        </div>
+        <div class="fence-options">
+          <p class="fence-options-title">Fence Type</p>
+          <div id="fence-options" class="fence-options-list" role="list"></div>
+        </div>
         <div class="path-builder" aria-label="Map builder">
           <button id="draw-path" class="path-builder-button" type="button" aria-pressed="false">
             Draw Path

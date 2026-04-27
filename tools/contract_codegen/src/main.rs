@@ -1,15 +1,14 @@
 use anyhow::{Context, Result, bail};
 use farm_engine::{
     AdvanceTimeOutcome, Area, AreaDefinition, AreaId, AreaKind, Building, BuildingDefinition,
-    BuildingFootprint, BuildingId, BuildingKind, BuildingLevelDefinition, BuildingStatus,
-    Catalog, CatalogDocument, CommandEnvelope, CommandId, CommandJournalEntry, CommandOutcome,
-    Effect, EntityAssignment, EntityBlueprintRef, EntityId, EntityRecord, Fence,
-    FenceDefinition, FenceId, FenceKind, GameCommand, GameEvent, GameMapBounds, GameStateData,
-    GameStateDocument, GameStateSave, GameWorldData, GameWorldDocument, GameWorldSave,
-    InventoryScope, Job, JobCompletion, JobId, JobKind, JobStatus, LevelDefinition, LevelUp,
-    MapLocation, MapTopology, NpcDefinition, NpcKind, Path, PathDefinition, PathId, PathKind,
-    PlacementRule,
-    PlacementTarget, PlayerId, PlayerProgress, ProductionIo, ProductionOrder, ProductionOrderId,
+    BuildingFootprint, BuildingId, BuildingKind, BuildingLevelDefinition, BuildingStatus, Catalog,
+    CatalogDocument, CommandEnvelope, CommandId, CommandJournalEntry, CommandOutcome, Effect,
+    EntityAssignment, EntityBlueprintRef, EntityId, EntityRecord, Fence, FenceDefinition, FenceId,
+    FenceKind, GameCommand, GameEvent, GameMapBounds, GameStateData, GameStateDocument,
+    GameStateSave, GameWorldData, GameWorldDocument, GameWorldSave, InventoryScope, Job,
+    JobCompletion, JobId, JobKind, JobStatus, LevelDefinition, LevelUp, MapLocation, MapTopology,
+    NpcDefinition, NpcKind, Path, PathDefinition, PathId, PathKind, PlacementRule, PlacementTarget,
+    PlayerId, PlayerProgress, ProductionIo, ProductionOrder, ProductionOrderId,
     ProductionOrderStatus, ProductionQueueConfig, ProductionRule, ProductionRuleId,
     ProductionStatus, QueuedProduction, QueuedProductionStatus, Requirement, ResourceAmount,
     ResourceDefinition, ResourceError, ResourceId, ResourceStorage, StatId, StoredWorldDocument,
@@ -246,7 +245,10 @@ fn check_files(output_root: &FsPath, files: &[GeneratedFile]) -> Result<()> {
 }
 
 fn write_or_check_files(output_root: &FsPath, files: &[GeneratedFile], check: bool) -> Result<()> {
-    let expected = files.iter().map(|file| file.relative_path).collect::<BTreeSet<_>>();
+    let expected = files
+        .iter()
+        .map(|file| file.relative_path)
+        .collect::<BTreeSet<_>>();
     if !check {
         for dir in ["json", "ts"] {
             let root = output_root.join(dir);

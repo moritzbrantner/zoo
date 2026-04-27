@@ -2,6 +2,37 @@
 import { expect, test } from "./fixtures/zooGame";
 
 test.describe("zoo game state fixtures", () => {
+  test("main menu exposes start, settings, and wiki flows", async ({ page, zooGame }) => {
+    await page.goto("/?e2e=1");
+    await zooGame.ensureTestApiReady();
+    const mainMenu = page.getByLabel("Main menu");
+
+    await expect(mainMenu.getByRole("button", { name: "Start Game" })).toBeVisible();
+    await expect(mainMenu.getByRole("button", { name: "Settings" })).toBeVisible();
+    await expect(mainMenu.getByRole("button", { name: "Wiki" })).toBeVisible();
+
+    await mainMenu.getByRole("button", { name: "Wiki" }).click();
+    const wikiDialog = page.getByRole("dialog", { name: "Zoo Wiki" });
+    await expect(wikiDialog).toBeVisible();
+    await expect(wikiDialog).toContainText("Core Loop");
+    await expect(wikiDialog).toContainText("Customer Entry");
+    await expect(wikiDialog).toContainText("Rabbit Colony");
+  });
+
+  test("returning to the main menu allows continuing the current zoo", async ({
+    page,
+    zooGame,
+  }) => {
+    await zooGame.start();
+    await zooGame.setState(24);
+
+    await page.getByRole("button", { name: "Return to main menu" }).click();
+    await expect(page.getByRole("button", { name: "Continue Game" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Continue Game" }).click();
+    await expect.poll(() => zooGame.state().then((state) => state.time)).toBeGreaterThanOrEqual(24);
+  });
+
   test("buildings report worker manning instead of scripted lifecycle phases", async ({
     page,
     zooGame,
@@ -208,6 +239,112 @@ test.describe("zoo game state fixtures", () => {
     await zooGame.clickGround(-4.5, -3);
     await expect(page.locator("#inspector-title")).toHaveText("Restroom");
     await expect(page.locator("#build-menu-status")).toHaveText("Choose a clear tile.");
+  });
+
+  test("shows the nine-species animal roster for a selected animal area", async ({
+    page,
+    zooGame,
+  }) => {
+    await zooGame.start();
+    await page.getByRole("button", { name: "Place building" }).click();
+    await page.getByRole("button", { name: "Place Animal Area" }).click();
+    await zooGame.clickGround(-4.5, -3);
+    await zooGame.setState(20);
+    await zooGame.clickSelection("building-placed_animal_area_1");
+
+    await expect(page.locator("#animal-roster")).toBeVisible();
+    await expect(page.locator("#animal-roster-list").getByRole("button")).toHaveCount(9);
+    await expect(page.locator("#animal-roster-list")).toContainText("Rabbit Colony");
+    await expect(page.locator("#animal-roster-list")).toContainText("Elephant Herd");
+    await expect(page.locator("#animal-roster-list")).toContainText("Unlocks at 48 visitors");
+    await expect(page.getByRole("button", { name: /Rabbit Colony/ })).toBeDisabled();
+    await expect(page.locator("#animal-roster-list")).toContainText("Steel Fence x4");
+  });
+
+  test("buys rabbits after a wood enclosure and rejects mixed-species follow-ups", async ({
+    page,
+    zooGame,
+  }) => {
+    await zooGame.start();
+    await page.getByRole("button", { name: "Place building" }).click();
+    await page.getByRole("button", { name: "Place Animal Area" }).click();
+    await zooGame.clickGround(-4.5, -3);
+    await zooGame.setState(20);
+
+    await page.getByRole("button", { name: "Build Fence" }).click();
+    await zooGame.dragGround(-6, -4, -3, -4);
+    await expect(page.locator("#build-menu-status")).toHaveText("Confirm fence.");
+    await page.getByRole("button", { name: "Confirm Fence" }).click();
+
+    const beforeRabbit = await zooGame.state();
+    await zooGame.clickSelection("building-placed_animal_area_1");
+    await page.getByRole("button", { name: /Rabbit Colony/ }).click();
+    await expect(page.locator("#build-menu-status")).toHaveText(
+      "Rabbit Colony added to Animal Area.",
+    );
+
+    const afterRabbit = await zooGame.state();
+    expect(afterRabbit.animals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "rabbit_colony",
+          buildingId: "placed_animal_area_1",
+        }),
+      ]),
+    );
+    expect(afterRabbit.resources.values.vegetables).toBeLessThan(
+      beforeRabbit.resources.values.vegetables,
+    );
+    expect(afterRabbit.resources.values.water).toBeLessThan(beforeRabbit.resources.values.water);
+    expect(afterRabbit.pricing.animalCount).toBe(beforeRabbit.pricing.animalCount + 1);
+
+    await zooGame.setState(120);
+    await expect(page.locator("#animal-roster")).toBeVisible();
+    await page.getByRole("button", { name: /Tortoise Group/ }).click();
+    await expect(page.locator("#build-menu-status")).toHaveText(
+      "Animal Area already contains Rabbit Colony.",
+    );
+  });
+
+  test("buys more land and unlocks new building space beyond the original fence", async ({
+    page,
+    zooGame,
+  }) => {
+    await zooGame.start();
+    await page.getByRole("button", { name: "Place building" }).click();
+
+    await page.locator("#buy-land").click();
+    await expect(page.locator("#build-menu-status")).toHaveText(
+      "Zoo grounds expanded to 14 x 11 tiles for $120.",
+    );
+
+    const expanded = await zooGame.state();
+    expect(expanded.land).toMatchObject({
+      footprint: {
+        columns: 14,
+        rows: 11,
+      },
+      purchases: 1,
+      nextCost: 180,
+    });
+    expect(expanded.resources.values.coins).toBe(300);
+
+    await page.getByRole("button", { name: "Place Restroom" }).click();
+    await zooGame.clickGround(0.2, 3.9);
+    await expect(page.locator("#inspector-title")).toHaveText("Restroom");
+
+    const placed = await zooGame.state();
+    expect(placed.buildings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "placed_restroom_1",
+          position: {
+            x: 0.5,
+            z: 4,
+          },
+        }),
+      ]),
+    );
   });
 
   test("builds guest stores and applies their staffed outputs", async ({ page, zooGame }) => {

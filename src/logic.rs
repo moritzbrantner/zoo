@@ -5,6 +5,12 @@ mod guests;
 pub(crate) use self::guests::{active_habitats, guest_should_leave};
 use self::guests::{sync_tracked_guests, update_guest_satisfaction_and_departures};
 
+const ANIMAL_FEED_INTERVAL_SECONDS: u64 = 30;
+const ANIMAL_HUNGER_RELIEF_PER_MEAL: i64 = 16;
+const ANIMAL_HUNGER_PENALTY_PER_MISSED_MEAL: i64 = 12;
+const FEED_DELIVERY_COST: u64 = 5;
+const FEED_DELIVERY_BUFFER_MEALS: u64 = 3;
+
 #[derive(Default)]
 pub struct ZooLogic;
 
@@ -21,8 +27,9 @@ impl GameLogic for ZooLogic {
         let guest_outcome = update_guest_satisfaction_and_departures(state, delta_seconds)?;
         apply_guest_arrivals_and_revenue(state, delta_seconds, &guest_outcome)?;
         sync_tracked_guests(state)?;
-        update_animal_welfare(state, delta_seconds)?;
         let mut events = guest_outcome.events;
+        events.extend(deliver_animal_feed(state, delta_seconds)?);
+        update_animal_welfare(state, delta_seconds)?;
         events.extend(unlock_species_for_current_visitors(state));
         update_progression(state)?;
         events.push(GameEvent::DomainEvent {
@@ -168,6 +175,7 @@ pub fn buy_named_animal_group(
     state.set_entity_stat(animal, HEALTH, 85)?;
     state.set_entity_stat(animal, WELFARE, 75)?;
     state.set_entity_stat(animal, HABITAT_ID, animal_area.get() as i64)?;
+    state.set_entity_stat(animal, FEED_PROGRESS, 0)?;
     Ok(animal)
 }
 
@@ -213,12 +221,18 @@ fn update_animal_welfare(state: &mut GameState, delta_seconds: u64) -> Result<()
         .collect::<Vec<_>>();
 
     for animal in animal_ids {
+        let habitat = habitat_for_animal(state, animal)?;
+        let (fed_meals, missed_meals, feed_progress) =
+            resolve_animal_meals(state, animal, habitat, delta_seconds)?;
         let hunger = (state.entity_stat(animal, HUNGER)?
             + i64::try_from(delta_seconds / 10).unwrap_or(0)
-            + 1)
-        .min(100);
+            + 1
+            + i64::try_from(missed_meals).unwrap_or(i64::MAX)
+                * ANIMAL_HUNGER_PENALTY_PER_MISSED_MEAL
+            - i64::try_from(fed_meals).unwrap_or(i64::MAX) * ANIMAL_HUNGER_RELIEF_PER_MEAL)
+            .clamp(0, 100);
         let mut health = state.entity_stat(animal, HEALTH)?;
-        if hunger > 80 {
+        if missed_meals > 0 || hunger > 80 {
             health -= 4;
         } else if veterinarian_count > 0 {
             health += 2;
@@ -230,8 +244,156 @@ fn update_animal_welfare(state: &mut GameState, delta_seconds: u64) -> Result<()
         state.set_entity_stat(animal, HUNGER, hunger)?;
         state.set_entity_stat(animal, HEALTH, health)?;
         state.set_entity_stat(animal, WELFARE, welfare)?;
+        state.set_entity_stat(
+            animal,
+            FEED_PROGRESS,
+            i64::try_from(feed_progress).unwrap_or(i64::MAX),
+        )?;
     }
     Ok(())
+}
+
+fn deliver_animal_feed(
+    state: &mut GameState,
+    delta_seconds: u64,
+) -> Result<Vec<GameEvent>, EngineError> {
+    if delta_seconds == 0 {
+        return Ok(Vec::new());
+    }
+
+    let Some(main_building) = main_zookeeper_house(state) else {
+        return Ok(Vec::new());
+    };
+    let now = state.now_seconds();
+    let mut animal_counts_by_habitat = BTreeMap::<BuildingId, u64>::new();
+    for animal in state
+        .entities()
+        .filter(|entity| is_animal_kind(entity.kind()))
+    {
+        let habitat_id = state.entity_stat(animal.id, HABITAT_ID)?;
+        let Ok(habitat_raw) = u64::try_from(habitat_id) else {
+            continue;
+        };
+        let Some(habitat_key) = std::num::NonZeroU64::new(habitat_raw).map(BuildingId::new) else {
+            continue;
+        };
+        *animal_counts_by_habitat.entry(habitat_key).or_default() += 1;
+    }
+
+    let mut events = Vec::new();
+    for (habitat, animal_count) in animal_counts_by_habitat {
+        if assigned_staff_count(state, ZOOKEEPER, Some(habitat)) == 0 {
+            continue;
+        }
+        let current_feed = state.building_inventory(habitat)?.amount(ANIMAL_FEED);
+        let target_feed = animal_count.saturating_mul(FEED_DELIVERY_BUFFER_MEALS);
+        if current_feed >= target_feed {
+            continue;
+        }
+
+        let last_delivery =
+            u64::try_from(state.building_stat(habitat, LAST_FEED_DELIVERY_AT)?.max(0)).unwrap_or(0);
+        if now < last_delivery.saturating_add(ANIMAL_FEED_INTERVAL_SECONDS) {
+            continue;
+        }
+        if state.inventory().amount(COINS) < FEED_DELIVERY_COST {
+            continue;
+        }
+
+        let available_main_feed = state.building_inventory(main_building)?.amount(ANIMAL_FEED);
+        if available_main_feed == 0 {
+            continue;
+        }
+
+        let habitat_capacity = state
+            .building_inventory(habitat)?
+            .capacity(ANIMAL_FEED)
+            .unwrap_or(u64::MAX);
+        let capacity_remaining = habitat_capacity.saturating_sub(current_feed);
+        let delivery_amount = target_feed
+            .saturating_sub(current_feed)
+            .min(available_main_feed)
+            .min(capacity_remaining);
+        if delivery_amount == 0 {
+            continue;
+        }
+
+        state
+            .building_inventory_mut(main_building)?
+            .remove(ANIMAL_FEED, delivery_amount)
+            .map_err(EngineError::from)?;
+        state
+            .building_inventory_mut(habitat)?
+            .add(ANIMAL_FEED, delivery_amount)
+            .map_err(EngineError::from)?;
+        state
+            .inventory_mut()
+            .remove(COINS, FEED_DELIVERY_COST)
+            .map_err(EngineError::from)?;
+        state.set_building_stat(
+            habitat,
+            LAST_FEED_DELIVERY_AT,
+            i64::try_from(now).unwrap_or(i64::MAX),
+        )?;
+        events.push(GameEvent::DomainEvent {
+            kind: format!("zoo.feed_delivery.{}", habitat.get()),
+        });
+    }
+
+    Ok(events)
+}
+
+fn resolve_animal_meals(
+    state: &mut GameState,
+    animal: EntityId,
+    habitat: Option<BuildingId>,
+    delta_seconds: u64,
+) -> Result<(u64, u64, u64), EngineError> {
+    let current_progress =
+        u64::try_from(state.entity_stat(animal, FEED_PROGRESS)?.max(0)).unwrap_or(0);
+    let total_progress = current_progress.saturating_add(delta_seconds);
+    let meals_due = total_progress / ANIMAL_FEED_INTERVAL_SECONDS;
+    let remaining_progress = total_progress % ANIMAL_FEED_INTERVAL_SECONDS;
+    let fed_meals = consume_habitat_feed(state, habitat, meals_due)?;
+    let missed_meals = meals_due.saturating_sub(fed_meals);
+    Ok((fed_meals, missed_meals, remaining_progress))
+}
+
+fn consume_habitat_feed(
+    state: &mut GameState,
+    habitat: Option<BuildingId>,
+    requested_meals: u64,
+) -> Result<u64, EngineError> {
+    if requested_meals == 0 {
+        return Ok(0);
+    }
+    let Some(habitat) = habitat else {
+        return Ok(0);
+    };
+
+    let available = state.building_inventory(habitat)?.amount(ANIMAL_FEED);
+    let consumed = requested_meals.min(available);
+    if consumed > 0 {
+        state
+            .building_inventory_mut(habitat)?
+            .remove(ANIMAL_FEED, consumed)
+            .map_err(EngineError::from)?;
+    }
+    Ok(consumed)
+}
+
+fn habitat_for_animal(
+    state: &GameState,
+    animal: EntityId,
+) -> Result<Option<BuildingId>, EngineError> {
+    let habitat_id = state.entity_stat(animal, HABITAT_ID)?;
+    let Ok(habitat_raw) = u64::try_from(habitat_id) else {
+        return Ok(None);
+    };
+    let Some(habitat) = std::num::NonZeroU64::new(habitat_raw).map(BuildingId::new) else {
+        return Ok(None);
+    };
+    Ok(state.building(habitat).map(|_| habitat))
 }
 
 fn update_progression(state: &mut GameState) -> Result<(), EngineError> {
@@ -375,6 +537,16 @@ fn animal_area_at_location(state: &GameState, location: MapLocation) -> Option<B
     state
         .buildings()
         .find(|building| building.kind.as_str() == ANIMAL_AREA && building.location == location)
+        .map(|building| building.id)
+}
+
+fn main_zookeeper_house(state: &GameState) -> Option<BuildingId> {
+    state
+        .buildings()
+        .find(|building| {
+            building.kind.as_str() == ZOOKEEPER_HOUSE
+                && matches!(building.status, BuildingStatus::Active)
+        })
         .map(|building| building.id)
 }
 

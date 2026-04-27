@@ -123,20 +123,52 @@
         }
       }
     },
+    "AnimalSpeciesCostView": {
+      "type": "object",
+      "required": [
+        "amount",
+        "label",
+        "resource_id"
+      ],
+      "properties": {
+        "amount": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "label": {
+          "type": "string"
+        },
+        "resource_id": {
+          "type": "string"
+        }
+      }
+    },
     "AnimalSpeciesView": {
       "type": "object",
       "required": [
+        "animal_area_kind",
         "appeal",
+        "fence_kind",
         "kind",
         "label",
+        "min_fence_count",
+        "min_level",
         "placed_count",
+        "purchase_cost",
         "required_visitors",
         "unlocked"
       ],
       "properties": {
+        "animal_area_kind": {
+          "type": "string"
+        },
         "appeal": {
           "type": "integer",
           "format": "int64"
+        },
+        "fence_kind": {
+          "type": "string"
         },
         "kind": {
           "type": "string"
@@ -144,10 +176,26 @@
         "label": {
           "type": "string"
         },
+        "min_fence_count": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "min_level": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
         "placed_count": {
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
+        },
+        "purchase_cost": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AnimalSpeciesCostView"
+          }
         },
         "required_visitors": {
           "type": "integer",
