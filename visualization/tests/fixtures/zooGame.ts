@@ -51,6 +51,22 @@ class ZooGame {
     return this.page.evaluate((id) => window.__zooTestApi.assignWorker(id), selectionId);
   }
 
+  async seedAnimalGroup(buildingId, kind) {
+    return this.page.evaluate(
+      ({ nextBuildingId, nextKind }) =>
+        window.__zooTestApi.seedAnimalGroup(nextBuildingId, nextKind),
+      { nextBuildingId: buildingId, nextKind: kind },
+    );
+  }
+
+  async placeBuildingForTest(kind, x, z) {
+    return this.page.evaluate(
+      ({ nextKind, nextX, nextZ }) =>
+        window.__zooTestApi.placeBuildingForTest(nextKind, nextX, nextZ),
+      { nextKind: kind, nextX: x, nextZ: z },
+    );
+  }
+
   async setEntryFee(value) {
     return this.page.evaluate((fee) => window.__zooTestApi.setEntryFee(fee), value);
   }
@@ -94,6 +110,24 @@ class ZooGame {
   async clickGround(x, z, options = {}) {
     const point = await this.groundPoint(x, z);
     await this.page.mouse.click(point.x, point.y, options);
+  }
+
+  async dragSelectionToSelection(sourceSelectionId, targetSelectionId) {
+    const source = await this.selectionPoint(sourceSelectionId);
+    const target = await this.selectionPoint(targetSelectionId);
+    await this.page.mouse.move(source.x, source.y);
+    await this.page.mouse.down();
+    await this.page.mouse.move(target.x, target.y, { steps: 12 });
+    await this.page.mouse.up();
+  }
+
+  async dragSelectionToGround(sourceSelectionId, x, z) {
+    const source = await this.selectionPoint(sourceSelectionId);
+    const target = await this.groundPoint(x, z);
+    await this.page.mouse.move(source.x, source.y);
+    await this.page.mouse.down();
+    await this.page.mouse.move(target.x, target.y, { steps: 12 });
+    await this.page.mouse.up();
   }
 
   async dragGround(fromX, fromZ, toX, toZ) {

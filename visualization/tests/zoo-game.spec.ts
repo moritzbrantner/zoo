@@ -261,6 +261,54 @@ test.describe("zoo game state fixtures", () => {
     await expect(page.locator("#animal-roster-list")).toContainText("Steel Fence x4");
   });
 
+  test("drags an animal group into an empty compatible animal area", async ({
+    page,
+    zooGame,
+  }) => {
+    await zooGame.start();
+    await zooGame.placeBuildingForTest("animal_area", -4.5, -3);
+    await zooGame.placeBuildingForTest("animal_area", -1.5, -3);
+    await zooGame.seedAnimalGroup("placed_animal_area_1", "rabbit_colony");
+    await zooGame.dragSelectionToGround("animal-group-1", -1.5, -3);
+
+    await expect(page.locator("#build-menu-status")).toHaveText("Rabbit Colony moved to Animal Area.");
+    await expect
+      .poll(() => zooGame.state())
+      .toMatchObject({
+        animals: expect.arrayContaining([
+          expect.objectContaining({
+            id: "animal-group-1",
+            buildingId: "placed_animal_area_2",
+          }),
+        ]),
+      });
+  });
+
+  test("drags an animal group into another area when it already contains the same species", async ({
+    zooGame,
+  }) => {
+    await zooGame.start();
+    await zooGame.placeBuildingForTest("animal_area", -4.5, -3);
+    await zooGame.placeBuildingForTest("animal_area", -1.5, -3);
+    await zooGame.seedAnimalGroup("placed_animal_area_1", "rabbit_colony");
+    await zooGame.seedAnimalGroup("placed_animal_area_2", "rabbit_colony");
+
+    await zooGame.dragSelectionToGround("animal-group-1", -1.5, -3);
+
+    await expect
+      .poll(async () => {
+        const state = await zooGame.state();
+        return {
+          firstArea: state.animals.filter((animal) => animal.buildingId === "placed_animal_area_1").length,
+          secondArea: state.animals.filter((animal) => animal.buildingId === "placed_animal_area_2").length,
+        };
+      })
+      .toEqual({
+        firstArea: 0,
+        secondArea: 2,
+      });
+  });
+
   test("buys rabbits after a wood enclosure and rejects mixed-species follow-ups", async ({
     page,
     zooGame,

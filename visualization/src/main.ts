@@ -337,6 +337,7 @@ const CONTEXT_MENU_HOTKEYS = {
 const GLOBAL_HOTKEYS = {
   resetView: "v",
 };
+const ANIMAL_DRAG_THRESHOLD = 10;
 
 const PATH_TILE_SIZE = 1;
 const PATH_TILE_VISUAL_SIZE = 0.82;
@@ -550,6 +551,7 @@ let spawnedWorkerCount = 0;
 let contextMenuSelection = null;
 let contextMenuRoot = null;
 let activeWorkerCommand = null;
+let activeAnimalDrag = null;
 let longPressTimer = null;
 let longPressStart = null;
 const pathTileKeys = new Set();
@@ -674,6 +676,10 @@ document.addEventListener("keydown", (event) => {
     hideContextMenu();
     return;
   }
+  if (event.key === "Escape" && activeAnimalDrag) {
+    cancelAnimalDrag();
+    return;
+  }
   if (event.key === "Escape" && activeWorkerCommand) {
     cancelWorkerCommand();
     return;
@@ -710,6 +716,7 @@ document.addEventListener("keydown", (event) => {
 function startZoo() {
   hideContextMenu();
   cancelWorkerCommand();
+  cancelAnimalDrag();
   closeSettings();
   closeWiki();
   closeBuildMenu();
@@ -748,6 +755,7 @@ async function connectServerWorld() {
 function showMainMenu() {
   hideContextMenu();
   cancelWorkerCommand();
+  cancelAnimalDrag();
   closeSettings();
   closeWiki();
   closeBuildMenu();
@@ -773,6 +781,7 @@ function setMenuOpen(open) {
 function openSettings(event) {
   hideContextMenu();
   cancelWorkerCommand();
+  cancelAnimalDrag();
   closeBuildMenu();
   closeWiki();
   settingsTriggerEl = event.currentTarget;
@@ -792,6 +801,7 @@ function closeSettings() {
 function openWiki(event) {
   hideContextMenu();
   cancelWorkerCommand();
+  cancelAnimalDrag();
   closeBuildMenu();
   closeSettings();
   wikiTriggerEl = event.currentTarget;
@@ -819,6 +829,7 @@ function toggleBuildMenu() {
 function openBuildMenu() {
   hideContextMenu();
   cancelWorkerCommand();
+  cancelAnimalDrag();
   closeSettings();
   buildMenuEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("is-build-menu-open");
@@ -1847,6 +1858,7 @@ function addAnimal(
   {
     animated = true,
     selectable: selectableAnimal = true,
+    selectionInfo = null,
     id = `animal-${label.toLowerCase().replaceAll(" ", "-")}`,
     summary = "A habitat animal with a small idle animation.",
     details = {
@@ -1887,16 +1899,18 @@ function addAnimal(
   if (selectableAnimal) {
     tagSelectable(
       animal,
-      createStaticInfo({
-        id,
-        label,
-        category: "Animal",
-        summary,
-        details,
-      }),
+      selectionInfo ??
+        createStaticInfo({
+          id,
+          label,
+          category: "Animal",
+          summary,
+          details,
+        }),
       animal,
     );
   }
+  return animal;
 }
 
 function addProductionRing(group, id, color) {
@@ -2585,6 +2599,52 @@ function currentAnimalSpeciesList(resourceState = currentResourceState()) {
   }));
 }
 
+function buildingById(id) {
+  return buildings.find((building) => building.id === id) ?? null;
+}
+
+function animalGroupBuilding(animalGroup) {
+  return animalGroup ? buildingById(animalGroup.buildingId) : null;
+}
+
+function createAnimalInfo(animalGroup) {
+  return {
+    id: animalGroup.id,
+    label: animalGroup.label,
+    category: "Animal",
+    animal: animalGroup,
+    getSummary: () => animalSummary(animalGroup),
+    getDetails: () => animalDetails(animalGroup),
+  };
+}
+
+function animalSummary(animalGroup) {
+  const building = animalGroupBuilding(animalGroup);
+  if (!building) return "Drag this animal group into a compatible habitat.";
+  return `Currently in ${building.label}. Drag this group into an empty animal area or one holding the same species.`;
+}
+
+function animalDetails(animalGroup) {
+  const building = animalGroupBuilding(animalGroup);
+  const species = animalSpeciesByKind[animalGroup.kind];
+  const fenceCounts = building ? localFenceCountsForBuilding(building) : {};
+  return {
+    Type: "Animal",
+    Species: animalGroup.label,
+    Habitat: building?.label ?? "Unassigned",
+    Behavior: animalGroup.behavior ?? species?.behavior ?? "Idle",
+    Appeal: species?.appeal ?? "Unknown",
+    "Move Rule": "Empty area or same species only",
+    ...(building
+      ? {
+          "Wood Fences": fenceCounts.wood_fence ?? 0,
+          "Glass Barriers": fenceCounts.glass_barrier ?? 0,
+          "Steel Fences": fenceCounts.steel_fence ?? 0,
+        }
+      : {}),
+  };
+}
+
 function renderAnimalRoster() {
   const building = selectedElement?.building;
   if (!building || !isAnimalAreaBuilding(building)) {
@@ -2739,8 +2799,16 @@ function addAnimalGroupToBuilding(building, species) {
     scale: 0.62,
     behavior: "Idle",
   };
+  const animalGroup = {
+    id: `animal-group-${localAnimalCount}`,
+    buildingId: building.id,
+    kind: species.kind,
+    label: species.label,
+    behavior: profile.behavior,
+    renderRoot: null,
+  };
   const offset = animalDisplayOffset(building, animalsForBuilding(building).length);
-  addAnimal(
+  const renderRoot = addAnimal(
     group,
     [offset.x, 0.08, offset.z],
     profile.color,
@@ -2749,20 +2817,12 @@ function addAnimalGroupToBuilding(building, species) {
     {
       animated: true,
       selectable: true,
-      details: {
-        Habitat: building.label,
-        Behavior: profile.behavior,
-      },
-      id: `animal-group-${localAnimalCount}`,
+      selectionInfo: createAnimalInfo(animalGroup),
       summary: `${species.label} settled into this enclosure.`,
     },
   );
-  localAnimalGroups.push({
-    id: `animal-group-${localAnimalCount}`,
-    buildingId: building.id,
-    kind: species.kind,
-    label: species.label,
-  });
+  animalGroup.renderRoot = renderRoot;
+  localAnimalGroups.push(animalGroup);
 }
 
 function animalDisplayOffset(building, index) {
@@ -2775,6 +2835,81 @@ function animalDisplayOffset(building, index) {
     x: -spacingX / 2 + col * spacingX,
     z: -spacingZ / 2 + row * spacingZ,
   };
+}
+
+function relayoutAnimalsInBuilding(building) {
+  if (!building) return;
+  const group = buildingMeshes.get(building.id);
+  if (!group) return;
+  const areaAnimals = animalsForBuilding(building);
+  for (const [index, animalGroup] of areaAnimals.entries()) {
+    if (!animalGroup.renderRoot) continue;
+    if (animalGroup.renderRoot.parent !== group) {
+      animalGroup.renderRoot.parent?.remove(animalGroup.renderRoot);
+      group.add(animalGroup.renderRoot);
+    }
+    const offset = animalDisplayOffset(building, index);
+    animalGroup.renderRoot.position.set(offset.x, 0.08, offset.z);
+  }
+}
+
+function animalTransferStatus(animalGroup, building) {
+  if (!animalGroup) {
+    return {
+      allowed: false,
+      reason: "Select an animal group first.",
+    };
+  }
+  if (!building || !isAnimalAreaBuilding(building)) {
+    return {
+      allowed: false,
+      reason: "Drop animals into an animal area.",
+    };
+  }
+  if (building.id === animalGroup.buildingId) {
+    return {
+      allowed: false,
+      reason: `${animalGroup.label} is already in ${building.label}.`,
+    };
+  }
+  if (constructionProgress(building, currentTime) < 1) {
+    return {
+      allowed: false,
+      reason: `${building.label} is still under construction.`,
+    };
+  }
+
+  const areaAnimals = animalsForBuilding(building);
+  const areaKind = areaAnimals[0]?.kind ?? null;
+  if (areaKind && areaKind !== animalGroup.kind) {
+    return {
+      allowed: false,
+      reason: `${building.label} already contains ${animalSpeciesByKind[areaKind]?.label ?? "another species"}.`,
+    };
+  }
+
+  return {
+    allowed: true,
+    reason:
+      areaAnimals.length > 0
+        ? `Drop ${animalGroup.label} into ${building.label} with the matching species.`
+        : `Drop ${animalGroup.label} into the empty ${building.label}.`,
+  };
+}
+
+function moveAnimalGroupToBuilding(animalGroup, building) {
+  const sourceBuilding = animalGroupBuilding(animalGroup);
+  const targetGroup = buildingMeshes.get(building.id);
+  if (!targetGroup || !animalGroup.renderRoot) return false;
+
+  animalGroup.renderRoot.parent?.remove(animalGroup.renderRoot);
+  targetGroup.add(animalGroup.renderRoot);
+  animalGroup.buildingId = building.id;
+
+  relayoutAnimalsInBuilding(sourceBuilding);
+  relayoutAnimalsInBuilding(building);
+  updateState(currentTime);
+  return true;
 }
 
 function createBuildingInfo(building) {
@@ -4144,6 +4279,135 @@ function renderInspectorActionButton(action) {
   return button;
 }
 
+function prepareAnimalDrag(hit, event) {
+  if (!hit?.info?.animal) return;
+  activeAnimalDrag = {
+    animal: hit.info.animal,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    started: false,
+    hoverBuilding: null,
+    hoverAllowed: false,
+    sourceBuildingId: hit.info.animal.buildingId,
+  };
+}
+
+function beginAnimalDrag(event) {
+  if (!activeAnimalDrag || activeAnimalDrag.started) return;
+  const renderRoot = activeAnimalDrag.animal.renderRoot;
+  if (!renderRoot) return;
+
+  activeAnimalDrag.started = true;
+  controls.enabled = false;
+  cancelLongPress();
+
+  const worldPosition = worldPositionForObject(renderRoot);
+  renderRoot.parent?.remove(renderRoot);
+  scene.add(renderRoot);
+  renderRoot.position.copy(worldPosition);
+
+  canvas.setPointerCapture?.(event.pointerId);
+  updateAnimalDrag(event);
+}
+
+function updateAnimalDrag(event) {
+  if (!activeAnimalDrag || activeAnimalDrag.pointerId !== event.pointerId) return false;
+
+  if (!activeAnimalDrag.started) {
+    const distance = Math.hypot(event.clientX - activeAnimalDrag.startX, event.clientY - activeAnimalDrag.startY);
+    if (distance < ANIMAL_DRAG_THRESHOLD) {
+      canvas.style.cursor = "grab";
+      return true;
+    }
+    beginAnimalDrag(event);
+  }
+
+  const point = groundPointFromPointer(event);
+  if (point && activeAnimalDrag.animal.renderRoot) {
+    const destination = clampWorkerDestination(point.x, point.z);
+    activeAnimalDrag.animal.renderRoot.position.set(destination.x, 0.08, destination.z);
+  }
+
+  const hoverBuilding = point ? animalAreaBuildingAtPoint(point, activeAnimalDrag.animal.buildingId) : null;
+  const status = animalTransferStatus(activeAnimalDrag.animal, hoverBuilding);
+  activeAnimalDrag.hoverBuilding = hoverBuilding;
+  activeAnimalDrag.hoverAllowed = status.allowed;
+  buildMenuStatusEl.textContent = status.reason;
+  canvas.style.cursor = status.allowed ? "grabbing" : "not-allowed";
+  return true;
+}
+
+function finishAnimalDrag(event) {
+  if (!activeAnimalDrag || activeAnimalDrag.pointerId !== event.pointerId) return false;
+
+  if (activeAnimalDrag.started) {
+    updateAnimalDrag(event);
+  }
+
+  const drag = activeAnimalDrag;
+  activeAnimalDrag = null;
+
+  if (canvas.hasPointerCapture?.(event.pointerId)) {
+    canvas.releasePointerCapture(event.pointerId);
+  }
+  controls.enabled = true;
+
+  if (drag.started && drag.hoverAllowed && drag.hoverBuilding) {
+    moveAnimalGroupToBuilding(drag.animal, drag.hoverBuilding);
+    buildMenuStatusEl.textContent = `${drag.animal.label} moved to ${drag.hoverBuilding.label}.`;
+    canvas.style.cursor = "pointer";
+    return true;
+  }
+
+  restoreDraggedAnimal(drag);
+  if (drag.started) {
+    buildMenuStatusEl.textContent =
+      "Drop animal groups into an empty animal area or one containing the same species.";
+  }
+  canvas.style.cursor = "";
+  return drag.started;
+}
+
+function cancelAnimalDrag() {
+  if (!activeAnimalDrag) return;
+  const drag = activeAnimalDrag;
+  activeAnimalDrag = null;
+  restoreDraggedAnimal(drag);
+  controls.enabled = true;
+  canvas.style.cursor = "";
+}
+
+function restoreDraggedAnimal(drag) {
+  if (!drag?.started) return;
+  const sourceBuilding = buildingById(drag.sourceBuildingId);
+  if (!sourceBuilding) return;
+  const sourceGroup = buildingMeshes.get(sourceBuilding.id);
+  if (!sourceGroup || !drag.animal.renderRoot) return;
+  drag.animal.renderRoot.parent?.remove(drag.animal.renderRoot);
+  sourceGroup.add(drag.animal.renderRoot);
+  relayoutAnimalsInBuilding(sourceBuilding);
+  updateState(currentTime);
+}
+
+function animalAreaBuildingAtPoint(point, excludeBuildingId = null) {
+  return (
+    buildings.find(
+      (building) =>
+        building.id !== excludeBuildingId &&
+        isAnimalAreaBuilding(building) &&
+        pointInsideBuildingFootprint(point, building),
+    ) ?? null
+  );
+}
+
+function pointInsideBuildingFootprint(point, building, padding = 0) {
+  return (
+    Math.abs(point.x - building.position[0]) <= building.size[0] / 2 + padding &&
+    Math.abs(point.z - building.position[2]) <= building.size[1] / 2 + padding
+  );
+}
+
 function startWorkerCommand(worker) {
   if (!worker) return;
   hideContextMenu();
@@ -4435,11 +4699,20 @@ function onPointerDown(event) {
   if (hit) {
     closeBuildMenu();
     selectElement(hit.info, hit.root);
+    if (hit.info.animal) {
+      event.preventDefault();
+      prepareAnimalDrag(hit, event);
+    }
   }
 }
 
 function onPointerMove(event) {
   updateLongPress(event);
+
+  if (activeAnimalDrag) {
+    updateAnimalDrag(event);
+    return;
+  }
 
   if (activePathTool) {
     updatePathDraft(event);
@@ -4474,6 +4747,11 @@ function onPointerMove(event) {
 }
 
 function onPointerUp(event) {
+  if (activeAnimalDrag) {
+    finishAnimalDrag(event);
+    cancelLongPress();
+    return;
+  }
   if (activePathTool) {
     finishPathDraft(event);
   }
@@ -4487,6 +4765,11 @@ function onPointerUp(event) {
 }
 
 function onPointerCancel(event) {
+  if (activeAnimalDrag) {
+    cancelAnimalDrag();
+    cancelLongPress();
+    return;
+  }
   if (activePathTool) {
     finishPathDraft(event);
   }
@@ -4539,6 +4822,44 @@ function installTestApi() {
       const building = buildings.find((candidate) => `building-${candidate.id}` === selectionId);
       if (!building) throw new Error(`No building found for ${selectionId}`);
       spawnWorkerForBuilding(building);
+      return currentTestState();
+    },
+    placeBuildingForTest(kind, x, z) {
+      const item = buildCatalog.find((candidate) => candidate.kind === kind);
+      if (!item) throw new Error(`No building catalog entry found for ${kind}`);
+      placedBuildingCount += 1;
+      const building = {
+        id: `placed_${item.kind}_${placedBuildingCount}`,
+        kind: item.kind,
+        label: item.label,
+        position: [x, 0, z],
+        size: [...item.size],
+        requiredWorkers: item.requiredWorkers ?? 0,
+        resourceOutput: { ...(item.resourceOutput ?? {}) },
+        buildStart: currentTime - item.buildDuration,
+        buildEnd: currentTime,
+        buildDuration: item.buildDuration,
+        playerPlaced: true,
+        details: {
+          ...item.details,
+          Cost: item.cost,
+          Staffing: staffingLabel(item.requiredWorkers),
+          Footprint: `${item.size[0]} x ${item.size[1]} tiles`,
+        },
+      };
+      buildings.push(building);
+      playerPlacedBuildings.push(building);
+      addBuildingToScene(building);
+      updateState(currentTime);
+      return currentTestState();
+    },
+    seedAnimalGroup(buildingId, kind) {
+      const building = buildingById(buildingId);
+      const species = animalSpeciesByKind[kind];
+      if (!building) throw new Error(`No building found for ${buildingId}`);
+      if (!species) throw new Error(`No animal species found for ${kind}`);
+      addAnimalGroupToBuilding(building, species);
+      updateState(currentTime);
       return currentTestState();
     },
     setEntryFee(value) {
