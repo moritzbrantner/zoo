@@ -137,6 +137,7 @@ const buildings = [
 const buildCatalog = buildingManifest.map((building) => ({
   ...building,
   details: {
+    ...(building.details ?? {}),
     Category: building.category,
     Staffing: staffingLabel(building.requiredWorkers),
     Source: building.gltf ? "GLTF asset" : "Procedural asset",

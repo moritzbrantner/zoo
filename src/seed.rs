@@ -151,7 +151,7 @@ pub(crate) fn add_entry_and_guest_buildings(catalog: &mut Catalog) {
     ));
     catalog.add_building(guest_building(
         SNACK_KIOSK,
-        "Snack Kiosk",
+        "Food Store",
         12,
         vec![
             ResourceAmount::new(COINS, 40),
@@ -171,7 +171,7 @@ pub(crate) fn add_entry_and_guest_buildings(catalog: &mut Catalog) {
     ));
     catalog.add_building(guest_building(
         SOUVENIR_STALL,
-        "Souvenir Stall",
+        "Gift Shop",
         15,
         vec![
             ResourceAmount::new(COINS, 55),

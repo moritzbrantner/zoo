@@ -124,7 +124,7 @@ export const buildingManifest = [
   },
   {
     kind: "snack_kiosk",
-    label: "Snack Kiosk",
+    label: "Food Store",
     category: "guest",
     size: [1.25, 1.05],
     buildDuration: 12,
@@ -133,10 +133,18 @@ export const buildingManifest = [
     swatch: "#d99652",
     icon: "food",
     gltf: null,
+    resourceOutput: {
+      coins: 55,
+      reputation: 1,
+    },
+    details: {
+      Role: "Serves guests and turns foot traffic into revenue",
+      Output: "55 coins and 1 reputation",
+    },
   },
   {
     kind: "souvenir_stall",
-    label: "Souvenir Stall",
+    label: "Gift Shop",
     category: "guest",
     size: [1.35, 1.05],
     buildDuration: 15,
@@ -145,6 +153,14 @@ export const buildingManifest = [
     swatch: "#8d7bd8",
     icon: "shop",
     gltf: null,
+    resourceOutput: {
+      coins: 80,
+      research_points: 2,
+    },
+    details: {
+      Role: "Sells souvenirs and generates research funding",
+      Output: "80 coins and 2 research",
+    },
   },
   {
     kind: "zookeeper_house",

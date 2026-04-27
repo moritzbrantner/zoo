@@ -204,10 +204,44 @@ test.describe("zoo game state fixtures", () => {
         ]),
       });
 
-    await page.getByRole("button", { name: "Place Snack Kiosk" }).click();
+    await page.getByRole("button", { name: "Place Food Store" }).click();
     await zooGame.clickGround(-4.5, -3);
     await expect(page.locator("#inspector-title")).toHaveText("Restroom");
     await expect(page.locator("#build-menu-status")).toHaveText("Choose a clear tile.");
+  });
+
+  test("builds guest stores and applies their staffed outputs", async ({ page, zooGame }) => {
+    await zooGame.start();
+    await page.getByRole("button", { name: "Place building" }).click();
+
+    await page.getByRole("button", { name: "Place Food Store" }).click();
+    await zooGame.clickGround(-4.5, -3);
+    await expect(page.locator("#inspector-title")).toHaveText("Food Store");
+    await expect(page.locator("#inspector-details")).toContainText(
+      "Serves guests and turns foot traffic into revenue",
+    );
+
+    await page.getByRole("button", { name: "Place Gift Shop" }).click();
+    await zooGame.clickGround(1.5, -3);
+    await expect(page.locator("#inspector-title")).toHaveText("Gift Shop");
+    await expect(page.locator("#inspector-details")).toContainText(
+      "Sells souvenirs and generates research funding",
+    );
+
+    await zooGame.setState(20);
+    const beforeStaffing = await zooGame.state();
+
+    await zooGame.assignWorker("building-placed_snack_kiosk_1");
+    await zooGame.assignWorker("building-placed_souvenir_stall_2");
+    const afterStaffing = await zooGame.state();
+
+    expect(afterStaffing.resources.values.coins - beforeStaffing.resources.values.coins).toBe(135);
+    expect(
+      afterStaffing.resources.values.research_points - beforeStaffing.resources.values.research_points,
+    ).toBe(2);
+    expect(
+      afterStaffing.resources.values.reputation - beforeStaffing.resources.values.reputation,
+    ).toBe(1);
   });
 
   test("uses build and staffing hotkeys for selected actions", async ({ page, zooGame }) => {
