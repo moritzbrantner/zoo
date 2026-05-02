@@ -9,7 +9,7 @@ dev world when `zoo_server` is running.
 ## Run
 
 ```sh
-cd games/zoo/visualization
+cd visualization
 bun install
 bun run dev
 ```
@@ -27,6 +27,9 @@ The app falls back to the local demo if the server is unavailable.
 ## Test
 
 ```sh
-cd games/zoo/visualization
+cd visualization
 bun run test:e2e
 ```
+
+From the repository root, `make frontend-dev`, `make frontend-build`, and
+`make frontend-test` run the same commands through the shared build targets.

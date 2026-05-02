@@ -23,6 +23,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body,
 #app {
@@ -900,10 +904,54 @@ dd,
   margin-top: 5px;
 }
 
+.build-search {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 12px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+  outline: none;
+}
+
+.build-search::placeholder {
+  color: rgba(200, 215, 207, 0.72);
+}
+
+.build-search:focus {
+  border-color: rgba(69, 166, 183, 0.82);
+  box-shadow: 0 0 0 3px rgba(69, 166, 183, 0.18);
+}
+
 .build-options {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   margin-top: 12px;
+}
+
+.build-category {
+  display: grid;
+  gap: 8px;
+}
+
+.build-category-title {
+  margin: 0;
+  color: var(--sun);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.build-search-empty {
+  padding: 14px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
 }
 
 .land-actions {
@@ -914,24 +962,28 @@ dd,
   width: 100%;
 }
 
-.fence-options {
+.fence-options,
+.path-options {
   margin-top: 12px;
 }
 
-.fence-options-title {
+.fence-options-title,
+.path-options-title {
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
 
-.fence-options-list {
+.fence-options-list,
+.path-options-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 8px;
 }
 
-.fence-option {
+.fence-option,
+.path-option {
   min-height: 38px;
   padding: 0 8px;
   border: 1px solid var(--line);
@@ -944,7 +996,9 @@ dd,
 }
 
 .fence-option:hover,
-.fence-option[aria-pressed="true"] {
+.fence-option[aria-pressed="true"],
+.path-option:hover,
+.path-option[aria-pressed="true"] {
   border-color: rgba(69, 166, 183, 0.82);
   background: rgba(69, 166, 183, 0.2);
 }

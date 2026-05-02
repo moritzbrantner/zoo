@@ -22,19 +22,6 @@ async function startZoo(page) {
   await expect(page.getByLabel("Quick actions")).toBeHidden();
 }
 
-async function canvasPoint(page, xRatio = 0.52, yRatio = 0.54) {
-  const canvas = page.locator("#zoo-scene");
-  await expect(canvas).toBeVisible();
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error("Canvas has no bounding box");
-
-  return {
-    canvas,
-    x: box.x + box.width * xRatio,
-    y: box.y + box.height * yRatio,
-  };
-}
-
 async function groundPoint(page, x, z) {
   return page.evaluate(
     ({ x: worldX, z: worldZ }) => window.__zooTestApi.groundPoint(worldX, worldZ),
@@ -50,12 +37,45 @@ test("starts the zoo without scripted timeline controls", async ({ page }) => {
   await expect(page.getByRole("button", { name: /timeline/i })).toHaveCount(0);
 });
 
+test("groups and searches build menu items", async ({ page }) => {
+  await startZoo(page);
+  await page.getByRole("button", { name: "Place building" }).click();
+
+  await expect(page.locator(".build-category-title")).toHaveText([
+    "Entry",
+    "Guest Services",
+    "Staff",
+    "Habitats",
+  ]);
+
+  await page.getByLabel("Search build menu").fill("food");
+  await expect(page.locator(".build-category:not([hidden]) .build-category-title")).toHaveText([
+    "Guest Services",
+  ]);
+  await expect(page.getByRole("button", { name: "Place Food Store" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Place Restroom" })).toBeHidden();
+
+  await page.getByLabel("Search build menu").fill("habitat");
+  await expect(page.locator(".build-category:not([hidden]) .build-category-title")).toHaveText([
+    "Habitats",
+  ]);
+  await expect(page.getByRole("button", { name: "Place Savanna Habitat" })).toBeVisible();
+
+  await page.getByLabel("Search build menu").fill("nothing");
+  await expect(page.locator("#build-search-empty")).toBeVisible();
+});
+
 test("draws and confirms a path from the build menu", async ({ page }) => {
   await startZoo(page);
   await page.getByRole("button", { name: "Place building" }).click();
+  await page.getByRole("button", { name: "Staff Path" }).click();
   await page.getByRole("button", { name: "Draw Path" }).click();
 
   await expect(page.getByRole("button", { name: "Draw Path" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByRole("button", { name: "Staff Path" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -82,23 +102,31 @@ test("draws and confirms a path from the build menu", async ({ page }) => {
   await expect(confirmPath).toBeEnabled();
   await confirmPath.click();
 
-  await expect(page.locator("#inspector-title")).toHaveText("Guest Path 1");
+  await expect(page.locator("#inspector-title")).toHaveText("Staff Path 1");
   await expect(page.locator("#inspector-details")).toContainText("Player drawn");
-  await expect(page.locator("#build-menu-status")).toHaveText("Guest Path 1 built.");
+  await expect(page.locator("#inspector-details")).toContainText("Staff Path");
+  await expect(page.locator("#build-menu-status")).toHaveText("Staff Path 1 built.");
 });
 
-test("requires a new path to start from an existing path tile", async ({ page }) => {
+test("draws a new path starting from clear ground", async ({ page }) => {
   await startZoo(page);
   await page.getByRole("button", { name: "Place building" }).click();
+  await page.getByRole("button", { name: "Service Path" }).click();
   await page.getByRole("button", { name: "Draw Path" }).click();
 
-  const start = await canvasPoint(page, 0.62, 0.34);
+  const start = await groundPoint(page, -5.5, -4);
+  const end = await groundPoint(page, -4.5, -4);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 8 });
   await page.mouse.up();
 
-  await expect(page.getByRole("button", { name: "Confirm Path" })).toBeDisabled();
-  await expect(page.locator("#build-menu-status")).toHaveText("Start from an existing path tile.");
+  const confirmPath = page.getByRole("button", { name: "Confirm Path" });
+  await expect(confirmPath).toBeEnabled();
+  await confirmPath.click();
+
+  await expect(page.locator("#inspector-title")).toHaveText("Service Path 1");
+  await expect(page.locator("#build-menu-status")).toHaveText("Service Path 1 built.");
 });
 
 test("defines an area from the build menu", async ({ page }) => {
@@ -187,6 +215,19 @@ test("assigns a worker to the selected building", async ({ page }) => {
 
   await expect(page.locator("#inspector-title")).toHaveText("Savanna Habitat");
   await expect(page.locator("#inspector-details")).toContainText("Worker 1");
+});
+
+test("does not open the scene context menu through visible overlays", async ({ page }) => {
+  await startZoo(page);
+
+  const inspector = page.locator(".inspector");
+  await expect(inspector).toBeVisible();
+  const box = await inspector.boundingBox();
+  expect(box).toBeTruthy();
+
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "right" });
+
+  await expect(page.getByRole("menu", { name: "Quick actions" })).toBeHidden();
 });
 
 test("snaps off-grid building placement to tile centers", async ({ page }) => {

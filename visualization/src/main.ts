@@ -65,8 +65,10 @@ const contextMenuResetEl = document.querySelector("#context-menu-reset");
 const buildMenuEl = document.querySelector(".build-menu");
 const buildMenuToggleEl = document.querySelector("#build-menu-toggle");
 const closeBuildMenuEl = document.querySelector("#close-build-menu");
+const buildSearchEl = document.querySelector("#build-search");
 const buildOptionsEl = document.querySelector("#build-options");
 const buyLandEl = document.querySelector("#buy-land");
+const pathOptionsEl = document.querySelector("#path-options");
 const fenceOptionsEl = document.querySelector("#fence-options");
 const buildMenuStatusEl = document.querySelector("#build-menu-status");
 const drawPathEl = document.querySelector("#draw-path");
@@ -77,6 +79,13 @@ const confirmAreaEl = document.querySelector("#confirm-area");
 const drawFenceEl = document.querySelector("#draw-fence");
 const confirmFenceEl = document.querySelector("#confirm-fence");
 const resetViewEl = document.querySelector("#reset-view");
+const canvasContextMenuBlockerEls = [
+  mainMenuEl,
+  settingsPanelEl,
+  wikiPanelEl,
+  visitorHistoryPanelEl,
+  ...gameplayEls,
+];
 const resources = resourceManifest;
 
 const resourceDescriptions = Object.fromEntries(
@@ -90,6 +99,27 @@ const buildingCategoryLabels = {
   staff: "Staff",
   habitat: "Habitats",
 };
+const pathManifest = [
+  {
+    kind: "guest_path",
+    label: "Guest Path",
+    swatch: "#c7b889",
+    summary: "A guest-facing walkway across the zoo.",
+  },
+  {
+    kind: "staff_path",
+    label: "Staff Path",
+    swatch: "#7f9d9b",
+    summary: "A staff service route for back-of-house movement.",
+  },
+  {
+    kind: "service_path",
+    label: "Service Path",
+    swatch: "#9b8fb0",
+    summary: "A utility route for maintenance and operations.",
+  },
+];
+const pathDefinitionByKind = Object.fromEntries(pathManifest.map((path) => [path.kind, path]));
 const animalSpeciesCatalog = [
   {
     kind: "rabbit_colony",
@@ -457,6 +487,17 @@ const pathPreviewValidMaterial = new THREE.MeshBasicMaterial({
   opacity: 0.58,
   depthWrite: false,
 });
+const pathPreviewValidMaterials = Object.fromEntries(
+  pathManifest.map((path) => [
+    path.kind,
+    new THREE.MeshBasicMaterial({
+      color: path.swatch,
+      transparent: true,
+      opacity: 0.58,
+      depthWrite: false,
+    }),
+  ]),
+);
 const pathPreviewInvalidMaterial = new THREE.MeshBasicMaterial({
   color: 0xd66b7a,
   transparent: true,
@@ -491,6 +532,15 @@ const playerPathMaterial = new THREE.MeshStandardMaterial({
   color: 0xc7b889,
   roughness: 0.86,
 });
+const playerPathMaterials = Object.fromEntries(
+  pathManifest.map((path) => [
+    path.kind,
+    new THREE.MeshStandardMaterial({
+      color: path.swatch,
+      roughness: 0.86,
+    }),
+  ]),
+);
 const playerAreaMaterial = new THREE.MeshStandardMaterial({
   color: 0x5f9445,
   roughness: 0.95,
@@ -535,6 +585,8 @@ const animals = [];
 const workers = [];
 const resourceRows = new Map();
 const buildOptionButtons = new Map();
+const buildCategorySections = new Map();
+const pathOptionButtons = new Map();
 const fenceOptionButtons = new Map();
 const playerPlacedBuildings = [];
 const localAnimalGroups = [];
@@ -609,6 +661,7 @@ let pathDraftTiles = [];
 let pathPreviewGroup = null;
 let pathPreviewValid = false;
 let playerPathCount = 0;
+let activePathKind = "guest_path";
 let activeAreaTool = false;
 let areaDrawing = false;
 let areaAnchorTile = null;
@@ -647,6 +700,7 @@ createBuildings();
 createVisitors();
 createResourceRows();
 createBuildOptions();
+createPathOptions();
 createFenceOptions();
 createSimulationOptions();
 populateWiki();
@@ -687,6 +741,7 @@ startZooEl.addEventListener("click", startZoo);
 openSimulationsEl.addEventListener("click", toggleSimulationOptions);
 buildMenuToggleEl.addEventListener("click", toggleBuildMenu);
 closeBuildMenuEl.addEventListener("click", closeBuildMenu);
+buildSearchEl.addEventListener("input", updateBuildSearchFilter);
 mainMenuToggleEl.addEventListener("click", showMainMenu);
 buyLandEl.addEventListener("click", buyLand);
 drawPathEl.addEventListener("click", startPathBuilder);
@@ -2646,51 +2701,134 @@ function createResourceRows() {
 
 function createBuildOptions() {
   const fragment = document.createDocumentFragment();
-  for (const [index, item] of buildCatalog.entries()) {
-    const button = document.createElement("button");
-    button.className = "build-option";
-    button.type = "button";
-    button.setAttribute("aria-pressed", "false");
-    button.setAttribute("aria-label", `Place ${item.label}`);
-    const hotkey = BUILD_OPTION_HOTKEYS[index] ?? null;
-    if (hotkey) {
-      button.setAttribute("aria-keyshortcuts", hotkey.toUpperCase());
-    }
+  const categories = new Map();
 
-    const swatch = document.createElement("span");
-    swatch.className = "build-swatch";
-    swatch.style.background = item.swatch;
-    swatch.setAttribute("aria-hidden", "true");
-
-    const copy = document.createElement("span");
-    copy.className = "build-option-copy";
-
-    const title = document.createElement("span");
-    title.className = "build-option-title";
-    const label = document.createElement("strong");
-    label.textContent = item.label;
-    title.append(label);
-    if (hotkey) {
-      title.append(createHotkeyBadge(hotkey));
-    }
-
-    const meta = document.createElement("span");
-    meta.className = "build-option-meta";
-    const cost = document.createElement("span");
-    cost.textContent = item.cost;
-    const duration = document.createElement("span");
-    duration.textContent = item.buildDuration > 0 ? `${item.buildDuration}s` : "Instant";
-    const staff = document.createElement("span");
-    staff.textContent = staffingLabel(item.requiredWorkers);
-    meta.append(cost, duration, staff);
-
-    copy.append(title, meta);
-    button.append(swatch, copy);
-    button.addEventListener("click", () => setPlacementItem(item));
-    fragment.append(button);
-    buildOptionButtons.set(item.kind, button);
+  for (const item of buildCatalog) {
+    if (!categories.has(item.category)) categories.set(item.category, []);
+    categories.get(item.category).push(item);
   }
+
+  for (const [category, items] of categories) {
+    const section = document.createElement("section");
+    section.className = "build-category";
+    section.dataset.buildCategory = category;
+    section.setAttribute("role", "list");
+
+    const heading = document.createElement("h3");
+    heading.className = "build-category-title";
+    heading.textContent = buildingCategoryLabels[category] ?? "Other";
+
+    section.append(heading);
+    for (const item of items) {
+      section.append(createBuildOptionButton(item));
+    }
+
+    fragment.append(section);
+    buildCategorySections.set(category, section);
+  }
+
+  const empty = document.createElement("p");
+  empty.id = "build-search-empty";
+  empty.className = "build-search-empty";
+  empty.hidden = true;
+  empty.textContent = "No build items match.";
+  fragment.append(empty);
   buildOptionsEl.append(fragment);
+}
+
+function createBuildOptionButton(item) {
+  const index = buildCatalog.indexOf(item);
+  const button = document.createElement("button");
+  button.className = "build-option";
+  button.type = "button";
+  button.setAttribute("aria-pressed", "false");
+  button.setAttribute("aria-label", `Place ${item.label}`);
+  button.dataset.buildCategory = item.category;
+  button.dataset.buildSearchText = buildSearchText(item);
+  const hotkey = BUILD_OPTION_HOTKEYS[index] ?? null;
+  if (hotkey) {
+    button.setAttribute("aria-keyshortcuts", hotkey.toUpperCase());
+  }
+
+  const swatch = document.createElement("span");
+  swatch.className = "build-swatch";
+  swatch.style.background = item.swatch;
+  swatch.setAttribute("aria-hidden", "true");
+
+  const copy = document.createElement("span");
+  copy.className = "build-option-copy";
+
+  const title = document.createElement("span");
+  title.className = "build-option-title";
+  const label = document.createElement("strong");
+  label.textContent = item.label;
+  title.append(label);
+  if (hotkey) {
+    title.append(createHotkeyBadge(hotkey));
+  }
+
+  const meta = document.createElement("span");
+  meta.className = "build-option-meta";
+  const cost = document.createElement("span");
+  cost.textContent = item.cost;
+  const duration = document.createElement("span");
+  duration.textContent = item.buildDuration > 0 ? `${item.buildDuration}s` : "Instant";
+  const staff = document.createElement("span");
+  staff.textContent = staffingLabel(item.requiredWorkers);
+  meta.append(cost, duration, staff);
+
+  copy.append(title, meta);
+  button.append(swatch, copy);
+  button.addEventListener("click", () => setPlacementItem(item));
+  buildOptionButtons.set(item.kind, button);
+  return button;
+}
+
+function buildSearchText(item) {
+  return normalizeBuildSearch(
+    [
+      item.label,
+      item.kind,
+      item.category,
+      buildingCategoryLabels[item.category],
+      item.cost,
+      item.buildDuration > 0 ? `${item.buildDuration}s` : "Instant",
+      ...Object.entries(item.details ?? {})
+        .filter(([key]) => !["Category", "Staffing", "Source"].includes(key))
+        .map(([, value]) => value),
+    ].join(" "),
+  );
+}
+
+function normalizeBuildSearch(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function updateBuildSearchFilter() {
+  const query = normalizeBuildSearch(buildSearchEl.value);
+  let visibleCount = 0;
+  const visibleCategories = new Set();
+
+  for (const item of buildCatalog) {
+    const button = buildOptionButtons.get(item.kind);
+    if (!button) continue;
+
+    const matches = !query || button.dataset.buildSearchText?.includes(query);
+    button.hidden = !matches;
+    if (!matches) continue;
+
+    visibleCount += 1;
+    visibleCategories.add(item.category);
+  }
+
+  for (const [category, section] of buildCategorySections) {
+    section.hidden = !visibleCategories.has(category);
+  }
+
+  const empty = document.querySelector("#build-search-empty");
+  if (empty) empty.hidden = visibleCount > 0;
 }
 
 function createSimulationOptions() {
@@ -2732,6 +2870,41 @@ function createFenceOptions() {
     fenceOptionButtons.set(fence.kind, button);
   }
   fenceOptionsEl.append(fragment);
+}
+
+function createPathOptions() {
+  const fragment = document.createDocumentFragment();
+  for (const path of pathManifest) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "path-option";
+    button.textContent = path.label;
+    button.setAttribute("aria-pressed", String(path.kind === activePathKind));
+    button.addEventListener("click", () => setActivePathKind(path.kind));
+    fragment.append(button);
+    pathOptionButtons.set(path.kind, button);
+  }
+  pathOptionsEl.append(fragment);
+}
+
+function setActivePathKind(kind) {
+  activePathKind = kind;
+  for (const [candidate, button] of pathOptionButtons) {
+    button.setAttribute("aria-pressed", String(candidate === activePathKind));
+  }
+  updatePathPreview();
+}
+
+function activePathLabel() {
+  return (pathDefinitionByKind[activePathKind] ?? pathDefinitionByKind.guest_path).label;
+}
+
+function activePathMaterial() {
+  return playerPathMaterials[activePathKind] ?? playerPathMaterial;
+}
+
+function activePathPreviewMaterial() {
+  return pathPreviewValidMaterials[activePathKind] ?? pathPreviewValidMaterial;
 }
 
 function setActiveFenceKind(kind) {
@@ -4151,14 +4324,15 @@ function createResourceInfo(resource) {
   };
 }
 
-function createPlayerPathInfo(index, tiles) {
+function createPlayerPathInfo(index, tiles, kind = "guest_path") {
+  const pathDefinition = pathDefinitionByKind[kind] ?? pathDefinitionByKind.guest_path;
   return {
     id: `player-path-${index}`,
-    label: `Guest Path ${index}`,
+    label: `${pathDefinition.label} ${index}`,
     category: "Path",
-    summary: "A walkable route drawn across the zoo tiles.",
+    summary: pathDefinition.summary,
     getDetails: () => ({
-      Type: "Path",
+      Type: pathDefinition.label,
       Status: "Built",
       Source: "Player drawn",
       Length: `${tiles.length} tiles`,
@@ -4387,7 +4561,7 @@ function startPathBuilder() {
   pathPreviewGroup.visible = true;
   controls.enabled = false;
   canvas.style.cursor = "crosshair";
-  buildMenuStatusEl.textContent = "Drag from an existing path tile.";
+  buildMenuStatusEl.textContent = `Drag to draw ${activePathLabel().toLowerCase()}.`;
   updatePathPreview();
   updatePathBuilderUi();
 }
@@ -4411,10 +4585,6 @@ function beginPathDraft(event) {
   const tile = pathTileFromPointer(event);
   if (!tile) {
     buildMenuStatusEl.textContent = "Point at the zoo grounds.";
-    return;
-  }
-  if (!isExistingPathTile(tile)) {
-    buildMenuStatusEl.textContent = "Start from an existing path tile.";
     return;
   }
 
@@ -4449,10 +4619,10 @@ function finishPathDraft(event = null) {
   updatePathPreview();
   buildMenuStatusEl.textContent = pathPreviewValid
     ? "Confirm path."
-    : pathDraftTiles.length === 0 || !isExistingPathTile(pathDraftTiles[0])
-      ? "Start from an existing path tile."
-      : pathDraftTiles.length < 2
-        ? "Draw at least two tiles."
+    : pathDraftTiles.length < 2
+      ? "Draw at least two tiles."
+      : pathDraftTiles.every((tile) => pathTileKeys.has(tile.key))
+        ? "Draw onto a new tile."
         : "Path crosses a building.";
   updatePathBuilderUi();
 }
@@ -4495,18 +4665,16 @@ function updatePathPreview() {
   clearPathPreview();
 
   const hasNewTiles = pathDraftTiles.some((tile) => !pathTileKeys.has(tile.key));
-  const startsOnPath = pathDraftTiles.length > 0 && isExistingPathTile(pathDraftTiles[0]);
   pathPreviewValid =
     pathDraftTiles.length >= 2 &&
-    startsOnPath &&
     hasNewTiles &&
     pathDraftTiles.every((tile) => canPlacePathTile(tile));
 
-  for (const [index, tile] of pathDraftTiles.entries()) {
-    const validTile = canPlacePathTile(tile) && (index > 0 || isExistingPathTile(tile));
+  for (const tile of pathDraftTiles) {
+    const validTile = canPlacePathTile(tile);
     const mesh = new THREE.Mesh(
       pathTileGeometry,
-      validTile ? pathPreviewValidMaterial : pathPreviewInvalidMaterial,
+      validTile ? activePathPreviewMaterial() : pathPreviewInvalidMaterial,
     );
     mesh.position.set(tile.x, 0.07, tile.z);
     pathPreviewGroup.add(mesh);
@@ -4537,7 +4705,7 @@ function confirmPathDraft() {
   playerPathCount += 1;
   const group = new THREE.Group();
   for (const tile of tilesToBuild) {
-    const mesh = new THREE.Mesh(pathTileGeometry, playerPathMaterial);
+    const mesh = new THREE.Mesh(pathTileGeometry, activePathMaterial());
     mesh.position.set(tile.x, 0.04, tile.z);
     mesh.receiveShadow = true;
     group.add(mesh);
@@ -4547,7 +4715,7 @@ function confirmPathDraft() {
 
   scene.add(group);
   playerMapGroups.push(group);
-  const pathInfo = createPlayerPathInfo(playerPathCount, tilesToBuild);
+  const pathInfo = createPlayerPathInfo(playerPathCount, tilesToBuild, activePathKind);
   tagSelectable(group, pathInfo, group);
   selectElement(pathInfo, group);
 
@@ -5693,12 +5861,45 @@ function updateSelectionRouteIndicator() {
 
 function onContextMenu(event) {
   event.preventDefault();
+  if (isCanvasContextMenuBlocked(event.clientX, event.clientY)) {
+    hideContextMenu();
+    return;
+  }
   if (activeBuildItem || activePathTool || activeAreaTool || activeFenceTool) return;
   if (handleSelectedWorkerContextCommand(event)) {
     cancelWorkerCommand();
     return;
   }
   openContextMenuAt(event.clientX, event.clientY);
+}
+
+function isCanvasContextMenuBlocked(clientX, clientY) {
+  for (const element of canvasContextMenuBlockerEls) {
+    if (!isContextMenuBlockerVisible(element)) continue;
+
+    for (const rect of element.getClientRects()) {
+      if (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function isContextMenuBlockerVisible(element) {
+  if (!element || element.getAttribute("aria-hidden") === "true") return false;
+
+  const style = window.getComputedStyle(element);
+  return (
+    style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    Number.parseFloat(style.opacity || "1") > 0
+  );
 }
 
 function handleSelectedWorkerContextCommand(event) {
