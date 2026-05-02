@@ -304,6 +304,19 @@ const buildings = [
       Output: "+30 visitor capacity",
     },
   },
+  {
+    id: "customer_entry",
+    kind: "customer_entry",
+    label: "Customer Entry",
+    position: [0, 0, 4],
+    size: [0.8, 0.9],
+    requiredWorkers: 0,
+    resourceOutput: {},
+    details: {
+      Role: "Main park entrance",
+      Output: "Guides guests into the zoo",
+    },
+  },
 ];
 
 const buildCatalog = buildingManifest.map((building) => ({
@@ -362,6 +375,18 @@ function createPlayableArea(columns, rows) {
     minZ: -4.5,
     maxZ: -4.5 + rows * PATH_TILE_SIZE,
   };
+}
+
+function parkEntryBuildingPosition() {
+  return [PARK_ENTRY_X, 0, playableArea.maxZ - PARK_ENTRY_BUILDING_OFFSET];
+}
+
+function parkEntryGateZ() {
+  return playableArea.maxZ;
+}
+
+function parkEntrySpawnZ() {
+  return playableArea.maxZ + 1.35;
 }
 
 const scene = new THREE.Scene();
@@ -487,14 +512,20 @@ const landState = {
 const pricing = {
   entryFee: Number(entryFeeEl?.value ?? DEFAULT_ENTRY_FEE),
 };
-const guestRoutePoints = [
-  new THREE.Vector3(-4.3, 0, 2.55),
-  new THREE.Vector3(-1.2, 0, 2.55),
-  new THREE.Vector3(-1.2, 0, -0.7),
-  new THREE.Vector3(1.8, 0, -0.7),
-  new THREE.Vector3(1.8, 0, 2.55),
-  new THREE.Vector3(4.2, 0, 2.55),
-];
+const PARK_ENTRY_X = -0.5;
+const PARK_ENTRY_PATH_Z = 2.55;
+const PARK_ENTRY_BUILDING_OFFSET = 0.45;
+const PARK_ENTRY_GATE_WIDTH = 1.8;
+const VISITOR_ENTRY_INTERVAL_SECONDS = 4;
+const VISITOR_ENTRY_TRAVEL_SECONDS = 11;
+const VISITOR_WALK_SPEED = 0.7;
+const VISITOR_RECENCY_SECONDS = 70;
+const VISITOR_RECENT_VISIT_MIN_MULTIPLIER = 0.16;
+const VISITOR_INTEREST_THRESHOLD = 6;
+const VISITOR_REENTRY_AFTER_EXIT_SECONDS = 45;
+const buildingManifestByKind = Object.fromEntries(
+  buildingManifest.map((building) => [building.kind, building]),
+);
 const selectionRoute = new THREE.Line(new THREE.BufferGeometry(), selectionRouteMaterial);
 selectionRoute.renderOrder = 20;
 selectionRoute.visible = false;
@@ -554,6 +585,8 @@ let activeWorkerCommand = null;
 let activeAnimalDrag = null;
 let longPressTimer = null;
 let longPressStart = null;
+let nextVisitorEntryTime = 0;
+let lastVisitorUpdateTime = 0;
 const pathTileKeys = new Set();
 const playerAreaTileKeys = new Set();
 const playerFenceSegmentKeys = new Set();
@@ -1273,6 +1306,7 @@ function createBoard() {
     }),
   );
 
+  addPathSegment("Entry Path", PARK_ENTRY_X, 3.55, 0.72, 2.1);
   addPathSegment("Main Guest Path", 0, 2.55, 8.6, 0.72);
   addPathSegment("Kitchen Path", -2.2, 0.45, 0.72, 4.2);
   addPathSegment("Habitat Path", 1.75, 0.35, 0.72, 4.45);
@@ -1342,8 +1376,20 @@ function refreshPlayableAreaGeometry() {
   rebuildTileGrid();
   rebuildBoundaryFence();
   rebuildPerimeterScenery();
+  refreshParkEntryBuilding();
   controls.maxDistance = Math.max(18, Math.max(playableArea.width, playableArea.depth) * 2.2);
   updateSelectionStyles();
+}
+
+function refreshParkEntryBuilding() {
+  const entry = buildings.find((building) => (building.kind ?? building.id) === "customer_entry");
+  if (!entry) return;
+
+  entry.position = parkEntryBuildingPosition();
+  const entryGroup = buildingMeshes.get(entry.id);
+  if (entryGroup) {
+    entryGroup.position.set(...entry.position);
+  }
 }
 
 function rebuildTileGrid() {
@@ -1394,7 +1440,7 @@ function rebuildBoundaryFence() {
   });
   const halfWidth = playableArea.width / 2;
   const halfDepth = playableArea.depth / 2;
-  const gateWidth = 1.2;
+  const gateWidth = PARK_ENTRY_GATE_WIDTH;
   const leftGateEdge = -gateWidth / 2;
   const rightGateEdge = gateWidth / 2;
   const lowerFenceCenterX = playableArea.minX + playableArea.width / 2;
@@ -1461,17 +1507,17 @@ function rebuildBoundaryFence() {
     addFencePost(boundaryFenceGroup, [playableArea.maxX, 0.36, z], postMaterial);
   }
 
-  addFencePost(boundaryFenceGroup, [-gateWidth / 2, 0.43, playableArea.maxZ], postMaterial);
-  addFencePost(boundaryFenceGroup, [gateWidth / 2, 0.43, playableArea.maxZ], postMaterial);
+  addFencePost(boundaryFenceGroup, [-gateWidth / 2, 0.43, parkEntryGateZ()], postMaterial);
+  addFencePost(boundaryFenceGroup, [gateWidth / 2, 0.43, parkEntryGateZ()], postMaterial);
   addFenceRail(
     boundaryFenceGroup,
-    [-gateWidth / 4, 0.36, playableArea.maxZ + 0.05],
+    [-gateWidth / 4, 0.36, parkEntryGateZ() + 0.05],
     [gateWidth / 2, 0.08, 0.08],
     gateMaterial,
   );
   addFenceRail(
     boundaryFenceGroup,
-    [gateWidth / 4, 0.36, playableArea.maxZ + 0.05],
+    [gateWidth / 4, 0.36, parkEntryGateZ() + 0.05],
     [gateWidth / 2, 0.08, 0.08],
     gateMaterial,
   );
@@ -1520,6 +1566,14 @@ function removeSelectableEntries(root) {
 
 function rebuildPerimeterScenery() {
   clearGroup(perimeterSceneryGroup);
+  addExteriorPathSegment(
+    PARK_ENTRY_X,
+    playableArea.maxZ + 0.7,
+    0.72,
+    1.4,
+    perimeterSceneryGroup,
+  );
+
   const stones = [
     [playableArea.minX - 1.6, playableArea.minZ + 1.1, 0.24],
     [playableArea.minX - 1.9, playableArea.maxZ - 1.7, 0.18],
@@ -1580,6 +1634,16 @@ function addPathSegment(label, x, z, width, depth) {
   );
 }
 
+function addExteriorPathSegment(x, z, width, depth, parent = scene) {
+  const path = new THREE.Mesh(
+    new THREE.BoxGeometry(width, 0.04, depth),
+    playerPathMaterial,
+  );
+  path.position.set(x, 0.03, z);
+  path.receiveShadow = true;
+  parent.add(path);
+}
+
 function createBuildings() {
   for (const building of buildings) {
     addBuildingToScene(building);
@@ -1587,6 +1651,9 @@ function createBuildings() {
 }
 
 function addBuildingToScene(building) {
+  if ((building.kind ?? building.id) === "customer_entry") {
+    building.position = parkEntryBuildingPosition();
+  }
   const group = createBuildingMesh(building);
   group.position.set(...building.position);
   group.userData.building = building;
@@ -1599,6 +1666,7 @@ function addBuildingToScene(building) {
 
 function createBuildingMesh(building, { preview = false } = {}) {
   const kind = building.kind ?? building.id;
+  if (kind === "customer_entry") return createCustomerEntry(building, { preview });
   if (kind === "keeper_kitchen") return createKitchen(building, { preview });
   if (kind === "savanna_habitat") return createHabitat(building, { preview });
   if (kind === "ticket_booth") return createTicketBooth(building, { preview });
@@ -1682,6 +1750,18 @@ function createHabitat(building, { preview = false } = {}) {
     selectable: !preview,
   });
   if (!preview) addProductionRing(group, building.id, 0x78d5df);
+  return group;
+}
+
+function createCustomerEntry(building, { preview = false } = {}) {
+  const group = new THREE.Group();
+  addFoundation(group, building.size, 0xb5aa91);
+  addBox(group, [-0.28, 0.42, 0], [0.16, 0.72, 0.16], 0x7b5c47);
+  addBox(group, [0.28, 0.42, 0], [0.16, 0.72, 0.16], 0x7b5c47);
+  addBox(group, [0, 0.86, 0], [0.78, 0.18, 0.2], 0xa78358);
+  addRoof(group, [0, 1.06, 0], [0.92, 0.22, 0.36], 0xd45742);
+  addBox(group, [0, 0.48, -0.28], [0.52, 0.1, 0.08], 0xa78358);
+  if (!preview) addProductionRing(group, building.id, 0xe1b44f);
   return group;
 }
 
@@ -1943,6 +2023,20 @@ function createVisitors() {
     head.position.y = 0.36;
     group.add(body, head);
     group.visible = false;
+    group.userData.visitorActive = false;
+    group.userData.visitorEntryStartTime = null;
+    group.userData.visitorSeed = 0x9e3779b1 + index * 0x85ebca6b;
+    group.userData.visitorLastVisits = Object.create(null);
+    group.userData.visitorRoutePoints = null;
+    group.userData.visitorRouteStartedAt = null;
+    group.userData.visitorRouteTravelSeconds = null;
+    group.userData.visitorTargetBuildingId = null;
+    group.userData.visitorTargetBuildingLabel = null;
+    group.userData.visitorCurrentBuildingId = null;
+    group.userData.visitorDwellUntil = null;
+    group.userData.visitorInteractionLabel = null;
+    group.userData.visitorLeavingZoo = false;
+    group.userData.visitorExitCooldownUntil = 0;
     scene.add(group);
     visitorGroups.push(group);
     tagSelectable(
@@ -1954,8 +2048,11 @@ function createVisitors() {
         summary: "A guest walking the route when visitor capacity is active.",
         getRoutePoints: () => visitorRoutePoints(index, group),
         getDetails: () => ({
-          Status: group.visible ? "On path" : "Waiting",
-          Route: "Guest loop",
+          Status: visitorStatusLabel(group),
+          Route: group.userData.visitorTargetBuildingLabel
+            ? `Guest loop to ${group.userData.visitorTargetBuildingLabel}`
+            : "Guest loop",
+          Activity: group.userData.visitorInteractionLabel ?? "Walking",
           Position: `${group.position.x.toFixed(1)}, ${group.position.z.toFixed(1)}`,
         }),
       },
@@ -2438,6 +2535,15 @@ function canAssignWorkerToBuilding(building) {
   return requiredWorkerCount(building) > assignedWorkerCount(building);
 }
 
+function canReassignWorkerToBuilding(worker, building) {
+  const required = requiredWorkerCount(building);
+  if (required <= 0) return false;
+  const occupiedSlots = workers.filter(
+    (candidate) => candidate !== worker && candidate.assignedBuildingId === building.id,
+  ).length;
+  return occupiedSlots < required;
+}
+
 function assignedWorkerIndexForBuilding(building, worker) {
   return (
     workers.filter(
@@ -2493,14 +2599,35 @@ function updateBuilding(building, time) {
 }
 
 function updateVisitors(visitorCount, time) {
-  const visibleCount = Math.min(visitorGroups.length, Math.max(0, visitorCount));
+  if (time < lastVisitorUpdateTime) {
+    resetVisitorFlow(time);
+  }
+  lastVisitorUpdateTime = time;
+
+  const targetCount = Math.min(visitorGroups.length, Math.max(0, visitorCount));
+  for (let index = targetCount; index < visitorGroups.length; index += 1) {
+    deactivateVisitor(visitorGroups[index]);
+  }
+
+  if (targetCount === 0) {
+    nextVisitorEntryTime = time;
+    return;
+  }
+
+  const nextInactiveIndex = visitorGroups.findIndex(
+    (visitor, index) => index < targetCount && visitorCanEnter(visitor, time),
+  );
+  if (nextInactiveIndex >= 0 && time >= nextVisitorEntryTime) {
+    activateVisitor(visitorGroups[nextInactiveIndex], time);
+    nextVisitorEntryTime = time + VISITOR_ENTRY_INTERVAL_SECONDS;
+  }
+
   for (let index = 0; index < visitorGroups.length; index += 1) {
     const visitor = visitorGroups[index];
-    visitor.visible = index < visibleCount;
+    visitor.visible = index < targetCount && visitor.userData.visitorActive;
     if (!visitor.visible) continue;
 
-    const t = (((time * 0.04 + index / visibleCount) % 1) + 1) % 1;
-    const point = pathPoint(t);
+    const point = visitorPointAtTime(index, time);
     visitor.position.set(
       point.x,
       0.08 + (settings.motionEffects ? Math.sin(time * 0.45 + index) * 0.018 : 0),
@@ -2510,6 +2637,53 @@ function updateVisitors(visitorCount, time) {
   }
 }
 
+function activateVisitor(visitor, time) {
+  visitor.userData.visitorActive = true;
+  visitor.userData.visitorEntryStartTime = time;
+  visitor.userData.visitorLastVisits = Object.create(null);
+  visitor.userData.visitorCurrentBuildingId = null;
+  visitor.userData.visitorDwellUntil = null;
+  visitor.userData.visitorInteractionLabel = null;
+  visitor.userData.visitorTargetBuildingId = null;
+  visitor.userData.visitorTargetBuildingLabel = null;
+  visitor.userData.visitorLeavingZoo = false;
+  visitor.userData.visitorExitCooldownUntil = 0;
+  assignNextVisitorDestination(visitor, visitorGroups.indexOf(visitor), time, {
+    fromPoint: new THREE.Vector3(PARK_ENTRY_X, 0, parkEntrySpawnZ()),
+    entry: true,
+  });
+  visitor.visible = true;
+}
+
+function visitorCanEnter(visitor, time) {
+  if (visitor.userData.visitorActive) return false;
+  return Number(visitor.userData.visitorExitCooldownUntil ?? 0) <= time;
+}
+
+function deactivateVisitor(visitor, { exitCooldownUntil = 0 } = {}) {
+  visitor.userData.visitorActive = false;
+  visitor.userData.visitorEntryStartTime = null;
+  visitor.userData.visitorRoutePoints = null;
+  visitor.userData.visitorRouteStartedAt = null;
+  visitor.userData.visitorRouteTravelSeconds = null;
+  visitor.userData.visitorTargetBuildingId = null;
+  visitor.userData.visitorTargetBuildingLabel = null;
+  visitor.userData.visitorCurrentBuildingId = null;
+  visitor.userData.visitorDwellUntil = null;
+  visitor.userData.visitorInteractionLabel = null;
+  visitor.userData.visitorLeavingZoo = false;
+  visitor.userData.visitorExitCooldownUntil = exitCooldownUntil;
+  visitor.visible = false;
+}
+
+function resetVisitorFlow(time = currentTime) {
+  for (const visitor of visitorGroups) {
+    deactivateVisitor(visitor);
+  }
+  nextVisitorEntryTime = time;
+  lastVisitorUpdateTime = time;
+}
+
 function visibleVisitorCount() {
   return visitorGroups.reduce((count, visitor) => count + Number(visitor.visible), 0);
 }
@@ -2517,11 +2691,10 @@ function visibleVisitorCount() {
 function visitorRoutePoints(index, group) {
   if (!group.visible) return null;
 
-  const visibleCount = visibleVisitorCount();
-  if (visibleCount <= 0) return null;
+  const routeState = visitorRouteState(index, currentTime);
+  if (!routeState || routeState.dwell) return null;
 
-  const t = (((currentTime * 0.04 + index / visibleCount) % 1) + 1) % 1;
-  return remainingGuestRoutePoints(t, 0.18);
+  return remainingRoutePoints(routeState.routePoints, routeState.t, 0.18);
 }
 
 function resetAnimatedObjects() {
@@ -2543,13 +2716,431 @@ function resetAnimatedObjects() {
   updateState(currentTime);
 }
 
-function pathPoint(t) {
-  const segmentCount = guestRoutePoints.length - 1;
+function guestEntryRoutePointsForVisitor(index = 0, targetBuilding = null) {
+  const target =
+    targetBuilding ?? chooseVisitorDestination(visitorGroups[index], index, currentTime);
+  const gatePoint = new THREE.Vector3(PARK_ENTRY_X, 0, parkEntryGateZ() - 0.15);
+  const entryTile = nearestPathTileToPoint(gatePoint);
+  const entryPathPoint = entryTile
+    ? pathPointForTile(entryTile)
+    : new THREE.Vector3(PARK_ENTRY_X, 0, PARK_ENTRY_PATH_Z);
+  const points = [new THREE.Vector3(PARK_ENTRY_X, 0, parkEntrySpawnZ()), gatePoint];
+
+  for (const point of guestRoutePointsBetween(entryPathPoint, target, index)) {
+    appendDistinctPoint(points, point);
+  }
+
+  return points;
+}
+
+function guestExitRoutePointsFrom(start, visitorIndex = 0) {
+  const gatePoint = new THREE.Vector3(PARK_ENTRY_X, 0, parkEntryGateZ() - 0.15);
+  const exitPoint = new THREE.Vector3(PARK_ENTRY_X, 0, parkEntrySpawnZ());
+  const entryTile = nearestPathTileToPoint(gatePoint);
+  const entryPathPoint = entryTile
+    ? pathPointForTile(entryTile)
+    : new THREE.Vector3(PARK_ENTRY_X, 0, PARK_ENTRY_PATH_Z);
+  const startTile = nearestPathTileToPoint(start);
+  const endTile = nearestPathTileToPoint(entryPathPoint);
+  const routeTiles = visitorPathTilesBetween(startTile, endTile);
+  const points = [start.clone()];
+
+  for (const tile of routeTiles) {
+    const pathPoint = pathPointForTile(tile);
+    const offset = visitorPathLaneOffset(pathPoint, visitorIndex);
+    appendDistinctPoint(
+      points,
+      new THREE.Vector3(pathPoint.x + offset.x, 0, pathPoint.z + offset.z),
+    );
+  }
+
+  appendDistinctPoint(points, gatePoint);
+  appendDistinctPoint(points, exitPoint);
+  return points;
+}
+
+function visitorRouteState(visitorIndex, time) {
+  const visitor = visitorGroups[visitorIndex];
+  if (!visitor?.userData.visitorActive) return null;
+
+  if (visitor.userData.visitorDwellUntil) {
+    const building = buildingById(visitor.userData.visitorCurrentBuildingId);
+    if (building && time < visitor.userData.visitorDwellUntil) {
+      return {
+        dwell: true,
+        routePoints: [visitorStopPointForBuilding(building, visitorIndex)],
+        t: 1,
+      };
+    }
+
+    const fromPoint = building
+      ? visitorStopPointForBuilding(building, visitorIndex)
+      : new THREE.Vector3(visitor.position.x, 0, visitor.position.z);
+    assignNextVisitorDestination(visitor, visitorIndex, time, { fromPoint });
+  }
+
+  if (!visitor.userData.visitorRoutePoints) {
+    assignNextVisitorDestination(visitor, visitorIndex, time, {
+      fromPoint: new THREE.Vector3(visitor.position.x, 0, visitor.position.z),
+    });
+  }
+
+  const routePoints = visitor.userData.visitorRoutePoints;
+  const travelSeconds = Math.max(1, Number(visitor.userData.visitorRouteTravelSeconds ?? 1));
+  const startedAt = Number(visitor.userData.visitorRouteStartedAt ?? time);
+  const elapsed = Math.max(0, time - startedAt);
+  if (elapsed >= travelSeconds) {
+    if (visitor.userData.visitorLeavingZoo) {
+      completeVisitorDeparture(visitor, time);
+      return null;
+    }
+
+    const targetBuilding = buildingById(visitor.userData.visitorTargetBuildingId);
+    if (targetBuilding) {
+      beginVisitorDwell(visitor, visitorIndex, targetBuilding, time);
+      return {
+        dwell: true,
+        routePoints: [visitorStopPointForBuilding(targetBuilding, visitorIndex)],
+        t: 1,
+      };
+    }
+  }
+
+  return {
+    routePoints,
+    t: THREE.MathUtils.clamp(elapsed / travelSeconds, 0, 0.999999),
+  };
+}
+
+function visitorStatusLabel(visitor) {
+  if (!visitor.visible) return "Waiting";
+  if (visitor.userData.visitorLeavingZoo) return "Leaving";
+  if (visitor.userData.visitorDwellUntil && currentTime < visitor.userData.visitorDwellUntil) {
+    return visitor.userData.visitorInteractionLabel ?? "Interacting";
+  }
+  return "On path";
+}
+
+function assignNextVisitorDestination(
+  visitor,
+  visitorIndex,
+  time,
+  { fromPoint = null, entry = false } = {},
+) {
+  const targetBuilding = chooseVisitorDestination(visitor, visitorIndex, time);
+  const start =
+    fromPoint ??
+    new THREE.Vector3(
+      visitor.position.x || PARK_ENTRY_X,
+      0,
+      visitor.position.z || parkEntrySpawnZ(),
+    );
+  if (!targetBuilding) {
+    assignVisitorExitRoute(visitor, visitorIndex, time, start);
+    return;
+  }
+
+  const routePoints = entry
+    ? guestEntryRoutePointsForVisitor(visitorIndex, targetBuilding)
+    : guestRoutePointsBetween(start, targetBuilding, visitorIndex);
+  visitor.userData.visitorRoutePoints = routePoints;
+  visitor.userData.visitorRouteStartedAt = time;
+  visitor.userData.visitorRouteTravelSeconds = entry
+    ? VISITOR_ENTRY_TRAVEL_SECONDS
+    : visitorTravelSeconds(routePoints);
+  visitor.userData.visitorTargetBuildingId = targetBuilding?.id ?? null;
+  visitor.userData.visitorTargetBuildingLabel = targetBuilding?.label ?? null;
+  visitor.userData.visitorCurrentBuildingId = null;
+  visitor.userData.visitorDwellUntil = null;
+  visitor.userData.visitorInteractionLabel = null;
+  visitor.userData.visitorLeavingZoo = false;
+}
+
+function assignVisitorExitRoute(visitor, visitorIndex, time, fromPoint) {
+  const routePoints = guestExitRoutePointsFrom(fromPoint, visitorIndex);
+  visitor.userData.visitorRoutePoints = routePoints;
+  visitor.userData.visitorRouteStartedAt = time;
+  visitor.userData.visitorRouteTravelSeconds = visitorTravelSeconds(routePoints);
+  visitor.userData.visitorTargetBuildingId = null;
+  visitor.userData.visitorTargetBuildingLabel = null;
+  visitor.userData.visitorCurrentBuildingId = null;
+  visitor.userData.visitorDwellUntil = null;
+  visitor.userData.visitorInteractionLabel = "Leaving zoo";
+  visitor.userData.visitorLeavingZoo = true;
+}
+
+function completeVisitorDeparture(visitor, time) {
+  visitor.position.set(PARK_ENTRY_X, visitor.position.y, parkEntrySpawnZ());
+  deactivateVisitor(visitor, {
+    exitCooldownUntil: time + VISITOR_REENTRY_AFTER_EXIT_SECONDS,
+  });
+}
+
+function beginVisitorDwell(visitor, visitorIndex, building, time) {
+  visitor.userData.visitorCurrentBuildingId = building.id;
+  visitor.userData.visitorLastVisits[building.id] = time;
+  visitor.userData.visitorRoutePoints = null;
+  visitor.userData.visitorRouteStartedAt = null;
+  visitor.userData.visitorRouteTravelSeconds = null;
+  visitor.userData.visitorDwellUntil = time + visitorDwellSeconds(visitor, building);
+  visitor.userData.visitorInteractionLabel = visitorInteractionLabel(building);
+  const stopPoint = visitorStopPointForBuilding(building, visitorIndex);
+  visitor.position.set(stopPoint.x, visitor.position.y, stopPoint.z);
+}
+
+function chooseVisitorDestination(visitor, visitorIndex, time) {
+  const options = visitorAttractionOptions(visitor, time);
+  if (options.length === 0) {
+    return null;
+  }
+
+  const totalWeight = options.reduce((total, option) => total + option.weight, 0);
+  let roll = seededVisitorRandom(visitor, visitorIndex) * totalWeight;
+  for (const option of options) {
+    roll -= option.weight;
+    if (roll <= 0) return option.building;
+  }
+  return options[options.length - 1].building;
+}
+
+function visitorAttractionOptions(visitor, time) {
+  return buildings
+    .map((building) => ({
+      building,
+      weight: visitorBuildingInterestScore(visitor, building, time),
+    }))
+    .filter((option) => option.weight >= VISITOR_INTEREST_THRESHOLD);
+}
+
+function visitorBuildingInterestScore(visitor, building, time) {
+  return (
+    visitorBuildingAttraction(building) *
+    visitorBuildingOperationalMultiplier(building) *
+    visitorBuildingRecencyMultiplier(visitor, building, time)
+  );
+}
+
+function visitorBuildingAttraction(building) {
+  const kind = building.kind ?? building.id;
+
+  const category = buildingManifestByKind[kind]?.category;
+  const animals = animalsForBuilding(building);
+  const animalAppeal = animals.reduce(
+    (total, animal) => total + Number(animalSpeciesByKind[animal.kind]?.appeal ?? 4),
+    0,
+  );
+  if (category === "habitat" || kind.includes("habitat")) {
+    return 13 + animalAppeal;
+  }
+  if (kind === "snack_kiosk") return 10;
+  if (kind === "souvenir_stall") return 8;
+  if (kind === "restroom") return 7;
+  if (kind === "guest_plaza") return 6;
+  if (kind === "ticket_booth") return 4;
+  if (kind === "customer_entry") return 2;
+  if (category === "guest") return 5;
+  return 1.5;
+}
+
+function visitorBuildingOperationalMultiplier(building) {
+  if (constructionProgress(building, currentTime) < 1) return 0;
+  const required = requiredWorkerCount(building);
+  if (required === 0) return 1;
+  return isBuildingManned(building) ? 1 : 0.32;
+}
+
+function visitorBuildingRecencyMultiplier(visitor, building, time) {
+  const lastVisited = visitor?.userData.visitorLastVisits?.[building.id];
+  if (lastVisited == null) return 1;
+
+  const elapsed = Math.max(0, time - Number(lastVisited));
+  if (elapsed >= VISITOR_RECENCY_SECONDS) return 1;
+  return THREE.MathUtils.lerp(
+    VISITOR_RECENT_VISIT_MIN_MULTIPLIER,
+    1,
+    elapsed / VISITOR_RECENCY_SECONDS,
+  );
+}
+
+function seededVisitorRandom(visitor, visitorIndex = 0) {
+  const previousSeed = Number(
+    visitor?.userData.visitorSeed ?? 0x9e3779b1 + visitorIndex * 0x85ebca6b,
+  );
+  const nextSeed = (Math.imul(previousSeed, 1664525) + 1013904223) >>> 0;
+  if (visitor) visitor.userData.visitorSeed = nextSeed;
+  return nextSeed / 0x100000000;
+}
+
+function visitorDwellSeconds(visitor, building) {
+  const kind = building.kind ?? building.id;
+  const random = seededVisitorRandom(visitor, visitorGroups.indexOf(visitor));
+  if (kind === "snack_kiosk") return 6 + random * 4;
+  if (kind === "restroom") return 4 + random * 3;
+  if (kind === "souvenir_stall") return 5 + random * 4;
+  if (kind === "ticket_booth") return 3 + random * 2;
+  if (kind === "guest_plaza") return 5 + random * 5;
+  if ((buildingManifestByKind[kind]?.category === "habitat") || kind.includes("habitat")) {
+    return 8 + random * 6;
+  }
+  return 3 + random * 3;
+}
+
+function visitorInteractionLabel(building) {
+  const kind = building.kind ?? building.id;
+  const category = buildingManifestByKind[kind]?.category;
+  if (kind === "snack_kiosk") return "Eating";
+  if (kind === "restroom") return "Using services";
+  if (kind === "souvenir_stall") return "Shopping";
+  if (kind === "ticket_booth") return "Buying tickets";
+  if (kind === "customer_entry") return "Entering";
+  if (kind === "guest_plaza") return "Resting";
+  if (category === "habitat" || kind.includes("habitat")) {
+    return "Visiting animals";
+  }
+  return "Looking around";
+}
+
+function visitorStopPointForBuilding(building, visitorIndex = 0) {
+  if (!building) return visitorFallbackPathPoint();
+  const access = visitorAccessPointForBuilding(building);
+  const offset = visitorPathLaneOffset(access, visitorIndex);
+  return new THREE.Vector3(access.x + offset.x, 0, access.z + offset.z);
+}
+
+function visitorAccessPointForBuilding(building) {
+  const zDirection = building.position[2] > 1 ? -1 : 1;
+  const preferred = new THREE.Vector3(
+    building.position[0],
+    0,
+    building.position[2] + zDirection * (building.size[1] / 2 + 0.42),
+  );
+  const tile = nearestPathTileToPoint(preferred);
+  return tile ? pathPointForTile(tile) : visitorFallbackPathPoint();
+}
+
+function guestRoutePointsBetween(start, targetBuilding, visitorIndex = 0) {
+  const startTile = nearestPathTileToPoint(start);
+  const endTile = targetBuilding
+    ? visitorPathTileForBuilding(targetBuilding)
+    : nearestPathTileToPoint(visitorFallbackPathPoint());
+  const routeTiles = visitorPathTilesBetween(startTile, endTile);
+  const points = [];
+
+  for (const tile of routeTiles) {
+    appendDistinctPoint(points, pathPointForTile(tile));
+  }
+
+  appendDistinctPoint(points, visitorStopPointForBuilding(targetBuilding, visitorIndex));
+  return points;
+}
+
+function visitorPathTileForBuilding(building) {
+  if (!building) return nearestPathTileToPoint(visitorFallbackPathPoint());
+  return nearestPathTileToPoint(visitorAccessPointForBuilding(building));
+}
+
+function visitorPathTilesBetween(startTile, endTile) {
+  if (!startTile && !endTile) return [];
+  if (!startTile) return [endTile];
+  if (!endTile) return [startTile];
+  if (startTile.key === endTile.key) return [startTile];
+
+  const queue = [startTile];
+  const previousByKey = new Map([[startTile.key, null]]);
+
+  for (let readIndex = 0; readIndex < queue.length; readIndex += 1) {
+    const current = queue[readIndex];
+    if (current.key === endTile.key) break;
+
+    for (const key of adjacentTileKeys(current)) {
+      if (!pathTileKeys.has(key) || previousByKey.has(key)) continue;
+      previousByKey.set(key, current.key);
+      queue.push(pathTileFromKey(key));
+    }
+  }
+
+  if (!previousByKey.has(endTile.key)) return [startTile];
+
+  const path = [];
+  for (let key = endTile.key; key; key = previousByKey.get(key)) {
+    path.push(pathTileFromKey(key));
+  }
+  path.reverse();
+  return path;
+}
+
+function visitorFallbackPathPoint() {
+  const fallbackTile = nearestPathTileToPoint(new THREE.Vector3(1.8, 0, -0.7));
+  return fallbackTile ? pathPointForTile(fallbackTile) : new THREE.Vector3(1.8, 0, -0.7);
+}
+
+function visitorPathLaneOffset(pathPoint, visitorIndex = 0) {
+  const offset = ((visitorIndex % 5) - 2) * 0.055;
+  const tile = pathTileAtPoint(pathPoint);
+  if (!tile) return { x: 0, z: 0 };
+  const east = pathTileKeys.has(`${tile.col + 1}:${tile.row}`);
+  const west = pathTileKeys.has(`${tile.col - 1}:${tile.row}`);
+  const north = pathTileKeys.has(`${tile.col}:${tile.row + 1}`);
+  const south = pathTileKeys.has(`${tile.col}:${tile.row - 1}`);
+
+  if ((east || west) && !(north || south)) return { x: 0, z: offset };
+  return { x: offset, z: 0 };
+}
+
+function appendDistinctPoint(points, point) {
+  const last = points[points.length - 1];
+  if (!last || !pointsAreClose(last, point)) points.push(point.clone());
+}
+
+function pointsAreClose(left, right) {
+  return Math.abs(left.x - right.x) < 0.03 && Math.abs(left.z - right.z) < 0.03;
+}
+
+function visitorTravelSeconds(routePoints) {
+  let distance = 0;
+  for (let index = 0; index < routePoints.length - 1; index += 1) {
+    distance += routePoints[index].distanceTo(routePoints[index + 1]);
+  }
+  return Math.max(3, distance / VISITOR_WALK_SPEED);
+}
+
+function visitorPointAtTime(visitorIndex, time) {
+  const routeState = visitorRouteState(visitorIndex, time);
+  if (!routeState) {
+    return { x: PARK_ENTRY_X, z: parkEntrySpawnZ(), angle: 0 };
+  }
+  if (routeState.dwell) {
+    const point = routeState.routePoints[0] ?? new THREE.Vector3(PARK_ENTRY_X, 0, parkEntrySpawnZ());
+    return {
+      x: point.x,
+      z: point.z,
+      angle: visitorDwellAngle(visitorGroups[visitorIndex]),
+    };
+  }
+  return pointAlongRoute(routeState.routePoints, routeState.t);
+}
+
+function visitorDwellAngle(visitor) {
+  const building = buildingById(visitor?.userData.visitorCurrentBuildingId);
+  if (!building) return 0;
+  return Math.atan2(
+    building.position[0] - visitor.position.x,
+    building.position[2] - visitor.position.z,
+  );
+}
+
+function pointAlongRoute(routePoints, t) {
+  const segmentCount = routePoints.length - 1;
+  if (segmentCount <= 0) {
+    const point = routePoints[0] ?? new THREE.Vector3();
+    return { x: point.x, z: point.z, angle: 0 };
+  }
+
   const scaled = t * segmentCount;
   const index = Math.min(segmentCount - 1, Math.floor(scaled));
   const local = scaled - index;
-  const start = guestRoutePoints[index];
-  const end = guestRoutePoints[index + 1];
+  const start = routePoints[index];
+  const end = routePoints[index + 1];
   const position = start.clone().lerp(end, local);
   return {
     x: position.x,
@@ -2558,22 +3149,22 @@ function pathPoint(t) {
   };
 }
 
-function remainingGuestRoutePoints(t, height) {
-  const segmentCount = guestRoutePoints.length - 1;
+function remainingRoutePoints(routePoints, t, height) {
+  const segmentCount = routePoints.length - 1;
   if (segmentCount <= 0) return null;
 
   const safeT = THREE.MathUtils.clamp(t, 0, 0.999999);
   const scaled = safeT * segmentCount;
   const index = Math.min(segmentCount - 1, Math.floor(scaled));
   const local = scaled - index;
-  const start = guestRoutePoints[index];
-  const end = guestRoutePoints[index + 1];
+  const start = routePoints[index];
+  const end = routePoints[index + 1];
   const current = start.clone().lerp(end, local);
   current.y = height;
 
   const points = [current];
-  for (let pointIndex = index + 1; pointIndex < guestRoutePoints.length; pointIndex += 1) {
-    const point = guestRoutePoints[pointIndex].clone();
+  for (let pointIndex = index + 1; pointIndex < routePoints.length; pointIndex += 1) {
+    const point = routePoints[pointIndex].clone();
     point.y = height;
     points.push(point);
   }
@@ -3001,11 +3592,26 @@ function workerSummary(worker) {
   return "Idle on the zoo grounds.";
 }
 
+function workerPathLabel(worker) {
+  if (worker.walkTarget) {
+    const destination =
+      worker.walkTargetLabel ??
+      `${worker.walkTarget[0].toFixed(1)}, ${worker.walkTarget[2].toFixed(1)}`;
+    return `${worker.position[0].toFixed(1)}, ${worker.position[2].toFixed(1)} -> ${destination}`;
+  }
+  if (worker.assignmentTargetLabel) {
+    return `Holding at ${worker.assignmentTargetLabel}`;
+  }
+  return "No active path";
+}
+
 function workerDetails(worker) {
   return {
     Type: "Worker",
     Status: worker.walkTarget ? "Walking" : worker.assignmentTargetLabel ? "Assigned" : "Idle",
     Assignment: worker.assignmentTargetLabel ?? "None",
+    "Assigned Building": worker.assignedBuildingLabel ?? "None",
+    Path: workerPathLabel(worker),
     ...(worker.walkTarget ? { Destination: worker.walkTargetLabel ?? "Selected point" } : {}),
     Position: `${worker.position[0].toFixed(1)}, ${worker.position[2].toFixed(1)}`,
   };
@@ -3770,6 +4376,46 @@ function pathTileFromGrid(col, row) {
   };
 }
 
+function pathTileFromKey(key) {
+  const [col, row] = key.split(":").map((value) => Number.parseInt(value, 10));
+  return pathTileFromGrid(col, row);
+}
+
+function pathTileAtPoint(point) {
+  if (!point) return null;
+  const col = tileIndexForCoordinate(point.x, playableArea.minX, gridColumns);
+  const row = tileIndexForCoordinate(point.z, playableArea.minZ, gridRows);
+  return pathTileFromGrid(col, row);
+}
+
+function pathPointForTile(tile) {
+  return new THREE.Vector3(tile.x, 0, tile.z);
+}
+
+function nearestPathTileToPoint(point) {
+  if (!point || pathTileKeys.size === 0) return null;
+
+  let closest = null;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (const key of pathTileKeys) {
+    const tile = pathTileFromKey(key);
+    const dx = tile.x - point.x;
+    const dz = tile.z - point.z;
+    const distance = dx * dx + dz * dz;
+    if (distance < closestDistance) {
+      closest = tile;
+      closestDistance = distance;
+    }
+  }
+
+  return closest;
+}
+
+function pointIsOnExistingPathTile(point) {
+  const tile = pathTileAtPoint(point);
+  return Boolean(tile && pathTileKeys.has(tile.key));
+}
+
 function fencePointFromPointer(event) {
   const point = groundPointFromPointer(event);
   if (!point) return null;
@@ -4256,6 +4902,19 @@ function inspectorActionsForSelection() {
 
   if (selectedElement?.worker) {
     const worker = selectedElement.worker;
+    const buildingActions = buildings
+      .filter(
+        (building) =>
+          requiredWorkerCount(building) > 0 || worker.assignedBuildingId === building.id,
+      )
+      .sort((left, right) => left.label.localeCompare(right.label))
+      .map((building) => ({
+        label: `Assign to ${building.label}`,
+        hotkey: null,
+        disabled: !canReassignWorkerToBuilding(worker, building),
+        run: () => assignWorkerToBuilding(worker, building),
+      }));
+
     return [
       {
         label: activeWorkerCommand === worker ? "Command Pending" : "Command Worker",
@@ -4263,6 +4922,7 @@ function inspectorActionsForSelection() {
         disabled: false,
         run: () => startWorkerCommand(worker),
       },
+      ...buildingActions,
     ];
   }
 
@@ -4536,6 +5196,27 @@ function assignWorkerToSelection(worker, hit) {
   worker.assignedBuildingLabel = target.building?.label ?? null;
   setWorkerWalkTarget(worker, destination, target.label);
   updateState(currentTime);
+}
+
+function assignWorkerToBuilding(worker, building) {
+  if (!canReassignWorkerToBuilding(worker, building)) {
+    buildMenuStatusEl.textContent = `${building.label} is already fully staffed.`;
+    renderSelection();
+    return false;
+  }
+
+  const root = buildingMeshes.get(building.id);
+  const info = root?.userData.selectionInfo;
+  if (!root || !info) return false;
+
+  assignWorkerToSelection(worker, {
+    info,
+    root,
+    point: worldPositionForObject(root),
+  });
+  finishWorkerCommand(worker);
+  buildMenuStatusEl.textContent = `${worker.label} reassigned to ${building.label}.`;
+  return true;
 }
 
 function workerDestinationForSelection(worker, hit) {
@@ -4872,6 +5553,21 @@ function installTestApi() {
       if (!settings.motionEffects) resetAnimatedObjects();
       return settings.motionEffects;
     },
+    exhaustVisitorInterest(visitorIndex = 0) {
+      const visitor = visitorGroups[visitorIndex];
+      if (!visitor?.userData.visitorActive) {
+        throw new Error(`Visitor ${visitorIndex + 1} is not active`);
+      }
+      for (const building of buildings) {
+        if (visitorBuildingAttraction(building) > 0) {
+          visitor.userData.visitorLastVisits[building.id] = currentTime;
+        }
+      }
+      const fromPoint = new THREE.Vector3(visitor.position.x, 0, visitor.position.z);
+      assignNextVisitorDestination(visitor, visitorIndex, currentTime, { fromPoint });
+      renderer.render(scene, camera);
+      return currentTestState();
+    },
     getState() {
       return currentTestState();
     },
@@ -4933,6 +5629,22 @@ function currentTestState() {
       kind: animal.kind,
       label: animal.label,
       buildingId: animal.buildingId,
+    })),
+    visitors: visitorGroups.map((visitor, index) => ({
+      id: `visitor-${index + 1}`,
+      visible: visitor.visible,
+      active: Boolean(visitor.userData.visitorActive),
+      leavingZoo: Boolean(visitor.userData.visitorLeavingZoo),
+      status: visitorStatusLabel(visitor),
+      targetBuildingId: visitor.userData.visitorTargetBuildingId,
+      currentBuildingId: visitor.userData.visitorCurrentBuildingId,
+      interaction: visitor.userData.visitorInteractionLabel,
+      recentlyVisitedBuildingIds: Object.keys(visitor.userData.visitorLastVisits ?? {}),
+      position: {
+        x: visitor.position.x,
+        z: visitor.position.z,
+      },
+      onPath: pointIsOnExistingPathTile(visitor.position),
     })),
     buildings: buildings.map((building) => ({
       id: building.id,

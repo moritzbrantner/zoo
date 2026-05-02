@@ -532,6 +532,7 @@ dd,
   padding: 14px 16px;
   border-radius: 8px;
   transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .inspector dl {
@@ -539,6 +540,7 @@ dd,
   grid-template-columns: 96px minmax(0, 1fr) 96px minmax(0, 1fr);
   gap: 8px 12px;
   margin: 12px 0 0;
+  pointer-events: none;
 }
 
 .inspector dt {
@@ -554,19 +556,24 @@ dd,
 
 #inspector-summary {
   margin-top: 5px;
+  pointer-events: none;
 }
 
 .inspector-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   margin-top: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  pointer-events: none;
 }
 
 .animal-roster {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
+  pointer-events: none;
 }
 
 .animal-roster[hidden] {
@@ -590,6 +597,7 @@ dd,
 }
 
 .animal-roster-item {
+  pointer-events: auto;
   width: 100%;
   padding: 10px;
   border: 1px solid var(--line);
@@ -645,6 +653,8 @@ dd,
 }
 
 .inspector-action {
+  pointer-events: auto;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
@@ -658,6 +668,7 @@ dd,
   cursor: pointer;
   font-size: 0.78rem;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .inspector-action:hover,

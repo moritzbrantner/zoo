@@ -60,18 +60,98 @@ test.describe("zoo game state fixtures", () => {
   }) => {
     await zooGame.start();
 
-    await expect.poll(() => zooGame.hasSelectionPoint("visitor-2")).toBe(false);
+    await expect.poll(() => zooGame.hasSelectionPoint("visitor-1")).toBe(false);
     await zooGame.assignWorker("building-savanna_habitat");
     await zooGame.assignWorker("building-savanna_habitat");
 
-    await expect.poll(() => zooGame.hasSelectionPoint("visitor-2")).toBe(true);
-    await zooGame.clickSelection("visitor-2");
-    await expect(page.locator("#inspector-title")).toHaveText("Visitor 2");
-    await expect(page.locator("#inspector-details")).toContainText("On path");
+    await zooGame.setState(12);
+    await expect.poll(() => zooGame.hasSelectionPoint("visitor-1")).toBe(true);
+    await zooGame.clickSelection("visitor-1");
+    await expect(page.locator("#inspector-title")).toHaveText("Visitor 1");
+    await expect(page.locator("#inspector-details")).toContainText("Visiting animals");
     await expect(page.locator("#inspector-details")).toContainText("Guest loop");
 
     await page.getByRole("button", { name: "Inspect Visitors" }).click();
-    await expect(page.locator("#inspector-details")).toContainText("14 / 42");
+    await expect(page.locator("#inspector-details")).toContainText(/\d+ \/ 42/);
+  });
+
+  test("visitor animation paces arrivals and keeps entered guests inside the park", async ({
+    zooGame,
+  }) => {
+    await zooGame.start();
+    await zooGame.assignWorker("building-savanna_habitat");
+    await zooGame.assignWorker("building-savanna_habitat");
+
+    const staffed = await zooGame.state();
+    expect(staffed.visitors.filter((visitor) => visitor.visible)).toHaveLength(1);
+
+    await zooGame.setState(3);
+    const beforeNextEntry = await zooGame.state();
+    expect(beforeNextEntry.visitors.filter((visitor) => visitor.visible)).toHaveLength(1);
+
+    await zooGame.setState(5);
+    const afterNextEntry = await zooGame.state();
+    expect(afterNextEntry.visitors.filter((visitor) => visitor.visible)).toHaveLength(2);
+
+    await zooGame.setState(20);
+    const circulated = await zooGame.state();
+    expect(circulated.visitors[0].position.z).toBeLessThanOrEqual(4.5);
+    expect(
+      circulated.visitors
+        .filter((visitor) => visitor.visible)
+        .every((visitor) => visitor.onPath),
+    ).toBe(true);
+  });
+
+  test("visitors pick weighted buildings and pause before choosing another stop", async ({
+    zooGame,
+  }) => {
+    await zooGame.start();
+    await zooGame.assignWorker("building-savanna_habitat");
+    await zooGame.assignWorker("building-savanna_habitat");
+
+    await zooGame.setState(5);
+    const arrivals = await zooGame.state();
+    const activeTargets = arrivals.visitors
+      .filter((visitor) => visitor.active)
+      .map((visitor) => visitor.targetBuildingId);
+    expect(new Set(activeTargets).size).toBeGreaterThan(1);
+
+    await zooGame.setState(12);
+    const interacting = await zooGame.state();
+    expect(interacting.visitors[0]).toMatchObject({
+      currentBuildingId: "savanna_habitat",
+      interaction: "Visiting animals",
+    });
+
+    await zooGame.setState(22);
+    const afterDwell = await zooGame.state();
+    expect(afterDwell.visitors[0].recentlyVisitedBuildingIds).toContain("savanna_habitat");
+    expect(afterDwell.visitors[0].targetBuildingId).not.toBe("savanna_habitat");
+  });
+
+  test("visitors leave when no activity clears their interest threshold", async ({ zooGame }) => {
+    await zooGame.start();
+    await zooGame.assignWorker("building-savanna_habitat");
+    await zooGame.assignWorker("building-savanna_habitat");
+
+    await zooGame.setState(5);
+    const leaving = await zooGame.exhaustVisitorInterest(0);
+    expect(leaving.visitors[0]).toMatchObject({
+      active: true,
+      leavingZoo: true,
+      status: "Leaving",
+      targetBuildingId: null,
+      interaction: "Leaving zoo",
+    });
+
+    await zooGame.setState(40);
+    const departed = await zooGame.state();
+    expect(departed.visitors[0]).toMatchObject({
+      active: false,
+      leavingZoo: false,
+      visible: false,
+    });
   });
 
   test("right-clicks a building and assigns workers until it is fully manned", async ({
@@ -175,6 +255,34 @@ test.describe("zoo game state fixtures", () => {
     const arrived = await zooGame.state();
     expect(arrived.workers[0].position.x).toBeCloseTo(-5.5, 1);
     expect(arrived.workers[0].position.z).toBeCloseTo(-4, 1);
+  });
+
+  test("clicking a worker shows its path and assigned building, and the inspector can reassign it", async ({
+    page,
+    zooGame,
+  }) => {
+    await zooGame.start();
+    await zooGame.assignWorker("building-savanna_habitat");
+
+    await zooGame.clickSelection("worker-spawned_1");
+    await expect(page.locator("#inspector-title")).toHaveText("Worker 1");
+    await expect(page.locator("#inspector-details")).toContainText("Assigned Building");
+    await expect(page.locator("#inspector-details")).toContainText("Savanna Habitat");
+    await expect(page.locator("#inspector-details")).toContainText("Holding at Savanna Habitat");
+
+    await page.getByRole("button", { name: "Assign to Keeper Kitchen" }).click();
+    await expect(page.locator("#inspector-details")).toContainText("Keeper Kitchen");
+    await expect(page.locator("#inspector-details")).toContainText("Walking");
+
+    await expect
+      .poll(async () => (await zooGame.state()).workers[0])
+      .toMatchObject({
+        assignmentTargetId: "building-keeper_kitchen",
+        assignedBuildingId: "keeper_kitchen",
+        walkTarget: expect.objectContaining({
+          label: "Keeper Kitchen",
+        }),
+      });
   });
 
   test("selected worker reassignment to a building keeps a walk target until arrival", async ({

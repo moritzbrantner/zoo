@@ -71,6 +71,13 @@ class ZooGame {
     return this.page.evaluate((fee) => window.__zooTestApi.setEntryFee(fee), value);
   }
 
+  async exhaustVisitorInterest(visitorIndex = 0) {
+    return this.page.evaluate(
+      (nextVisitorIndex) => window.__zooTestApi.exhaustVisitorInterest(nextVisitorIndex),
+      visitorIndex,
+    );
+  }
+
   timeForState(state) {
     if (typeof state === "number") return state;
     if (!(state in gameStates)) {
