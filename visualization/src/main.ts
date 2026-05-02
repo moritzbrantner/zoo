@@ -19,6 +19,8 @@ const mainMenuEl = document.querySelector(".main-menu");
 const startZooEl = document.querySelector("#start-zoo");
 const startZooLabelEl = document.querySelector("#start-zoo-label");
 const mainMenuSummaryEl = document.querySelector("#main-menu-summary");
+const openSimulationsEl = document.querySelector("#open-simulations-menu");
+const simulationOptionsEl = document.querySelector("#simulation-options");
 const mainMenuToggleEl = document.querySelector("#main-menu-toggle");
 const openSettingsEls = document.querySelectorAll("[data-open-settings]");
 const openWikiEls = document.querySelectorAll("[data-open-wiki]");
@@ -38,6 +40,7 @@ const motionEffectsEl = document.querySelector("#motion-effects");
 const shadowToggleEl = document.querySelector("#shadow-toggle");
 const gameplayEls = document.querySelectorAll(".hud, .inspector, .build-menu, .controls");
 const clockEl = document.querySelector("#clock");
+const availableWorkersEl = document.querySelector("#available-workers");
 const phaseEl = document.querySelector("#phase-label");
 const syncStatusEl = document.querySelector("#sync-status");
 const entryFeeEl = document.querySelector("#entry-fee");
@@ -240,6 +243,34 @@ const animalVisualProfiles = {
   gorilla_troop: { color: 0x58514c, scale: 0.84, behavior: "Foraging" },
   elephant_herd: { color: 0x8f8f92, scale: 0.98, behavior: "Roaming" },
 };
+const simulationPresets = [
+  {
+    id: "staffing-needed",
+    stateName: "staffingNeeded",
+    label: "Staffing Needed",
+    summary: "Opening state with unmanned operations and the starter park layout.",
+    time: 0,
+    entryFee: DEFAULT_ENTRY_FEE,
+    workers: [],
+    animals: [],
+  },
+  {
+    id: "operating-zoo",
+    stateName: "operating",
+    label: "Operating Zoo",
+    summary: "Staffed habitat, ticket booth, kitchen, animals, and active visitor flow.",
+    time: 24,
+    entryFee: DEFAULT_ENTRY_FEE,
+    workers: ["savanna_habitat", "savanna_habitat", "ticket_booth", "keeper_kitchen"],
+    animals: [{ buildingId: "savanna_habitat", kind: "rabbit_colony" }],
+  },
+];
+const simulationPresetById = Object.fromEntries(
+  simulationPresets.map((preset) => [preset.id, preset]),
+);
+const simulationPresetByStateName = Object.fromEntries(
+  simulationPresets.map((preset) => [preset.stateName, preset]),
+);
 
 const buildings = [
   {
@@ -356,13 +387,14 @@ const CONTEXT_MENU_HOTKEYS = {
 const GLOBAL_HOTKEYS = {
   resetView: "v",
 };
+const BUILDING_ROTATION_HOTKEY = "r";
 const ANIMAL_DRAG_THRESHOLD = 10;
 
 const PATH_TILE_SIZE = 1;
-const PATH_TILE_VISUAL_SIZE = 0.82;
+const PATH_TILE_VISUAL_SIZE = PATH_TILE_SIZE;
 const PATH_TILE_EPSILON = 1e-6;
-const INITIAL_GRID_COLUMNS = 12;
-const INITIAL_GRID_ROWS = 9;
+const INITIAL_GRID_COLUMNS = 24;
+const INITIAL_GRID_ROWS = 18;
 const LAND_EXPANSION_COLUMNS = 2;
 const LAND_EXPANSION_ROWS = 2;
 const LAND_PURCHASE_BASE_COST = 120;
@@ -373,13 +405,15 @@ let gridRows = INITIAL_GRID_ROWS;
 let playableArea = createPlayableArea(gridColumns, gridRows);
 
 function createPlayableArea(columns, rows) {
+  const width = columns * PATH_TILE_SIZE;
+  const depth = rows * PATH_TILE_SIZE;
   return {
-    width: columns * PATH_TILE_SIZE,
-    depth: rows * PATH_TILE_SIZE,
-    minX: -6,
-    maxX: -6 + columns * PATH_TILE_SIZE,
-    minZ: -4.5,
-    maxZ: -4.5 + rows * PATH_TILE_SIZE,
+    width,
+    depth,
+    minX: -width / 2,
+    maxX: width / 2,
+    minZ: -depth / 2,
+    maxZ: depth / 2,
   };
 }
 
@@ -401,8 +435,8 @@ scene.fog = new THREE.Fog(0x98c7d5, 13, 28);
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 80);
 const defaultCamera = {
-  position: new THREE.Vector3(6.5, 8.1, 8.6),
-  target: new THREE.Vector3(0, 0, 0.4),
+  position: new THREE.Vector3(0, 14, 18),
+  target: new THREE.Vector3(0, 0, 1.5),
 };
 camera.position.copy(defaultCamera.position);
 
@@ -506,6 +540,8 @@ const playerPlacedBuildings = [];
 const localAnimalGroups = [];
 const localAnimalAreaUnlocks = new Set(["rabbit_colony"]);
 const localResourceSpend = Object.create(null);
+const playerMapGroups = [];
+const playerPathTileKeys = new Set();
 const settings = {
   speedMultiplier: Number(simSpeedEl.value),
   motionEffects: motionEffectsEl.checked,
@@ -564,6 +600,8 @@ let placementPreview = null;
 let placementPreviewMaterial = null;
 let activeBuildItem = null;
 let placementValid = false;
+let lastPointerClientPoint = null;
+let placementPointerPoint = null;
 let placedBuildingCount = 0;
 let activePathTool = false;
 let pathDrawing = false;
@@ -610,11 +648,11 @@ createVisitors();
 createResourceRows();
 createBuildOptions();
 createFenceOptions();
+createSimulationOptions();
 populateWiki();
 updatePathBuilderUi();
 updateState(0);
-const defaultSelectionRoot = buildingMeshes.get(buildings[1].id);
-selectElement(defaultSelectionRoot.userData.selectionInfo, defaultSelectionRoot);
+selectDefaultElement();
 setMenuOpen(true);
 resize();
 installTestApi();
@@ -646,6 +684,7 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 startZooEl.addEventListener("click", startZoo);
+openSimulationsEl.addEventListener("click", toggleSimulationOptions);
 buildMenuToggleEl.addEventListener("click", toggleBuildMenu);
 closeBuildMenuEl.addEventListener("click", closeBuildMenu);
 mainMenuToggleEl.addEventListener("click", showMainMenu);
@@ -767,13 +806,8 @@ document.addEventListener("keydown", (event) => {
 });
 
 function startZoo() {
-  hideContextMenu();
-  cancelWorkerCommand();
-  cancelAnimalDrag();
-  closeSettings();
-  closeWiki();
-  closeVisitorHistory();
-  closeBuildMenu();
+  closeTransientUi();
+  setSimulationOptionsOpen(false);
   if (!hasStartedGame) {
     currentTime = 0;
     updateState(currentTime);
@@ -783,6 +817,126 @@ function startZoo() {
   simulationStarted = true;
   setMenuOpen(false);
   updateMainMenu();
+}
+
+function startSimulationPreset(presetId) {
+  const preset = simulationPresetById[presetId];
+  if (!preset) return;
+
+  closeTransientUi();
+  setSimulationOptionsOpen(false);
+  resetGameState();
+  applySimulationPreset(preset);
+  serverSession = null;
+  syncStatusEl.textContent = "Sync: local simulation";
+  hasStartedGame = true;
+  simulationStarted = true;
+  setMenuOpen(false);
+  updateMainMenu();
+}
+
+function closeTransientUi() {
+  hideContextMenu();
+  cancelWorkerCommand();
+  cancelAnimalDrag();
+  closeSettings();
+  closeWiki();
+  closeVisitorHistory();
+  closeBuildMenu();
+}
+
+function resetGameState() {
+  cancelPlacement();
+  cancelMapBuilder();
+  hideContextMenu();
+  cancelWorkerCommand();
+  cancelAnimalDrag();
+
+  for (const worker of workers) {
+    const root = scene.getObjectByProperty("uuid", worker.groupUuid);
+    if (!root) continue;
+    removeSelectableEntries(root);
+    root.parent?.remove(root);
+    disposeObject3D(root);
+  }
+  workers.length = 0;
+  spawnedWorkerCount = 0;
+
+  for (const animalGroup of localAnimalGroups) {
+    const root = animalGroup.renderRoot;
+    if (!root) continue;
+    removeSelectableEntries(root);
+    root.parent?.remove(root);
+    disposeObject3D(root);
+  }
+  localAnimalGroups.length = 0;
+  localAnimalCount = 0;
+
+  for (const building of playerPlacedBuildings) {
+    const root = buildingMeshes.get(building.id);
+    if (root) {
+      removeSelectableEntries(root);
+      root.parent?.remove(root);
+      disposeObject3D(root);
+      buildingMeshes.delete(building.id);
+    }
+    const index = buildings.indexOf(building);
+    if (index >= 0) buildings.splice(index, 1);
+  }
+  playerPlacedBuildings.length = 0;
+  placedBuildingCount = 0;
+
+  for (const group of playerMapGroups) {
+    removeSelectableEntries(group);
+    group.parent?.remove(group);
+  }
+  playerMapGroups.length = 0;
+  for (const key of playerPathTileKeys) {
+    pathTileKeys.delete(key);
+  }
+  playerPathTileKeys.clear();
+  playerAreaTileKeys.clear();
+  playerFenceSegmentKeys.clear();
+  playerFenceSegments.length = 0;
+  playerPathCount = 0;
+  playerAreaCount = 0;
+  playerFenceCount = 0;
+
+  for (const key of Object.keys(localResourceSpend)) {
+    delete localResourceSpend[key];
+  }
+  localAnimalAreaUnlocks.clear();
+  localAnimalAreaUnlocks.add("rabbit_colony");
+  landState.purchases = 0;
+  landState.coinsSpent = 0;
+  setPlayableAreaSize(INITIAL_GRID_COLUMNS, INITIAL_GRID_ROWS);
+  refreshPlayableAreaGeometry();
+  setEntryFee(DEFAULT_ENTRY_FEE);
+  currentTime = 0;
+  simulationStarted = false;
+  hasStartedGame = false;
+  serverSession = null;
+  resetVisitorFlow(0);
+  resetCamera();
+  updateState(currentTime);
+  selectDefaultElement();
+}
+
+function applySimulationPreset(preset) {
+  setEntryFee(preset.entryFee ?? DEFAULT_ENTRY_FEE);
+  for (const buildingId of preset.workers ?? []) {
+    const building = buildingById(buildingId);
+    if (building) spawnWorkerForBuilding(building);
+  }
+  for (const animal of preset.animals ?? []) {
+    const building = buildingById(animal.buildingId);
+    const species = animalSpeciesByKind[animal.kind];
+    if (building && species) addAnimalGroupToBuilding(building, species);
+  }
+  currentTime = Math.max(0, Number(preset.time) || 0);
+  resetVisitorFlow(currentTime);
+  updateState(currentTime);
+  selectDefaultElement();
 }
 
 async function connectServerWorld() {
@@ -984,8 +1138,8 @@ function updateMainMenu() {
   startZooLabelEl.textContent = nextLabel;
   startZooEl.setAttribute("aria-label", nextLabel);
   mainMenuSummaryEl.textContent = hasStartedGame
-    ? `Paused at ${Math.floor(currentTime)}s. Continue your zoo, adjust settings, or browse the wiki.`
-    : "Start a new zoo run, adjust settings, or browse the zoo wiki.";
+    ? `Paused at ${Math.floor(currentTime)}s. Continue your zoo, start a preset simulation, or browse the wiki.`
+    : "Start a new zoo run, launch a preset simulation, adjust settings, or browse the zoo wiki.";
 }
 
 function populateWiki() {
@@ -1114,6 +1268,43 @@ function configureHotkeyLabels() {
 
 function zooHotkeyBindings() {
   const bindings = [];
+  const hoveredBuilding = activeBuildItem ? null : hoveredRotatableBuilding();
+
+  if (activeBuildItem) {
+    bindings.push(
+      {
+        key: BUILDING_ROTATION_HOTKEY,
+        shiftKey: true,
+        run: () => rotateActiveBuildItem(-1),
+      },
+      {
+        key: BUILDING_ROTATION_HOTKEY,
+        shiftKey: false,
+        run: () => rotateActiveBuildItem(1),
+      },
+    );
+  } else if (
+    hoveredBuilding &&
+    !buildMenuIsOpen() &&
+    !contextMenuIsOpen() &&
+    !activePathTool &&
+    !activeAreaTool &&
+    !activeFenceTool &&
+    !activeWorkerCommand
+  ) {
+    bindings.push(
+      {
+        key: BUILDING_ROTATION_HOTKEY,
+        shiftKey: true,
+        run: () => rotatePlacedBuilding(hoveredBuilding, -1),
+      },
+      {
+        key: BUILDING_ROTATION_HOTKEY,
+        shiftKey: false,
+        run: () => rotatePlacedBuilding(hoveredBuilding, 1),
+      },
+    );
+  }
 
   if (buildMenuIsOpen()) {
     bindings.push(
@@ -1244,14 +1435,119 @@ function resetCamera() {
   clampCameraToPlayableArea();
 }
 
+function hoveredRotatableBuilding() {
+  if (!lastPointerClientPoint) return null;
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((lastPointerClientPoint.x - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((lastPointerClientPoint.y - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+
+  const hit = raycaster
+    .intersectObjects(selectable, false)
+    .find(({ object }) => isWorldVisible(object) && object.userData.selectionInfo?.building);
+  return hit?.object.userData.selectionInfo.building ?? null;
+}
+
+function rotateActiveBuildItem(direction) {
+  if (!activeBuildItem) return;
+
+  const nextQuarter = normalizedRotationQuarter(activeBuildItem.rotationQuarter + direction);
+  const nextSize = rotatedFootprintSize(activeBuildItem.baseSize, nextQuarter);
+  const rotatedItem = {
+    ...activeBuildItem,
+    size: nextSize,
+    rotationQuarter: nextQuarter,
+  };
+
+  if (placementPointerPoint) {
+    const position = snapPlacementPoint(placementPointerPoint, nextSize);
+    if (!canPlaceBuilding(rotatedItem, position)) {
+      buildMenuStatusEl.textContent = placementInvalidMessage(rotatedItem, position);
+      return;
+    }
+  }
+
+  activeBuildItem = rotatedItem;
+  placementValid = false;
+  createPlacementPreview(activeBuildItem);
+  if (placementPointerPoint) {
+    updatePlacementPreviewAtPoint(placementPointerPoint);
+  } else {
+    buildMenuStatusEl.textContent = "Rotated. Point at the zoo grounds.";
+  }
+  updateBuildOptionStyles();
+}
+
+function rotatePlacedBuilding(building, direction) {
+  if (!building) return;
+  ensureBuildingRotationState(building);
+
+  const nextQuarter = normalizedRotationQuarter(building.rotationQuarter + direction);
+  const nextSize = rotatedFootprintSize(building.baseSize, nextQuarter);
+  const position = { x: building.position[0], z: building.position[2] };
+  const rotatedItem = {
+    ...building,
+    size: nextSize,
+    requiresPath: buildingRequiresPath(building),
+  };
+
+  if (!canPlaceBuilding(rotatedItem, position, { ignoreBuildingId: building.id })) {
+    buildMenuStatusEl.textContent = `${building.label} needs more room to rotate.`;
+    return;
+  }
+
+  building.rotationQuarter = nextQuarter;
+  building.size = nextSize;
+  const group = buildingMeshes.get(building.id);
+  if (group) {
+    group.rotation.y = buildingRotationRadians(building);
+  }
+  relayoutAnimalsInBuilding(building);
+  if (selectedElement?.building === building) {
+    renderSelection();
+  }
+  updateState(currentTime);
+  buildMenuStatusEl.textContent = `${building.label} rotated.`;
+}
+
+function ensureBuildingRotationState(building) {
+  if (!building.baseSize) building.baseSize = [...building.size];
+  building.rotationQuarter = normalizedRotationQuarter(building.rotationQuarter ?? 0);
+  building.size = rotatedFootprintSize(building.baseSize, building.rotationQuarter);
+  return building;
+}
+
+function normalizedRotationQuarter(value) {
+  return ((value % 4) + 4) % 4;
+}
+
+function rotatedFootprintSize(baseSize, rotationQuarter) {
+  return rotationQuarter % 2 === 0 ? [...baseSize] : [baseSize[1], baseSize[0]];
+}
+
+function buildingRotationRadians(building) {
+  return normalizedRotationQuarter(building.rotationQuarter ?? 0) * (Math.PI / 2);
+}
+
+function buildingRequiresPath(building) {
+  const kind = building.kind ?? building.id;
+  return Boolean(building.requiresPath ?? buildingManifestByKind[kind]?.requiresPath);
+}
+
 function setPlacementItem(item) {
   openBuildMenu();
   cancelPathBuilder({ resetStatus: false });
   cancelAreaBuilder({ resetStatus: false });
   cancelFenceBuilder({ resetStatus: false });
-  activeBuildItem = item;
+  activeBuildItem = {
+    ...item,
+    baseSize: [...item.size],
+    size: [...item.size],
+    rotationQuarter: 0,
+  };
   placementValid = false;
-  createPlacementPreview(item);
+  placementPointerPoint = null;
+  createPlacementPreview(activeBuildItem);
   buildMenuStatusEl.textContent = "Click a clear tile to place.";
   updateBuildOptionStyles();
 }
@@ -1259,6 +1555,7 @@ function setPlacementItem(item) {
 function cancelPlacement() {
   activeBuildItem = null;
   placementValid = false;
+  placementPointerPoint = null;
   if (placementPreview) placementPreview.visible = false;
   buildMenuStatusEl.textContent = "Choose a building or map tool.";
   updateBuildOptionStyles();
@@ -1404,12 +1701,14 @@ function createBoard() {
     }),
   );
 
-  addPathSegment("Entry Path", PARK_ENTRY_X, 3.55, 0.72, 2.1);
-  addPathSegment("Main Guest Path", 0, 2.55, 8.6, 0.72);
-  addPathSegment("Kitchen Path", -2.2, 0.45, 0.72, 4.2);
-  addPathSegment("Habitat Path", 1.75, 0.35, 0.72, 4.45);
-  addPathSegment("Feed Shed Path", -3.5, 2.4, 2.3, 0.72);
-  addPathSegment("Plaza Path", 3.05, 2.4, 2.55, 0.72);
+  addPathSegment("Entry Path", PARK_ENTRY_X, (parkEntryGateZ() + 3.5) / 2, 1, parkEntryGateZ() - 3.5);
+  addPathSegment("Main Guest Path", 0, 3.5, 10, 1);
+  addPathSegment("Kitchen Path", -2.5, 1.5, 1, 5);
+  addPathSegment("Habitat Path", 1.5, 1, 1, 6);
+  addPathSegment("Animal Area Spur", -4.5, -0.5, 5, 1);
+  addPathSegment("Habitat Viewing Spur", 3.5, -0.5, 5, 1);
+  addPathSegment("Feed Shed Path", -3.5, 2.5, 3, 1);
+  addPathSegment("Plaza Path", 3, 2.5, 4, 1);
 
   refreshPlayableAreaGeometry();
 }
@@ -1749,11 +2048,13 @@ function createBuildings() {
 }
 
 function addBuildingToScene(building) {
+  ensureBuildingRotationState(building);
   if ((building.kind ?? building.id) === "customer_entry") {
     building.position = parkEntryBuildingPosition();
   }
   const group = createBuildingMesh(building);
   group.position.set(...building.position);
+  group.rotation.y = buildingRotationRadians(building);
   group.userData.building = building;
   scene.add(group);
   buildingMeshes.set(building.id, group);
@@ -1763,18 +2064,19 @@ function addBuildingToScene(building) {
 }
 
 function createBuildingMesh(building, { preview = false } = {}) {
+  const modelBuilding = building.baseSize ? { ...building, size: building.baseSize } : building;
   const kind = building.kind ?? building.id;
-  if (kind === "customer_entry") return createCustomerEntry(building, { preview });
-  if (kind === "keeper_kitchen") return createKitchen(building, { preview });
-  if (kind === "savanna_habitat") return createHabitat(building, { preview });
-  if (kind === "ticket_booth") return createTicketBooth(building, { preview });
-  if (kind === "feed_shed") return createFeedShed(building);
-  if (kind === "guest_plaza") return createGuestPlaza(building);
+  if (kind === "customer_entry") return createCustomerEntry(modelBuilding, { preview });
+  if (kind === "keeper_kitchen") return createKitchen(modelBuilding, { preview });
+  if (kind === "savanna_habitat") return createHabitat(modelBuilding, { preview });
+  if (kind === "ticket_booth") return createTicketBooth(modelBuilding, { preview });
+  if (kind === "feed_shed") return createFeedShed(modelBuilding);
+  if (kind === "guest_plaza") return createGuestPlaza(modelBuilding);
   const asset = buildingManifest.find((entry) => entry.kind === kind);
   if (asset?.category === "habitat") {
-    return createGenericHabitat(building, asset, { preview });
+    return createGenericHabitat(modelBuilding, asset, { preview });
   }
-  return createGenericBuilding(building, asset, { preview });
+  return createGenericBuilding(modelBuilding, asset, { preview });
 }
 
 function createGenericBuilding(building, asset, { preview = false } = {}) {
@@ -2391,6 +2693,32 @@ function createBuildOptions() {
   buildOptionsEl.append(fragment);
 }
 
+function createSimulationOptions() {
+  const fragment = document.createDocumentFragment();
+  for (const preset of simulationPresets) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "simulation-option";
+    button.dataset.simulationPreset = preset.id;
+    button.innerHTML = `
+      <strong>${preset.label}</strong>
+      <span>${preset.summary}</span>
+    `;
+    button.addEventListener("click", () => startSimulationPreset(preset.id));
+    fragment.append(button);
+  }
+  simulationOptionsEl.replaceChildren(fragment);
+}
+
+function toggleSimulationOptions() {
+  setSimulationOptionsOpen(simulationOptionsEl.hidden);
+}
+
+function setSimulationOptionsOpen(open) {
+  simulationOptionsEl.hidden = !open;
+  openSimulationsEl.setAttribute("aria-expanded", String(open));
+}
+
 function createFenceOptions() {
   const fragment = document.createDocumentFragment();
   for (const fence of fenceManifest) {
@@ -2461,6 +2789,7 @@ function updateState(time) {
   syncLocalAnimalUnlocks(resourceState);
 
   clockEl.textContent = `${roundedTime}s`;
+  availableWorkersEl.textContent = formatAvailableWorkers(availableWorkerCount());
   phaseEl.textContent = phaseForSimulation();
   entryFeeValueEl.textContent = formatMoney(pricing.entryFee);
   willingnessValueEl.textContent = `${formatMoney(pricingState.willingness)} willing`;
@@ -2628,6 +2957,18 @@ function assignedWorkerCount(building) {
 
 function assignedWorkersForBuilding(building) {
   return workers.filter((worker) => worker.assignedBuildingId === building.id);
+}
+
+function availableWorkerCount() {
+  return buildings.reduce(
+    (total, building) =>
+      total + Math.max(0, requiredWorkerCount(building) - assignedWorkerCount(building)),
+    0,
+  );
+}
+
+function formatAvailableWorkers(count) {
+  return `${count} worker${count === 1 ? "" : "s"} available`;
 }
 
 function isBuildingManned(building) {
@@ -3895,10 +4236,13 @@ function createPlacementPreview(item) {
       kind: item.kind,
       label: item.label,
       size: item.size,
+      baseSize: item.baseSize,
+      rotationQuarter: item.rotationQuarter,
     },
     { preview: true },
   );
   ghostBuilding.position.y = 0.02;
+  ghostBuilding.rotation.y = buildingRotationRadians(item);
   preparePlacementGhost(ghostBuilding);
 
   placementPreview = new THREE.Group();
@@ -3911,6 +4255,13 @@ function updatePlacementPreview(event) {
   if (!activeBuildItem || !placementSurface || !placementPreview) return null;
 
   const point = groundPointFromPointer(event);
+  placementPointerPoint = point ? point.clone() : null;
+  return updatePlacementPreviewAtPoint(point);
+}
+
+function updatePlacementPreviewAtPoint(point) {
+  if (!activeBuildItem || !placementPreview) return null;
+
   if (!point) {
     placementPreview.visible = false;
     placementValid = false;
@@ -3992,6 +4343,9 @@ function placeActiveBuilding(event) {
     label: activeBuildItem.label,
     position: [position.x, 0, position.z],
     size: [...activeBuildItem.size],
+    baseSize: [...activeBuildItem.baseSize],
+    rotationQuarter: activeBuildItem.rotationQuarter,
+    requiresPath: Boolean(activeBuildItem.requiresPath),
     requiredWorkers: activeBuildItem.requiredWorkers ?? 0,
     resourceOutput: { ...(activeBuildItem.resourceOutput ?? {}) },
     visitorPointOfInterest: Boolean(activeBuildItem.visitorPointOfInterest),
@@ -4188,9 +4542,11 @@ function confirmPathDraft() {
     mesh.receiveShadow = true;
     group.add(mesh);
     pathTileKeys.add(tile.key);
+    playerPathTileKeys.add(tile.key);
   }
 
   scene.add(group);
+  playerMapGroups.push(group);
   const pathInfo = createPlayerPathInfo(playerPathCount, tilesToBuild);
   tagSelectable(group, pathInfo, group);
   selectElement(pathInfo, group);
@@ -4343,6 +4699,7 @@ function confirmAreaDraft() {
   }
 
   scene.add(group);
+  playerMapGroups.push(group);
   const areaInfo = createPlayerAreaInfo(playerAreaCount, tilesToBuild);
   tagSelectable(group, areaInfo, group);
   selectElement(areaInfo, group);
@@ -4497,6 +4854,7 @@ function confirmFenceDraft() {
   playerFenceSegments.push(...builtSegments);
 
   scene.add(group);
+  playerMapGroups.push(group);
   const fenceInfo = createPlayerFenceInfo(playerFenceCount, builtSegments);
   tagSelectable(group, fenceInfo, group);
   selectElement(fenceInfo, group);
@@ -4907,36 +5265,38 @@ function snapCoordinateToTileCenter(value, min, max, tileCount, footprint) {
   return firstCenter + index * PATH_TILE_SIZE;
 }
 
-function canPlaceBuilding(item, position) {
+function canPlaceBuilding(item, position, options = {}) {
+  const size = options.size ?? item.size;
   const candidate = {
     x: position.x,
     z: position.z,
-    width: item.size[0],
-    depth: item.size[1],
+    width: size[0],
+    depth: size[1],
   };
 
   const clear = buildings.every((building) => {
+    if (options.ignoreBuildingId && building.id === options.ignoreBuildingId) return true;
     const group = buildingMeshes.get(building.id);
     if (!group) return true;
     return !footprintsOverlap(candidate, buildingBounds(building));
   });
 
   if (!clear) return false;
-  if (item.requiresPath && !buildingFootprintIsPathAdjacent(item, position)) {
+  if (item.requiresPath && !buildingFootprintIsPathAdjacent(item, position, size)) {
     return false;
   }
   return true;
 }
 
 function placementInvalidMessage(item, position) {
-  if (item.requiresPath && !buildingFootprintIsPathAdjacent(item, position)) {
+  if (item.requiresPath && !buildingFootprintIsPathAdjacent(item, position, item.size)) {
     return `${item.label} must touch a path.`;
   }
   return "Choose a clear tile.";
 }
 
-function buildingFootprintIsPathAdjacent(item, position) {
-  const tiles = footprintTiles(position.x, position.z, item.size[0], item.size[1]);
+function buildingFootprintIsPathAdjacent(item, position, size = item.size) {
+  const tiles = footprintTiles(position.x, position.z, size[0], size[1]);
   return (
     tiles.every((tile) => !pathTileKeys.has(tile.key)) &&
     tiles.some((tile) => adjacentTileKeys(tile).some((key) => pathTileKeys.has(key)))
@@ -5012,6 +5372,14 @@ function selectElement(selectionInfo, highlightRoot = null) {
   renderSelection();
   updateSelectionStyles();
   updateSelectionRouteIndicator();
+}
+
+function selectDefaultElement() {
+  const defaultSelectionRoot =
+    buildingMeshes.get("savanna_habitat") ?? buildingMeshes.values().next().value;
+  if (defaultSelectionRoot) {
+    selectElement(defaultSelectionRoot.userData.selectionInfo, defaultSelectionRoot);
+  }
 }
 
 function renderSelection() {
@@ -5523,6 +5891,7 @@ function cancelLongPress() {
 }
 
 function onPointerDown(event) {
+  lastPointerClientPoint = { x: event.clientX, y: event.clientY };
   scheduleLongPress(event);
 
   if (event.button !== 0) return;
@@ -5572,6 +5941,7 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
+  lastPointerClientPoint = { x: event.clientX, y: event.clientY };
   updateLongPress(event);
 
   if (activeAnimalDrag) {
@@ -5683,6 +6053,13 @@ function installTestApi() {
       renderer.render(scene, camera);
       return currentTestState();
     },
+    startSimulation(presetIdOrStateName) {
+      const preset =
+        simulationPresetById[presetIdOrStateName] ?? simulationPresetByStateName[presetIdOrStateName];
+      if (!preset) throw new Error(`No simulation preset found for ${presetIdOrStateName}`);
+      startSimulationPreset(preset.id);
+      return currentTestState();
+    },
     assignWorker(selectionId) {
       const building = buildings.find((candidate) => `building-${candidate.id}` === selectionId);
       if (!building) throw new Error(`No building found for ${selectionId}`);
@@ -5699,6 +6076,9 @@ function installTestApi() {
         label: item.label,
         position: [x, 0, z],
         size: [...item.size],
+        baseSize: [...item.size],
+        rotationQuarter: 0,
+        requiresPath: Boolean(item.requiresPath),
         requiredWorkers: item.requiredWorkers ?? 0,
         resourceOutput: { ...(item.resourceOutput ?? {}) },
         visitorPointOfInterest: Boolean(item.visitorPointOfInterest),
@@ -5766,6 +6146,16 @@ function installTestApi() {
     hasSelectionPoint(selectionId) {
       return Boolean(testPointForSelection(selectionId));
     },
+    select(selectionId) {
+      const object = selectable.find(
+        (candidate) => candidate.userData.selectionInfo?.id === selectionId && isWorldVisible(candidate),
+      );
+      if (!object) {
+        throw new Error(`No selectable element found for ${selectionId}`);
+      }
+      selectElement(object.userData.selectionInfo, object.userData.selectionRoot);
+      return currentTestState();
+    },
     groundPoint(x, z) {
       const groundTop = placementSurface
         ? placementSurface.position.y + playableAreaGroundHeight() / 2
@@ -5799,7 +6189,13 @@ function currentTestState() {
       nextCost: landPurchaseCost(),
     },
     resources: currentResourceState(),
+    availableWorkers: availableWorkerCount(),
     pricing: currentPricingState(),
+    simulationPresets: simulationPresets.map((preset) => ({
+      id: preset.id,
+      stateName: preset.stateName,
+      label: preset.label,
+    })),
     animalSpecies: currentAnimalSpeciesList().map((species) => ({
       kind: species.kind,
       label: species.label,
@@ -5839,6 +6235,11 @@ function currentTestState() {
         x: building.position[0],
         z: building.position[2],
       },
+      size: {
+        width: building.size[0],
+        depth: building.size[1],
+      },
+      rotationQuarter: building.rotationQuarter ?? 0,
       status: buildingMeshes.get(building.id)?.userData.state?.status ?? "Planned",
       requiredWorkers: requiredWorkerCount(building),
       assignedWorkers: assignedWorkerCount(building),

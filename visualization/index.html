@@ -23,6 +23,21 @@
               <span id="start-zoo-label">Start Game</span>
             </button>
             <button
+              id="open-simulations-menu"
+              class="menu-button secondary-button"
+              type="button"
+              aria-expanded="false"
+              aria-controls="simulation-options"
+            >
+              Simulations
+            </button>
+            <div
+              id="simulation-options"
+              class="simulation-options"
+              aria-label="Simulation presets"
+              hidden
+            ></div>
+            <button
               id="open-settings-menu"
               class="menu-button secondary-button"
               type="button"
@@ -133,7 +148,10 @@
             <p id="phase-label">Staffing needed</p>
             <p id="sync-status" class="sync-status">Sync: local demo</p>
           </div>
-          <output id="clock">0s</output>
+          <div class="hud-counters" aria-label="Zoo counters">
+            <output id="available-workers" class="hud-counter" aria-live="polite">0 workers available</output>
+            <output id="clock">0s</output>
+          </div>
         </div>
         <div class="pricing-control">
           <div class="pricing-line">

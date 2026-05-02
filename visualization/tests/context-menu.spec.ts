@@ -62,6 +62,8 @@ test("draws and confirms a path from the build menu", async ({ page }) => {
 
   const confirmPath = page.getByRole("button", { name: "Confirm Path" });
   const attempts = [
+    [-0.5, 6.5, 0.5, 6.5],
+    [-0.5, 7.5, 0.5, 7.5],
     [0.5, 3, 0.5, 4],
     [-2.5, 3, -2.5, 4],
     [1.5, 2, 1.5, 1],
@@ -173,8 +175,8 @@ test("builds a fence from the build menu", async ({ page }) => {
   for (const segment of fences) {
     expect(Number.isInteger(segment.start.x)).toBe(true);
     expect(Number.isInteger(segment.end.x)).toBe(true);
-    expect(Math.abs(segment.start.z % 1)).toBeCloseTo(0.5);
-    expect(Math.abs(segment.end.z % 1)).toBeCloseTo(0.5);
+    expect(Number.isInteger(segment.start.z)).toBe(true);
+    expect(Number.isInteger(segment.end.z)).toBe(true);
   }
 });
 
@@ -201,5 +203,5 @@ test("snaps off-grid building placement to tile centers", async ({ page }) => {
   );
   expect(placedRestroom).toBeTruthy();
   expect(placedRestroom.position.x).toBe(-4.5);
-  expect(placedRestroom.position.z).toBe(-3);
+  expect(placedRestroom.position.z).toBe(-3.5);
 });

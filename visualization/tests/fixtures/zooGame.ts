@@ -2,8 +2,8 @@
 import { expect, test as base } from "@playwright/test";
 
 const gameStates = {
-  staffingNeeded: 0,
-  operating: 0,
+  staffingNeeded: { simulation: "Staffing Needed", time: 0 },
+  operating: { simulation: "Operating Zoo", time: 24 },
 };
 
 class ZooGame {
@@ -14,9 +14,17 @@ class ZooGame {
   async start(state = "staffingNeeded") {
     await this.page.goto("/?e2e=1");
     await this.ensureTestApiReady();
-    await this.page.getByRole("button", { name: /^(Start|Continue) Game$/ }).click();
+    const fixture = this.fixtureForState(state);
+    if (fixture?.simulation) {
+      await this.page.getByRole("button", { name: "Simulations" }).click();
+      await this.page.getByRole("button", { name: new RegExp(`^${fixture.simulation}`) }).click();
+    } else {
+      await this.page.getByRole("button", { name: /^(Start|Continue) Game$/ }).click();
+    }
     await this.page.evaluate(() => window.__zooTestApi.setMotionEffects(false));
-    await this.setState(state);
+    if (fixture?.time !== undefined || typeof state === "number") {
+      await this.setState(state);
+    }
     await expect(this.page.getByLabel("Quick actions")).toBeHidden();
   }
 
@@ -80,10 +88,16 @@ class ZooGame {
 
   timeForState(state) {
     if (typeof state === "number") return state;
-    if (!(state in gameStates)) {
+    const fixture = this.fixtureForState(state);
+    if (!fixture) {
       throw new Error(`Unknown zoo game state fixture: ${state}`);
     }
-    return gameStates[state];
+    return fixture.time;
+  }
+
+  fixtureForState(state) {
+    if (typeof state === "number") return null;
+    return gameStates[state] ?? null;
   }
 
   async state() {
@@ -96,6 +110,10 @@ class ZooGame {
 
   async hasSelectionPoint(selectionId) {
     return this.page.evaluate((id) => window.__zooTestApi.hasSelectionPoint(id), selectionId);
+  }
+
+  async select(selectionId) {
+    return this.page.evaluate((id) => window.__zooTestApi.select(id), selectionId);
   }
 
   async groundPoint(x, z) {

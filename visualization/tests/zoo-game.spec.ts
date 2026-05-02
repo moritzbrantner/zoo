@@ -8,8 +8,13 @@ test.describe("zoo game state fixtures", () => {
     const mainMenu = page.getByLabel("Main menu");
 
     await expect(mainMenu.getByRole("button", { name: "Start Game" })).toBeVisible();
+    await expect(mainMenu.getByRole("button", { name: "Simulations" })).toBeVisible();
     await expect(mainMenu.getByRole("button", { name: "Settings" })).toBeVisible();
     await expect(mainMenu.getByRole("button", { name: "Wiki" })).toBeVisible();
+
+    await mainMenu.getByRole("button", { name: "Simulations" }).click();
+    await expect(mainMenu.getByRole("button", { name: /Staffing Needed/ })).toBeVisible();
+    await expect(mainMenu.getByRole("button", { name: /Operating Zoo/ })).toBeVisible();
 
     await mainMenu.getByRole("button", { name: "Wiki" }).click();
     const wikiDialog = page.getByRole("dialog", { name: "Zoo Wiki" });
@@ -17,6 +22,22 @@ test.describe("zoo game state fixtures", () => {
     await expect(wikiDialog).toContainText("Core Loop");
     await expect(wikiDialog).toContainText("Customer Entry");
     await expect(wikiDialog).toContainText("Rabbit Colony");
+  });
+
+  test("simulations menu starts the operating zoo preset", async ({ page, zooGame }) => {
+    await page.goto("/?e2e=1");
+    await zooGame.ensureTestApiReady();
+
+    await page.getByRole("button", { name: "Simulations" }).click();
+    await page.getByRole("button", { name: /Operating Zoo/ }).click();
+    await page.evaluate(() => window.__zooTestApi.setMotionEffects(false));
+
+    const state = await zooGame.state();
+    expect(state.time).toBe(24);
+    expect(state.simulationStarted).toBe(true);
+    expect(state.animals.map((animal) => animal.kind)).toContain("rabbit_colony");
+    expect(state.workers).toHaveLength(4);
+    expect(state.visitors.some((visitor) => visitor.visible)).toBe(true);
   });
 
   test("returning to the main menu allows continuing the current zoo", async ({
@@ -38,6 +59,8 @@ test.describe("zoo game state fixtures", () => {
     zooGame,
   }) => {
     await zooGame.start();
+    expect((await zooGame.state()).availableWorkers).toBe(4);
+    await expect(page.locator("#available-workers")).toHaveText("4 workers available");
 
     await zooGame.clickSelection("building-savanna_habitat");
     await expect(page.locator("#inspector-title")).toHaveText("Savanna Habitat");
@@ -46,9 +69,13 @@ test.describe("zoo game state fixtures", () => {
     await expect(page.locator("#inspector-details")).toContainText("Built layout");
 
     await page.getByRole("button", { name: /Assign Worker/ }).click();
+    expect((await zooGame.state()).availableWorkers).toBe(3);
+    await expect(page.locator("#available-workers")).toHaveText("3 workers available");
     await expect(page.locator("#inspector-details")).toContainText("1 / 2");
 
     await page.getByRole("button", { name: /Assign Worker/ }).click();
+    expect((await zooGame.state()).availableWorkers).toBe(2);
+    await expect(page.locator("#available-workers")).toHaveText("2 workers available");
     await expect(page.locator("#inspector-details")).toContainText("Active");
     await expect(page.locator("#inspector-details")).toContainText("Running");
     await expect(page.locator("#inspector-details")).toContainText("2 / 2");
@@ -363,7 +390,7 @@ test.describe("zoo game state fixtures", () => {
             label: "Restroom",
             position: {
               x: -4.5,
-              z: -3,
+              z: -2.5,
             },
           }),
         ]),
@@ -380,11 +407,9 @@ test.describe("zoo game state fixtures", () => {
     zooGame,
   }) => {
     await zooGame.start();
-    await page.getByRole("button", { name: "Place building" }).click();
-    await page.getByRole("button", { name: "Place Animal Area" }).click();
-    await zooGame.clickGround(-4.5, -3);
+    await zooGame.placeBuildingForTest("animal_area", 1.5, -3.5);
     await zooGame.setState(20);
-    await zooGame.clickSelection("building-placed_animal_area_1");
+    await zooGame.select("building-placed_animal_area_1");
 
     await expect(page.locator("#animal-roster")).toBeVisible();
     await expect(page.locator("#animal-roster-list").getByRole("button")).toHaveCount(9);
@@ -448,18 +473,18 @@ test.describe("zoo game state fixtures", () => {
     zooGame,
   }) => {
     await zooGame.start();
-    await page.getByRole("button", { name: "Place building" }).click();
-    await page.getByRole("button", { name: "Place Animal Area" }).click();
-    await zooGame.clickGround(-4.5, -3);
+    await zooGame.placeBuildingForTest("animal_area", 1.5, -3.5);
     await zooGame.setState(20);
 
+    await page.getByRole("button", { name: "Place building" }).click();
     await page.getByRole("button", { name: "Build Fence" }).click();
-    await zooGame.dragGround(-6, -4, -3, -4);
+    await zooGame.dragGround(0, -5, 3, -5);
     await expect(page.locator("#build-menu-status")).toHaveText("Confirm fence.");
     await page.getByRole("button", { name: "Confirm Fence" }).click();
 
     const beforeRabbit = await zooGame.state();
-    await zooGame.clickSelection("building-placed_animal_area_1");
+    await page.getByRole("button", { name: "Close build menu" }).click();
+    await zooGame.select("building-placed_animal_area_1");
     await page.getByRole("button", { name: /Rabbit Colony/ }).click();
     await expect(page.locator("#build-menu-status")).toHaveText(
       "Rabbit Colony added to Animal Area.",
@@ -497,14 +522,14 @@ test.describe("zoo game state fixtures", () => {
 
     await page.locator("#buy-land").click();
     await expect(page.locator("#build-menu-status")).toHaveText(
-      "Zoo grounds expanded to 14 x 11 tiles for $120.",
+      "Zoo grounds expanded to 26 x 20 tiles for $120.",
     );
 
     const expanded = await zooGame.state();
     expect(expanded.land).toMatchObject({
       footprint: {
-        columns: 14,
-        rows: 11,
+        columns: 26,
+        rows: 20,
       },
       purchases: 1,
       nextCost: 180,
@@ -522,7 +547,7 @@ test.describe("zoo game state fixtures", () => {
           id: "placed_restroom_1",
           position: {
             x: 0.5,
-            z: 4,
+            z: 3.5,
           },
         }),
       ]),
@@ -541,7 +566,7 @@ test.describe("zoo game state fixtures", () => {
     );
 
     await page.getByRole("button", { name: "Place Gift Shop" }).click();
-    await zooGame.clickGround(1.5, -3);
+    await zooGame.clickGround(5.5, -1.5);
     await expect(page.locator("#inspector-title")).toHaveText("Gift Shop");
     await expect(page.locator("#inspector-details")).toContainText(
       "Sells souvenirs and generates research funding",
@@ -580,6 +605,48 @@ test.describe("zoo game state fixtures", () => {
     await zooGame.clickSelection("building-savanna_habitat");
     await page.keyboard.press("a");
     await expect(page.locator("#inspector-details")).toContainText("1 / 2");
+  });
+
+  test("rotates build previews and hovered buildings with the keyboard", async ({
+    page,
+    zooGame,
+  }) => {
+    await zooGame.start();
+
+    await page.keyboard.press("b");
+    await page.keyboard.press("4");
+    const placementPoint = await zooGame.groundPoint(-4.5, -3);
+    await page.mouse.move(placementPoint.x, placementPoint.y);
+    await page.keyboard.press("r");
+    await page.mouse.click(placementPoint.x, placementPoint.y);
+
+    let state = await zooGame.state();
+    const placedRestroom = state.buildings.find((building) =>
+      building.id.startsWith("placed_restroom_"),
+    );
+    expect(placedRestroom).toMatchObject({
+      rotationQuarter: 1,
+      size: {
+        width: 1.05,
+        depth: 1.25,
+      },
+    });
+
+    await page.keyboard.press("b");
+    const restroomPoint = await zooGame.selectionPoint(`building-${placedRestroom.id}`);
+    await page.mouse.move(restroomPoint.x, restroomPoint.y);
+    await page.keyboard.press("Shift+KeyR");
+
+    state = await zooGame.state();
+    expect(
+      state.buildings.find((building) => building.id === placedRestroom.id),
+    ).toMatchObject({
+      rotationQuarter: 0,
+      size: {
+        width: 1.25,
+        depth: 1.05,
+      },
+    });
   });
 
   test("commands a selected worker with the keyboard", async ({ page, zooGame }) => {

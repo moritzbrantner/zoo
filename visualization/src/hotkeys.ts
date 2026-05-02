@@ -3,6 +3,7 @@ export type HotkeyBinding = {
   run: () => void;
   enabled?: boolean | (() => boolean);
   repeat?: boolean;
+  shiftKey?: boolean;
 };
 
 type HotkeyOptions = {
@@ -32,12 +33,12 @@ export function installHotkeys(
       return;
     }
 
-    const binding = getBindings().find(
-      (candidate) =>
-        normalizeHotkey(candidate.key) === key &&
-        ((candidate.repeat ?? false) || !event.repeat) &&
-        bindingEnabled(candidate.enabled),
-    );
+    const binding = getBindings().find((candidate) => {
+      if (normalizeHotkey(candidate.key) !== key) return false;
+      if (candidate.shiftKey !== undefined && candidate.shiftKey !== event.shiftKey) return false;
+      if (!(candidate.repeat ?? false) && event.repeat) return false;
+      return bindingEnabled(candidate.enabled);
+    });
 
     if (!binding) {
       return;
