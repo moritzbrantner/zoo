@@ -85,6 +85,7 @@ export const buildingManifest = [
     swatch: "#bfc1ad",
     icon: "gate",
     gltf: null,
+    visitorPointOfInterest: false,
   },
   {
     kind: "ticket_booth",
@@ -97,6 +98,7 @@ export const buildingManifest = [
     swatch: "#4a8190",
     icon: "ticket",
     gltf: null,
+    visitorPointOfInterest: true,
   },
   {
     kind: "guest_plaza",
@@ -109,6 +111,7 @@ export const buildingManifest = [
     swatch: "#bfc1ad",
     icon: "plaza",
     gltf: null,
+    visitorPointOfInterest: true,
   },
   {
     kind: "restroom",
@@ -121,6 +124,7 @@ export const buildingManifest = [
     swatch: "#6f93a1",
     icon: "water",
     gltf: null,
+    visitorPointOfInterest: true,
   },
   {
     kind: "snack_kiosk",
@@ -133,6 +137,7 @@ export const buildingManifest = [
     swatch: "#d99652",
     icon: "food",
     gltf: null,
+    visitorPointOfInterest: true,
     resourceOutput: {
       coins: 55,
       reputation: 1,
@@ -153,6 +158,7 @@ export const buildingManifest = [
     swatch: "#8d7bd8",
     icon: "shop",
     gltf: null,
+    visitorPointOfInterest: true,
     resourceOutput: {
       coins: 80,
       research_points: 2,
@@ -173,6 +179,7 @@ export const buildingManifest = [
     swatch: "#936b45",
     icon: "staff",
     gltf: null,
+    visitorPointOfInterest: false,
   },
   {
     kind: "keeper_kitchen",
@@ -185,6 +192,7 @@ export const buildingManifest = [
     swatch: "#d9d2b8",
     icon: "kitchen",
     gltf: null,
+    visitorPointOfInterest: false,
   },
   {
     kind: "feed_shed",
@@ -197,6 +205,7 @@ export const buildingManifest = [
     swatch: "#936b45",
     icon: "storage",
     gltf: null,
+    visitorPointOfInterest: false,
   },
   {
     kind: "vet_clinic",
@@ -209,6 +218,7 @@ export const buildingManifest = [
     swatch: "#d66b7a",
     icon: "medical",
     gltf: null,
+    visitorPointOfInterest: false,
   },
   {
     kind: "maintenance_shed",
@@ -221,6 +231,7 @@ export const buildingManifest = [
     swatch: "#8a6646",
     icon: "tool",
     gltf: null,
+    visitorPointOfInterest: false,
   },
   {
     kind: "research_office",
@@ -233,6 +244,7 @@ export const buildingManifest = [
     swatch: "#8d7bd8",
     icon: "research",
     gltf: null,
+    visitorPointOfInterest: false,
   },
   {
     kind: "animal_area",
@@ -245,6 +257,7 @@ export const buildingManifest = [
     swatch: "#78aa5b",
     icon: "habitat-zone",
     gltf: null,
+    visitorPointOfInterest: true,
     requiresPath: true,
     allowsAttachedFences: true,
   },
@@ -259,6 +272,7 @@ export const buildingManifest = [
     swatch: "#d4ba74",
     icon: "habitat",
     gltf: null,
+    visitorPointOfInterest: true,
   },
   {
     kind: "wetlands_habitat",
@@ -271,6 +285,7 @@ export const buildingManifest = [
     swatch: "#45a6b7",
     icon: "wetlands",
     gltf: null,
+    visitorPointOfInterest: true,
   },
   {
     kind: "aviary",
@@ -283,6 +298,7 @@ export const buildingManifest = [
     swatch: "#77b67a",
     icon: "aviary",
     gltf: null,
+    visitorPointOfInterest: true,
   },
   {
     kind: "reptile_house",
@@ -295,6 +311,7 @@ export const buildingManifest = [
     swatch: "#a78358",
     icon: "reptile",
     gltf: null,
+    visitorPointOfInterest: true,
   },
 ];
 

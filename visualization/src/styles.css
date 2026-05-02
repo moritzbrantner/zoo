@@ -198,6 +198,21 @@ input {
   display: none;
 }
 
+.visitor-history-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(8, 13, 11, 0.58);
+  backdrop-filter: blur(5px);
+}
+
+.visitor-history-panel[aria-hidden="true"] {
+  display: none;
+}
+
 .settings-panel-content {
   width: min(420px, 100%);
   padding: 18px;
@@ -216,6 +231,17 @@ input {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 18%),
     var(--panel-strong);
+  box-shadow: 0 22px 72px rgba(0, 0, 0, 0.34);
+  overflow: hidden;
+}
+
+.visitor-history-panel-content {
+  width: min(520px, 100%);
+  max-height: min(78vh, 680px);
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
   box-shadow: 0 22px 72px rgba(0, 0, 0, 0.34);
   overflow: hidden;
 }
@@ -298,6 +324,61 @@ input {
   margin: 6px 0 0;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.visitor-history-subtitle {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.visitor-history-list {
+  display: grid;
+  gap: 10px;
+  max-height: calc(min(78vh, 680px) - 104px);
+  margin: 16px 0 0;
+  padding: 0 4px 0 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.visitor-history-entry {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.visitor-history-time {
+  color: var(--sun);
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.visitor-history-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.visitor-history-detail {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.visitor-history-empty {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .wiki-sections {

@@ -27,6 +27,11 @@ const closeSettingsEl = document.querySelector("#close-settings");
 const wikiPanelEl = document.querySelector(".wiki-panel");
 const closeWikiEl = document.querySelector("#close-wiki");
 const wikiSectionsEl = document.querySelector("#wiki-sections");
+const visitorHistoryPanelEl = document.querySelector(".visitor-history-panel");
+const closeVisitorHistoryEl = document.querySelector("#close-visitor-history");
+const visitorHistoryTitleEl = document.querySelector("#visitor-history-title");
+const visitorHistorySubtitleEl = document.querySelector("#visitor-history-subtitle");
+const visitorHistoryListEl = document.querySelector("#visitor-history-list");
 const simSpeedEl = document.querySelector("#sim-speed");
 const simSpeedValueEl = document.querySelector("#sim-speed-value");
 const motionEffectsEl = document.querySelector("#motion-effects");
@@ -340,6 +345,7 @@ const BUILD_TOOL_HOTKEYS = {
 const SELECTION_ACTION_HOTKEYS = {
   assignWorker: "a",
   commandWorker: "m",
+  visitorHistory: "h",
 };
 const CONTEXT_MENU_HOTKEYS = {
   inspect: "i",
@@ -523,6 +529,7 @@ const VISITOR_RECENCY_SECONDS = 70;
 const VISITOR_RECENT_VISIT_MIN_MULTIPLIER = 0.16;
 const VISITOR_INTEREST_THRESHOLD = 6;
 const VISITOR_REENTRY_AFTER_EXIT_SECONDS = 45;
+const VISITOR_ACTIVITY_HISTORY_LIMIT = 24;
 const buildingManifestByKind = Object.fromEntries(
   buildingManifest.map((building) => [building.kind, building]),
 );
@@ -545,6 +552,8 @@ let hasStartedGame = false;
 let lastFrame = performance.now();
 let settingsTriggerEl = null;
 let wikiTriggerEl = null;
+let visitorHistoryTriggerEl = null;
+let visitorHistorySelection = null;
 let placementSurface = null;
 let boardGround = null;
 let boardSurroundings = null;
@@ -670,11 +679,15 @@ for (const button of openWikiEls) {
 }
 closeSettingsEl.addEventListener("click", closeSettings);
 closeWikiEl.addEventListener("click", closeWiki);
+closeVisitorHistoryEl.addEventListener("click", closeVisitorHistory);
 settingsPanelEl.addEventListener("pointerdown", (event) => {
   if (event.target === settingsPanelEl) closeSettings();
 });
 wikiPanelEl.addEventListener("pointerdown", (event) => {
   if (event.target === wikiPanelEl) closeWiki();
+});
+visitorHistoryPanelEl.addEventListener("pointerdown", (event) => {
+  if (event.target === visitorHistoryPanelEl) closeVisitorHistory();
 });
 
 simSpeedEl.addEventListener("input", () => {
@@ -741,6 +754,13 @@ document.addEventListener("keydown", (event) => {
     closeWiki();
     return;
   }
+  if (
+    event.key === "Escape" &&
+    visitorHistoryPanelEl.getAttribute("aria-hidden") !== "true"
+  ) {
+    closeVisitorHistory();
+    return;
+  }
   if (event.key === "Escape" && settingsPanelEl.getAttribute("aria-hidden") !== "true") {
     closeSettings();
   }
@@ -752,6 +772,7 @@ function startZoo() {
   cancelAnimalDrag();
   closeSettings();
   closeWiki();
+  closeVisitorHistory();
   closeBuildMenu();
   if (!hasStartedGame) {
     currentTime = 0;
@@ -791,6 +812,7 @@ function showMainMenu() {
   cancelAnimalDrag();
   closeSettings();
   closeWiki();
+  closeVisitorHistory();
   closeBuildMenu();
   simulationStarted = false;
   setMenuOpen(true);
@@ -817,6 +839,7 @@ function openSettings(event) {
   cancelAnimalDrag();
   closeBuildMenu();
   closeWiki();
+  closeVisitorHistory();
   settingsTriggerEl = event.currentTarget;
   settingsPanelEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("is-settings-open");
@@ -837,6 +860,7 @@ function openWiki(event) {
   cancelAnimalDrag();
   closeBuildMenu();
   closeSettings();
+  closeVisitorHistory();
   wikiTriggerEl = event.currentTarget;
   wikiPanelEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("is-wiki-open");
@@ -849,6 +873,79 @@ function closeWiki() {
   document.body.classList.remove("is-wiki-open");
   if (wikiTriggerEl?.isConnected) wikiTriggerEl.focus();
   wikiTriggerEl = null;
+}
+
+function openVisitorHistory(event) {
+  const selection = selectedElement?.visitor ? selectedElement : null;
+  if (!selection) return;
+
+  hideContextMenu();
+  cancelWorkerCommand();
+  cancelAnimalDrag();
+  closeBuildMenu();
+  closeSettings();
+  closeWiki();
+  visitorHistoryTriggerEl = event?.currentTarget ?? null;
+  visitorHistorySelection = selection;
+  renderVisitorHistory();
+  visitorHistoryPanelEl.setAttribute("aria-hidden", "false");
+  document.body.classList.add("is-visitor-history-open");
+  closeVisitorHistoryEl.focus();
+}
+
+function closeVisitorHistory() {
+  if (visitorHistoryPanelEl.getAttribute("aria-hidden") === "true") return;
+  visitorHistoryPanelEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("is-visitor-history-open");
+  if (visitorHistoryTriggerEl?.isConnected) visitorHistoryTriggerEl.focus();
+  visitorHistoryTriggerEl = null;
+  visitorHistorySelection = null;
+}
+
+function renderVisitorHistory() {
+  const selection = visitorHistorySelection ?? selectedElement;
+  const visitor = selection?.visitor;
+  if (!visitor) return;
+
+  visitorHistoryTitleEl.textContent = `${selection.label} History`;
+  visitorHistorySubtitleEl.textContent = `${visitorStatusLabel(visitor)} • ${
+    visitor.userData.visitorTargetBuildingLabel ?? visitor.userData.visitorInteractionLabel ?? "Guest loop"
+  }`;
+
+  const history = visitorActivityHistory(visitor);
+  if (history.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "visitor-history-empty";
+    empty.textContent = "No activity has been recorded yet.";
+    visitorHistoryListEl.replaceChildren(empty);
+    return;
+  }
+
+  visitorHistoryListEl.replaceChildren(
+    ...history
+      .slice()
+      .reverse()
+      .map((entry) => {
+        const item = document.createElement("li");
+        item.className = "visitor-history-entry";
+
+        const time = document.createElement("span");
+        time.className = "visitor-history-time";
+        time.textContent = formatHistoryTime(entry.time);
+
+        const content = document.createElement("div");
+        const title = document.createElement("p");
+        title.className = "visitor-history-title";
+        title.textContent = entry.title;
+        const detail = document.createElement("p");
+        detail.className = "visitor-history-detail";
+        detail.textContent = entry.detail;
+        content.append(title, detail);
+
+        item.append(time, content);
+        return item;
+      }),
+  );
 }
 
 function toggleBuildMenu() {
@@ -864,6 +961,7 @@ function openBuildMenu() {
   cancelWorkerCommand();
   cancelAnimalDrag();
   closeSettings();
+  closeVisitorHistory();
   buildMenuEl.setAttribute("aria-hidden", "false");
   document.body.classList.add("is-build-menu-open");
   buildMenuToggleEl.setAttribute("aria-pressed", "true");
@@ -2037,6 +2135,7 @@ function createVisitors() {
     group.userData.visitorInteractionLabel = null;
     group.userData.visitorLeavingZoo = false;
     group.userData.visitorExitCooldownUntil = 0;
+    group.userData.visitorActivityHistory = [];
     scene.add(group);
     visitorGroups.push(group);
     tagSelectable(
@@ -2045,10 +2144,13 @@ function createVisitors() {
         id: `visitor-${index + 1}`,
         label: `Visitor ${index + 1}`,
         category: "Visitor",
+        visitor: group,
+        visitorIndex: index,
         summary: "A guest walking the route when visitor capacity is active.",
         getRoutePoints: () => visitorRoutePoints(index, group),
         getDetails: () => ({
           Status: visitorStatusLabel(group),
+          History: `${visitorActivityHistory(group).length} activities`,
           Route: group.userData.visitorTargetBuildingLabel
             ? `Guest loop to ${group.userData.visitorTargetBuildingLabel}`
             : "Guest loop",
@@ -2381,6 +2483,7 @@ function updateState(time) {
 
   updateVisitors(resourceState.values.visitors ?? 0, time);
   if (selectedElement) renderSelection();
+  if (visitorHistoryPanelEl.getAttribute("aria-hidden") !== "true") renderVisitorHistory();
 }
 
 function updatePlayerPlacedBuildings() {
@@ -2641,6 +2744,7 @@ function activateVisitor(visitor, time) {
   visitor.userData.visitorActive = true;
   visitor.userData.visitorEntryStartTime = time;
   visitor.userData.visitorLastVisits = Object.create(null);
+  visitor.userData.visitorActivityHistory = [];
   visitor.userData.visitorCurrentBuildingId = null;
   visitor.userData.visitorDwellUntil = null;
   visitor.userData.visitorInteractionLabel = null;
@@ -2648,6 +2752,7 @@ function activateVisitor(visitor, time) {
   visitor.userData.visitorTargetBuildingLabel = null;
   visitor.userData.visitorLeavingZoo = false;
   visitor.userData.visitorExitCooldownUntil = 0;
+  recordVisitorActivity(visitor, time, "Entered zoo", "Arrived through the customer entry.");
   assignNextVisitorDestination(visitor, visitorGroups.indexOf(visitor), time, {
     fromPoint: new THREE.Vector3(PARK_ENTRY_X, 0, parkEntrySpawnZ()),
     entry: true,
@@ -2686,6 +2791,42 @@ function resetVisitorFlow(time = currentTime) {
 
 function visibleVisitorCount() {
   return visitorGroups.reduce((count, visitor) => count + Number(visitor.visible), 0);
+}
+
+function visitorActivityHistory(visitor) {
+  if (!Array.isArray(visitor?.userData.visitorActivityHistory)) {
+    if (visitor) visitor.userData.visitorActivityHistory = [];
+    return [];
+  }
+  return visitor.userData.visitorActivityHistory;
+}
+
+function recordVisitorActivity(visitor, time, title, detail) {
+  const history = visitorActivityHistory(visitor);
+  const roundedTime = Math.floor(time);
+  const previous = history[history.length - 1];
+  if (
+    previous &&
+    previous.time === roundedTime &&
+    previous.title === title &&
+    previous.detail === detail
+  ) {
+    return;
+  }
+
+  history.push({
+    time: roundedTime,
+    title,
+    detail,
+  });
+
+  if (history.length > VISITOR_ACTIVITY_HISTORY_LIMIT) {
+    history.splice(0, history.length - VISITOR_ACTIVITY_HISTORY_LIMIT);
+  }
+}
+
+function formatHistoryTime(time) {
+  return `${Math.max(0, Math.floor(Number(time) || 0))}s`;
 }
 
 function visitorRoutePoints(index, group) {
@@ -2854,6 +2995,12 @@ function assignNextVisitorDestination(
   visitor.userData.visitorDwellUntil = null;
   visitor.userData.visitorInteractionLabel = null;
   visitor.userData.visitorLeavingZoo = false;
+  recordVisitorActivity(
+    visitor,
+    time,
+    `Heading to ${targetBuilding.label}`,
+    entry ? "Entering the guest loop." : `Walking from the last stop to ${targetBuilding.label}.`,
+  );
 }
 
 function assignVisitorExitRoute(visitor, visitorIndex, time, fromPoint) {
@@ -2867,10 +3014,17 @@ function assignVisitorExitRoute(visitor, visitorIndex, time, fromPoint) {
   visitor.userData.visitorDwellUntil = null;
   visitor.userData.visitorInteractionLabel = "Leaving zoo";
   visitor.userData.visitorLeavingZoo = true;
+  recordVisitorActivity(
+    visitor,
+    time,
+    "Leaving zoo",
+    "No appealing stops are available right now.",
+  );
 }
 
 function completeVisitorDeparture(visitor, time) {
   visitor.position.set(PARK_ENTRY_X, visitor.position.y, parkEntrySpawnZ());
+  recordVisitorActivity(visitor, time, "Departed zoo", "Exited through the customer entry.");
   deactivateVisitor(visitor, {
     exitCooldownUntil: time + VISITOR_REENTRY_AFTER_EXIT_SECONDS,
   });
@@ -2884,6 +3038,12 @@ function beginVisitorDwell(visitor, visitorIndex, building, time) {
   visitor.userData.visitorRouteTravelSeconds = null;
   visitor.userData.visitorDwellUntil = time + visitorDwellSeconds(visitor, building);
   visitor.userData.visitorInteractionLabel = visitorInteractionLabel(building);
+  recordVisitorActivity(
+    visitor,
+    time,
+    visitor.userData.visitorInteractionLabel,
+    `${building.label} for ${Math.ceil(visitor.userData.visitorDwellUntil - time)}s.`,
+  );
   const stopPoint = visitorStopPointForBuilding(building, visitorIndex);
   visitor.position.set(stopPoint.x, visitor.position.y, stopPoint.z);
 }
@@ -2921,6 +3081,8 @@ function visitorBuildingInterestScore(visitor, building, time) {
 }
 
 function visitorBuildingAttraction(building) {
+  if (!buildingVisitorPointOfInterest(building)) return 0;
+
   const kind = building.kind ?? building.id;
 
   const category = buildingManifestByKind[kind]?.category;
@@ -2940,6 +3102,16 @@ function visitorBuildingAttraction(building) {
   if (kind === "customer_entry") return 2;
   if (category === "guest") return 5;
   return 1.5;
+}
+
+function buildingVisitorPointOfInterest(building) {
+  if (!building) return false;
+  if (typeof building.visitorPointOfInterest === "boolean") {
+    return building.visitorPointOfInterest;
+  }
+
+  const kind = building.kind ?? building.id;
+  return Boolean(buildingManifestByKind[kind]?.visitorPointOfInterest);
 }
 
 function visitorBuildingOperationalMultiplier(building) {
@@ -3822,6 +3994,7 @@ function placeActiveBuilding(event) {
     size: [...activeBuildItem.size],
     requiredWorkers: activeBuildItem.requiredWorkers ?? 0,
     resourceOutput: { ...(activeBuildItem.resourceOutput ?? {}) },
+    visitorPointOfInterest: Boolean(activeBuildItem.visitorPointOfInterest),
     buildStart: currentTime,
     buildEnd: currentTime + activeBuildItem.buildDuration,
     buildDuration: activeBuildItem.buildDuration,
@@ -4865,7 +5038,7 @@ function renderSelection() {
 }
 
 function renderInspectorActions() {
-  if (!selectedElement?.building && !selectedElement?.worker) {
+  if (!selectedElement?.building && !selectedElement?.worker && !selectedElement?.visitor) {
     delete inspectorActionsEl.dataset.actionSignature;
     inspectorActionsEl.replaceChildren();
     return;
@@ -4886,6 +5059,17 @@ function renderInspectorActions() {
 }
 
 function inspectorActionsForSelection() {
+  if (selectedElement?.visitor) {
+    return [
+      {
+        label: "Open History",
+        hotkey: SELECTION_ACTION_HOTKEYS.visitorHistory,
+        disabled: false,
+        run: openVisitorHistory,
+      },
+    ];
+  }
+
   if (selectedElement?.building) {
     const building = selectedElement.building;
     const required = requiredWorkerCount(building);
@@ -5517,6 +5701,7 @@ function installTestApi() {
         size: [...item.size],
         requiredWorkers: item.requiredWorkers ?? 0,
         resourceOutput: { ...(item.resourceOutput ?? {}) },
+        visitorPointOfInterest: Boolean(item.visitorPointOfInterest),
         buildStart: currentTime - item.buildDuration,
         buildEnd: currentTime,
         buildDuration: item.buildDuration,
@@ -5639,6 +5824,7 @@ function currentTestState() {
       targetBuildingId: visitor.userData.visitorTargetBuildingId,
       currentBuildingId: visitor.userData.visitorCurrentBuildingId,
       interaction: visitor.userData.visitorInteractionLabel,
+      history: visitorActivityHistory(visitor).map((entry) => ({ ...entry })),
       recentlyVisitedBuildingIds: Object.keys(visitor.userData.visitorLastVisits ?? {}),
       position: {
         x: visitor.position.x,
@@ -5656,6 +5842,7 @@ function currentTestState() {
       status: buildingMeshes.get(building.id)?.userData.state?.status ?? "Planned",
       requiredWorkers: requiredWorkerCount(building),
       assignedWorkers: assignedWorkerCount(building),
+      visitorPointOfInterest: buildingVisitorPointOfInterest(building),
     })),
     fences: playerFenceSegments.map((segment) => ({
       kind: segment.kind ?? "wood_fence",

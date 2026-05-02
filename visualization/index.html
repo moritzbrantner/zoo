@@ -98,6 +98,34 @@
         </div>
       </section>
 
+      <section class="visitor-history-panel" aria-label="Visitor activity history" aria-hidden="true">
+        <div
+          class="visitor-history-panel-content"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="visitor-history-title"
+        >
+          <div class="settings-header">
+            <div>
+              <h2 id="visitor-history-title">Visitor History</h2>
+              <p id="visitor-history-subtitle" class="visitor-history-subtitle">
+                Recent activity for the selected visitor.
+              </p>
+            </div>
+            <button
+              id="close-visitor-history"
+              class="close-button"
+              type="button"
+              title="Close visitor history"
+              aria-label="Close visitor history"
+            >
+              x
+            </button>
+          </div>
+          <ol id="visitor-history-list" class="visitor-history-list"></ol>
+        </div>
+      </section>
+
       <section class="hud" aria-label="Zoo state">
         <div class="hud-header">
           <div>

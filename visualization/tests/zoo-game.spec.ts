@@ -71,6 +71,14 @@ test.describe("zoo game state fixtures", () => {
     await expect(page.locator("#inspector-details")).toContainText("Visiting animals");
     await expect(page.locator("#inspector-details")).toContainText("Guest loop");
 
+    await page.getByRole("button", { name: /Open History/ }).click();
+    const visitorHistory = page.getByRole("dialog", { name: "Visitor 1 History" });
+    await expect(visitorHistory).toBeVisible();
+    await expect(visitorHistory).toContainText("Entered zoo");
+    await expect(visitorHistory).toContainText("Heading to");
+    await expect(visitorHistory).toContainText("Visiting animals");
+    await visitorHistory.getByRole("button", { name: "Close visitor history" }).click();
+
     await page.getByRole("button", { name: "Inspect Visitors" }).click();
     await expect(page.locator("#inspector-details")).toContainText(/\d+ \/ 42/);
   });
@@ -128,6 +136,24 @@ test.describe("zoo game state fixtures", () => {
     const afterDwell = await zooGame.state();
     expect(afterDwell.visitors[0].recentlyVisitedBuildingIds).toContain("savanna_habitat");
     expect(afterDwell.visitors[0].targetBuildingId).not.toBe("savanna_habitat");
+  });
+
+  test("building visitor point-of-interest defaults are configurable by building kind", async ({
+    zooGame,
+  }) => {
+    await zooGame.start();
+    const state = await zooGame.placeBuildingForTest("animal_area", -5, -4);
+    const buildingsById = Object.fromEntries(
+      state.buildings.map((building) => [building.id, building]),
+    );
+
+    expect(buildingsById.keeper_kitchen.visitorPointOfInterest).toBe(false);
+    expect(buildingsById.feed_shed.visitorPointOfInterest).toBe(false);
+    expect(buildingsById.customer_entry.visitorPointOfInterest).toBe(false);
+    expect(buildingsById.ticket_booth.visitorPointOfInterest).toBe(true);
+    expect(buildingsById.guest_plaza.visitorPointOfInterest).toBe(true);
+    expect(buildingsById.savanna_habitat.visitorPointOfInterest).toBe(true);
+    expect(buildingsById.placed_animal_area_1.visitorPointOfInterest).toBe(true);
   });
 
   test("visitors leave when no activity clears their interest threshold", async ({ zooGame }) => {
