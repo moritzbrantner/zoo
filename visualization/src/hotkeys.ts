@@ -4,6 +4,9 @@ export type HotkeyBinding = {
   enabled?: boolean | (() => boolean);
   repeat?: boolean;
   shiftKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  altKey?: boolean;
 };
 
 type HotkeyOptions = {
@@ -20,7 +23,7 @@ export function installHotkeys(
   options: HotkeyOptions = {},
 ) {
   document.addEventListener("keydown", (event) => {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) {
+    if (event.defaultPrevented) {
       return;
     }
 
@@ -35,7 +38,10 @@ export function installHotkeys(
 
     const binding = getBindings().find((candidate) => {
       if (normalizeHotkey(candidate.key) !== key) return false;
-      if (candidate.shiftKey !== undefined && candidate.shiftKey !== event.shiftKey) return false;
+      if (!modifierMatches(candidate.shiftKey, event.shiftKey, true)) return false;
+      if (!modifierMatches(candidate.ctrlKey, event.ctrlKey)) return false;
+      if (!modifierMatches(candidate.metaKey, event.metaKey)) return false;
+      if (!modifierMatches(candidate.altKey, event.altKey)) return false;
       if (!(candidate.repeat ?? false) && event.repeat) return false;
       return bindingEnabled(candidate.enabled);
     });
@@ -46,7 +52,7 @@ export function installHotkeys(
 
     event.preventDefault();
     binding.run();
-  });
+  }, { capture: true });
 }
 
 export function setButtonLabelWithHotkey(
@@ -127,6 +133,18 @@ function bindingEnabled(enabled: HotkeyBinding["enabled"]) {
   }
 
   return enabled ?? true;
+}
+
+function modifierMatches(
+  expected: boolean | undefined,
+  actual: boolean,
+  allowUnexpected = false,
+) {
+  if (expected !== undefined) {
+    return expected === actual;
+  }
+
+  return !actual || allowUnexpected;
 }
 
 function isEditableTarget(target: EventTarget | null) {

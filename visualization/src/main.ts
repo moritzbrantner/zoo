@@ -1327,16 +1327,7 @@ function zooHotkeyBindings() {
 
   if (activeBuildItem) {
     bindings.push(
-      {
-        key: BUILDING_ROTATION_HOTKEY,
-        shiftKey: true,
-        run: () => rotateActiveBuildItem(-1),
-      },
-      {
-        key: BUILDING_ROTATION_HOTKEY,
-        shiftKey: false,
-        run: () => rotateActiveBuildItem(1),
-      },
+      ...buildingRotationHotkeyBindings((direction) => rotateActiveBuildItem(direction)),
     );
   } else if (
     hoveredBuilding &&
@@ -1348,16 +1339,9 @@ function zooHotkeyBindings() {
     !activeWorkerCommand
   ) {
     bindings.push(
-      {
-        key: BUILDING_ROTATION_HOTKEY,
-        shiftKey: true,
-        run: () => rotatePlacedBuilding(hoveredBuilding, -1),
-      },
-      {
-        key: BUILDING_ROTATION_HOTKEY,
-        shiftKey: false,
-        run: () => rotatePlacedBuilding(hoveredBuilding, 1),
-      },
+      ...buildingRotationHotkeyBindings((direction) =>
+        rotatePlacedBuilding(hoveredBuilding, direction),
+      ),
     );
   }
 
@@ -1455,6 +1439,27 @@ function zooHotkeyBindings() {
     run: resetCamera,
   });
 
+  return bindings;
+}
+
+function buildingRotationHotkeyBindings(run) {
+  const bindings = [];
+  for (const modifiers of [{}, { ctrlKey: true }, { metaKey: true }]) {
+    bindings.push(
+      {
+        key: BUILDING_ROTATION_HOTKEY,
+        shiftKey: true,
+        ...modifiers,
+        run: () => run(-1),
+      },
+      {
+        key: BUILDING_ROTATION_HOTKEY,
+        shiftKey: false,
+        ...modifiers,
+        run: () => run(1),
+      },
+    );
+  }
   return bindings;
 }
 

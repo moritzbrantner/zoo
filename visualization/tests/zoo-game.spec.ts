@@ -649,6 +649,36 @@ test.describe("zoo game state fixtures", () => {
     });
   });
 
+  test("uses the refresh shortcut for active building rotation without reloading", async ({
+    page,
+    zooGame,
+  }) => {
+    await zooGame.start();
+
+    await page.keyboard.press("b");
+    await page.keyboard.press("4");
+    const placementPoint = await zooGame.groundPoint(-4.5, -3);
+    await page.mouse.move(placementPoint.x, placementPoint.y);
+    const reloadProbe = await page.evaluate(() => {
+      window.__zooReloadProbe = crypto.randomUUID();
+      return window.__zooReloadProbe;
+    });
+
+    await page.keyboard.press("Control+KeyR");
+
+    await expect
+      .poll(() => page.evaluate(() => window.__zooReloadProbe ?? null))
+      .toBe(reloadProbe);
+    await page.mouse.click(placementPoint.x, placementPoint.y);
+
+    const state = await zooGame.state();
+    expect(
+      state.buildings.find((building) => building.id.startsWith("placed_restroom_")),
+    ).toMatchObject({
+      rotationQuarter: 1,
+    });
+  });
+
   test("commands a selected worker with the keyboard", async ({ page, zooGame }) => {
     await zooGame.start();
     await zooGame.assignWorker("building-savanna_habitat");
