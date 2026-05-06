@@ -16,6 +16,8 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 axum = "0.8"
+bevy_app = "0.18.1"
+bevy_ecs = "0.18.1"
 schemars = "0.8"
 serde = "1"
 serde_json = "1"
@@ -30,6 +32,8 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 farm_engine = { git = "https://github.com/moritzbrantner/farm-game-engine", rev = "956681e079ef0ffbc6d5393ddd01b65264e3a387", features = ["serde"] }
+bevy_app.workspace = true
+bevy_ecs.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 schemars = { workspace = true, optional = true }

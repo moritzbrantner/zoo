@@ -20,6 +20,7 @@ mod constants;
 mod logic;
 mod pricing;
 mod seed;
+mod sim;
 mod view;
 #[cfg(feature = "wasm")]
 mod wasm;
