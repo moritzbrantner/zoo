@@ -72,6 +72,13 @@ pub const ANIMAL_UNLOCK_LION_PRIDE: &str = "animal_unlock_lion_pride";
 pub const ANIMAL_UNLOCK_GORILLA_TROOP: &str = "animal_unlock_gorilla_troop";
 pub const ANIMAL_UNLOCK_ELEPHANT_HERD: &str = "animal_unlock_elephant_herd";
 pub const GUEST_DEPARTURES_LAST_TICK: &str = "guest_departures_last_tick";
+pub const TICKET_REVENUE_LAST_TICK: &str = "ticket_revenue_last_tick";
+pub const GUEST_SPEND_LAST_TICK: &str = "guest_spend_last_tick";
+pub const FEED_DELIVERY_COST_LAST_TICK: &str = "feed_delivery_cost_last_tick";
+pub const REVENUE_LAST_TICK: &str = "revenue_last_tick";
+pub const EXPENSES_LAST_TICK: &str = "expenses_last_tick";
+pub const NET_CASHFLOW_LAST_TICK: &str = "net_cashflow_last_tick";
+pub const PROJECTED_CASHFLOW_PER_MINUTE: &str = "projected_cashflow_per_minute";
 
 pub const EXCITEMENT: &str = "excitement";
 pub const PATIENCE: &str = "patience";

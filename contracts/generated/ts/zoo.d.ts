@@ -2,7 +2,7 @@
 
 export type ZooCommand = { "Engine": GameCommand } | { "SetEntryFee": { building: BuildingId, value: bigint, } } | { "BuyAnimal": { kind: NpcKind, name: string | null, location: MapLocation, } } | { "MoveAnimal": { entity: EntityId, location: MapLocation, } };
 
-export type ZooCommandRequest = { command_id: CommandId, world_id: WorldId, player_id: PlayerId, expected_version: bigint, command: GameCommand, };
+export type ZooCommandRequest = { command_id: CommandId, world_id: WorldId, player_id: PlayerId, expected_version: bigint, command: ZooCommand, };
 
 export type ZooCommandResponse = { accepted: boolean, version: bigint, checksum: string, events: Array<GameEvent>, view: ZooView, error: string | null, };
 
@@ -12,13 +12,17 @@ export type ZooPlayerView = { player_id: PlayerId, checksum: string, view: ZooVi
 
 export type ZooCreateWorldResponse = { world_id: WorldId, version: bigint, players: Array<ZooPlayerView>, };
 
-export type ZooApplyCommandRequest = { expected_version: bigint, command: GameCommand, };
+export type ZooWorldListItem = { world_id: WorldId, version: bigint, };
+
+export type ZooWorldListResponse = { worlds: Array<ZooWorldListItem>, };
+
+export type ZooApplyCommandRequest = { expected_version: bigint, command: ZooCommand, };
 
 export type ZooTickRequest = { delta_seconds: bigint, };
 
 export type ZooTickResponse = { version: bigint, events: { [key in PlayerId]?: Array<GameEvent> }, players: Array<ZooPlayerView>, };
 
-export type ZooView = { now_seconds: bigint, resources: Array<ResourceView>, buildings: Array<BuildingView>, jobs: Array<JobView>, paths: Array<PathView>, areas: Array<AreaView>, fences: Array<FenceView>, entities: Array<EntityView>, animal_species: Array<AnimalSpeciesView>, tech_nodes: Array<string>, available_tech_nodes: Array<string>, upgrades: Array<string>, alerts: Array<AlertView>, objectives: Array<ObjectiveView>, summary: ZooSummary, };
+export type ZooView = { now_seconds: bigint, resources: Array<ResourceView>, buildings: Array<BuildingView>, jobs: Array<JobView>, paths: Array<PathView>, areas: Array<AreaView>, fences: Array<FenceView>, entities: Array<EntityView>, animal_species: Array<AnimalSpeciesView>, tech_nodes: Array<string>, available_tech_nodes: Array<string>, upgrades: Array<string>, alerts: Array<AlertView>, objectives: Array<ObjectiveView>, summary: ZooSummary, economy: ZooEconomyView, };
 
 export type ResourceView = { id: string, label: string, amount: bigint, capacity: bigint | null, };
 
@@ -34,9 +38,15 @@ export type FenceView = { id: bigint, kind: string, start: MapLocation, end: Map
 
 export type EntityView = { id: bigint, blueprint: EntityBlueprintRef, kind: string, label: string, location: MapLocation, assigned_building: bigint | null, assigned_job: bigint | null, stats: { [key in string]?: bigint }, };
 
+export type AnimalSpeciesView = { kind: string, label: string, required_visitors: bigint, unlocked: boolean, placed_count: number, appeal: bigint, purchase_cost: Array<AnimalSpeciesCostView>, animal_area_kind: string, min_level: number, fence_kind: string, min_fence_count: number, };
+
+export type AnimalSpeciesCostView = { resource_id: string, label: string, amount: bigint, };
+
 export type AlertView = { severity: string, message: string, };
 
 export type ObjectiveView = { id: string, label: string, current: bigint, target: bigint, complete: boolean, };
 
 export type ZooSummary = { active_habitats: number, animal_count: number, average_welfare: bigint, animal_appeal: bigint, current_visitors: bigint, entry_fee: bigint, customer_willingness: bigint, customer_demand_percent: bigint, expected_customers_per_minute: number, tracked_guests: number, guest_departures_last_tick: number, reputation_level: number, won: boolean, critical: boolean, };
+
+export type ZooEconomyView = { revenue_last_tick: bigint, expenses_last_tick: bigint, net_cashflow_last_tick: bigint, projected_cashflow_per_minute: bigint, ticket_revenue_last_tick: bigint, guest_spend_last_tick: bigint, feed_delivery_cost_last_tick: bigint, };
 

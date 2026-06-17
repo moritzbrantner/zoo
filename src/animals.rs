@@ -37,12 +37,8 @@ const GORILLA_PURCHASE_COST: &[(&str, u64)] = &[
     (ANIMAL_FEED, 8),
     (MEDICINE, 6),
 ];
-const ELEPHANT_PURCHASE_COST: &[(&str, u64)] = &[
-    (COINS, 172),
-    (VEGETABLES, 24),
-    (WATER, 18),
-    (MEDICINE, 8),
-];
+const ELEPHANT_PURCHASE_COST: &[(&str, u64)] =
+    &[(COINS, 172), (VEGETABLES, 24), (WATER, 18), (MEDICINE, 8)];
 
 const ANIMAL_SPECIES: &[AnimalSpeciesDefinition] = &[
     AnimalSpeciesDefinition {

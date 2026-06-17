@@ -13,11 +13,19 @@ export default defineConfig({
     baseURL,
     trace: "on-first-retry",
   },
-  webServer: {
-    command: `bun run dev -- --host 127.0.0.1 --port ${port}`,
-    url: baseURL,
-    reuseExistingServer: false,
-  },
+  webServer: [
+    {
+      command:
+        "cd .. && rm -f target/playwright-zoo.sqlite3 && ZOO_DB_PATH=target/playwright-zoo.sqlite3 cargo run -p zoo_server",
+      url: "http://127.0.0.1:8080/api/worlds",
+      reuseExistingServer: false,
+    },
+    {
+      command: `bun run dev -- --host 127.0.0.1 --port ${port}`,
+      url: baseURL,
+      reuseExistingServer: false,
+    },
+  ],
   projects: [
     {
       name: "chromium",

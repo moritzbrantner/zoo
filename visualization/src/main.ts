@@ -47,6 +47,10 @@ const entryFeeEl = document.querySelector("#entry-fee");
 const entryFeeValueEl = document.querySelector("#entry-fee-value");
 const willingnessValueEl = document.querySelector("#willingness-value");
 const demandValueEl = document.querySelector("#demand-value");
+const economyRevenueEl = document.querySelector("#economy-revenue");
+const economyExpensesEl = document.querySelector("#economy-expenses");
+const economyCashflowEl = document.querySelector("#economy-cashflow");
+const milestoneListEl = document.querySelector("#milestone-list");
 const resourceListEl = document.querySelector("#resource-list");
 const inspectorTitleEl = document.querySelector("#inspector-title");
 const inspectorSummaryEl = document.querySelector("#inspector-summary");
@@ -693,6 +697,8 @@ const playerFenceSegmentKeys = new Set();
 const playerFenceSegments = [];
 const zooClient = createZooClient();
 let serverSession = null;
+let serverTickInFlight = false;
+let lastServerTickSecond = 0;
 
 setupLights();
 createBoard();
@@ -860,13 +866,17 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-function startZoo() {
+async function startZoo() {
   closeTransientUi();
   setSimulationOptionsOpen(false);
   if (!hasStartedGame) {
     currentTime = 0;
     updateState(currentTime);
-    connectServerWorld();
+    const connected = await connectServerWorld();
+    if (!connected) {
+      updateMainMenu();
+      return;
+    }
   }
   hasStartedGame = true;
   simulationStarted = true;
@@ -995,8 +1005,8 @@ function applySimulationPreset(preset) {
 }
 
 async function connectServerWorld() {
-  if (!syncStatusEl) return;
-  syncStatusEl.textContent = "Sync: checking server";
+  if (!syncStatusEl) return false;
+  syncStatusEl.textContent = "Server: connecting";
   try {
     const world = await zooClient.createWorld(["player-1"]);
     const player = world.players[0];
@@ -1005,13 +1015,120 @@ async function connectServerWorld() {
       playerId: player.player_id,
       version: world.version,
       checksum: player.checksum,
+      view: player.view,
       entryBuildingId: player.view.buildings.find((building) => building.kind === "customer_entry")
         ?.id,
     };
-    syncStatusEl.textContent = `Sync: server v${serverSession.version}`;
+    lastServerTickSecond = Math.floor(Number(player.view.now_seconds ?? 0));
+    applyServerView(player.view);
+    updateServerStatus();
+    return true;
   } catch (error) {
     serverSession = null;
-    syncStatusEl.textContent = "Sync: local demo";
+    syncStatusEl.textContent = "Server required: run zoo_server";
+    return false;
+  }
+}
+
+function updateServerStatus() {
+  if (!syncStatusEl) return;
+  if (!serverSession) {
+    syncStatusEl.textContent = "Server: disconnected";
+    return;
+  }
+  syncStatusEl.textContent = `Server: ${serverSession.worldId} v${serverSession.version}`;
+}
+
+function applyServerView(view) {
+  if (!view) return;
+  if (serverSession) {
+    serverSession.view = view;
+    serverSession.entryBuildingId =
+      view.buildings.find((building) => building.kind === "customer_entry")?.id ??
+      serverSession.entryBuildingId;
+  }
+  pricing.entryFee = Number(view.summary?.entry_fee ?? pricing.entryFee);
+  entryFeeEl.value = String(pricing.entryFee);
+  renderServerPanels(view);
+}
+
+function renderServerPanels(view = serverSession?.view) {
+  if (!view) {
+    economyRevenueEl.textContent = formatMoney(0);
+    economyExpensesEl.textContent = formatMoney(0);
+    economyCashflowEl.textContent = formatMoney(0);
+    milestoneListEl.replaceChildren();
+    return;
+  }
+
+  entryFeeValueEl.textContent = formatMoney(Number(view.summary.entry_fee));
+  willingnessValueEl.textContent = `${formatMoney(Number(view.summary.customer_willingness))} willing`;
+  demandValueEl.textContent = `${Number(view.summary.customer_demand_percent)}% demand`;
+  economyRevenueEl.textContent = formatMoney(Number(view.economy.revenue_last_tick));
+  economyExpensesEl.textContent = formatMoney(Number(view.economy.expenses_last_tick));
+  economyCashflowEl.textContent = formatMoney(Number(view.economy.projected_cashflow_per_minute));
+
+  const fragment = document.createDocumentFragment();
+  for (const objective of view.objectives ?? []) {
+    const item = document.createElement("li");
+    item.className = objective.complete ? "is-complete" : "";
+    const label = document.createElement("span");
+    label.textContent = objective.label;
+    const value = document.createElement("span");
+    value.textContent = objective.complete
+      ? "done"
+      : `${Number(objective.current)} / ${Number(objective.target)}`;
+    item.append(label, value);
+    fragment.append(item);
+  }
+  milestoneListEl.replaceChildren(fragment);
+}
+
+async function applyServerCommand(command) {
+  if (!serverSession) {
+    throw new Error("Server session is not connected.");
+  }
+  const response = await zooClient.applyCommand(
+    serverSession.worldId,
+    serverSession.playerId,
+    serverSession.version,
+    command,
+  );
+  serverSession.version = response.version;
+  serverSession.checksum = response.checksum;
+  applyServerView(response.view);
+  updateServerStatus();
+  if (!response.accepted) {
+    throw new Error(response.error ?? "Server rejected command.");
+  }
+  return response;
+}
+
+async function tickServerTo(time) {
+  if (!serverSession || serverTickInFlight) return;
+  const roundedTime = Math.floor(time);
+  const deltaSeconds = Math.min(60, roundedTime - lastServerTickSecond);
+  if (deltaSeconds < 1) return;
+
+  serverTickInFlight = true;
+  try {
+    const response = await zooClient.tick(serverSession.worldId, deltaSeconds);
+    serverSession.version = response.version;
+    const player =
+      response.players.find((candidate) => candidate.player_id === serverSession.playerId) ??
+      response.players[0];
+    if (player) {
+      serverSession.checksum = player.checksum;
+      applyServerView(player.view);
+      lastServerTickSecond = Math.floor(Number(player.view.now_seconds ?? roundedTime));
+    } else {
+      lastServerTickSecond = roundedTime;
+    }
+    updateServerStatus();
+  } catch (error) {
+    syncStatusEl.textContent = "Server: disconnected";
+  } finally {
+    serverTickInFlight = false;
   }
 }
 
@@ -1677,24 +1794,14 @@ function setEntryFee(value) {
 async function syncEntryFeeToServer() {
   if (!serverSession?.entryBuildingId) return;
   try {
-    const response = await zooClient.applyCommand(
-      serverSession.worldId,
-      serverSession.playerId,
-      serverSession.version,
-      {
-        SetBuildingStat: {
-          building: serverSession.entryBuildingId,
-          stat: "entry_fee",
-          value: pricing.entryFee,
-        },
+    await applyServerCommand({
+      SetEntryFee: {
+        building: serverSession.entryBuildingId,
+        value: pricing.entryFee,
       },
-    );
-    serverSession.version = response.version;
-    serverSession.checksum = response.checksum;
-    syncStatusEl.textContent = `Sync: server v${serverSession.version}`;
+    });
   } catch (error) {
-    serverSession = null;
-    syncStatusEl.textContent = "Sync: local demo";
+    syncStatusEl.textContent = "Server: entry fee rejected";
   }
 }
 
@@ -2525,13 +2632,38 @@ function createVisitors() {
   }
 }
 
-function spawnWorkerForBuilding(building) {
+async function spawnWorkerForBuilding(building) {
   if (!canAssignWorkerToBuilding(building)) {
     const buildingRoot = buildingMeshes.get(building.id);
     if (buildingRoot) {
       selectElement(buildingRoot.userData.selectionInfo, buildingRoot);
     }
     return;
+  }
+  if (serverSession) {
+    const serverBuilding = rememberServerBuildingId(building);
+    const serverWorker = serverSession.view?.entities?.find(
+      (entity) =>
+        ["zookeeper", "veterinarian", "mechanic", "educator"].includes(entity.kind) &&
+        entity.assigned_building == null,
+    );
+    if (!serverBuilding || !serverWorker) {
+      buildMenuStatusEl.textContent = "No server-side staff assignment is available for this building.";
+      return;
+    }
+    try {
+      await applyServerCommand({
+        Engine: {
+          AssignEntityToBuilding: {
+            entity: serverWorker.id,
+            building: serverBuilding.id,
+          },
+        },
+      });
+    } catch (error) {
+      buildMenuStatusEl.textContent = error.message ?? "Worker assignment rejected by server.";
+      return;
+    }
   }
   spawnedWorkerCount += 1;
   const position = workerPositionForBuilding(building, spawnedWorkerCount);
@@ -2927,6 +3059,7 @@ function animate(now) {
   if (simulationStarted) {
     currentTime += delta * settings.speedMultiplier;
     updateState(currentTime);
+    tickServerTo(currentTime);
   } else {
     updatePlayerPlacedBuildings();
   }
@@ -2972,11 +3105,17 @@ function updateState(time) {
   entryFeeValueEl.textContent = formatMoney(pricing.entryFee);
   willingnessValueEl.textContent = `${formatMoney(pricingState.willingness)} willing`;
   demandValueEl.textContent = `${pricingState.demandPercent}% demand`;
+  renderServerPanels();
 
   for (const resource of resources) {
     const row = resourceRows.get(resource.id);
-    const value = resourceState.values[resource.id] ?? 0;
-    const capacity = resourceState.capacities[resource.id];
+    const serverResource = serverSession?.view?.resources?.find((candidate) => candidate.id === resource.id);
+    const value = serverResource ? Number(serverResource.amount) : (resourceState.values[resource.id] ?? 0);
+    const capacity = serverResource
+      ? serverResource.capacity == null
+        ? null
+        : Number(serverResource.capacity)
+      : resourceState.capacities[resource.id];
     row.value.textContent = capacity ? `${value} / ${capacity}` : String(value);
     row.fill.style.width = `${
       capacity ? Math.min(100, (value / capacity) * 100) : Math.min(100, value)
@@ -4030,7 +4169,7 @@ function localFenceCountsForBuilding(building) {
   return counts;
 }
 
-function purchaseAnimalForArea(building, species) {
+async function purchaseAnimalForArea(building, species) {
   const resourceState = currentResourceState();
   syncLocalAnimalUnlocks(resourceState);
   const areaAnimals = animalsForBuilding(building);
@@ -4059,6 +4198,22 @@ function purchaseAnimalForArea(building, species) {
   for (const cost of species.purchaseCost) {
     if ((resourceState.values[cost.resource_id] ?? 0) < cost.amount) {
       buildMenuStatusEl.textContent = `Need ${cost.amount} ${cost.label} to buy ${species.label}.`;
+      renderAnimalRoster();
+      return;
+    }
+  }
+
+  if (serverSession) {
+    try {
+      await applyServerCommand({
+        BuyAnimal: {
+          kind: species.kind,
+          name: null,
+          location: mapLocationForBuilding(building),
+        },
+      });
+    } catch (error) {
+      buildMenuStatusEl.textContent = error.message ?? `${species.label} rejected by server.`;
       renderAnimalRoster();
       return;
     }
@@ -4511,41 +4666,61 @@ function disposeObject3D(root) {
   });
 }
 
-function placeActiveBuilding(event) {
+async function placeActiveBuilding(event) {
   const position = updatePlacementPreview(event);
   if (!activeBuildItem || !position || !placementValid) return false;
 
+  const item = activeBuildItem;
+  if (serverSession) {
+    try {
+      const response = await applyServerCommand({
+        Engine: {
+          ConstructBuilding: {
+            kind: item.kind,
+            location: mapLocationFromWorldPosition(position),
+          },
+        },
+      });
+      buildMenuStatusEl.textContent = `${item.label} accepted by server.`;
+      applyServerView(response.view);
+    } catch (error) {
+      buildMenuStatusEl.textContent = error.message ?? `${item.label} rejected by server.`;
+      return false;
+    }
+  }
+
   placedBuildingCount += 1;
   const building = {
-    id: `placed_${activeBuildItem.kind}_${placedBuildingCount}`,
-    kind: activeBuildItem.kind,
-    label: activeBuildItem.label,
+    id: `placed_${item.kind}_${placedBuildingCount}`,
+    kind: item.kind,
+    label: item.label,
     position: [position.x, 0, position.z],
-    size: [...activeBuildItem.size],
-    baseSize: [...activeBuildItem.baseSize],
-    rotationQuarter: activeBuildItem.rotationQuarter,
-    requiresPath: Boolean(activeBuildItem.requiresPath),
-    requiredWorkers: activeBuildItem.requiredWorkers ?? 0,
-    resourceOutput: { ...(activeBuildItem.resourceOutput ?? {}) },
-    visitorPointOfInterest: Boolean(activeBuildItem.visitorPointOfInterest),
+    size: [...item.size],
+    baseSize: [...item.baseSize],
+    rotationQuarter: item.rotationQuarter,
+    requiresPath: Boolean(item.requiresPath),
+    requiredWorkers: item.requiredWorkers ?? 0,
+    resourceOutput: { ...(item.resourceOutput ?? {}) },
+    visitorPointOfInterest: Boolean(item.visitorPointOfInterest),
     buildStart: currentTime,
-    buildEnd: currentTime + activeBuildItem.buildDuration,
-    buildDuration: activeBuildItem.buildDuration,
+    buildEnd: currentTime + item.buildDuration,
+    buildDuration: item.buildDuration,
     playerPlaced: true,
     details: {
-      ...activeBuildItem.details,
-      Cost: activeBuildItem.cost,
-      Staffing: staffingLabel(activeBuildItem.requiredWorkers),
-      Footprint: `${activeBuildItem.size[0]} x ${activeBuildItem.size[1]} tiles`,
+      ...item.details,
+      Cost: item.cost,
+      Staffing: staffingLabel(item.requiredWorkers),
+      Footprint: `${item.size[0]} x ${item.size[1]} tiles`,
     },
   };
+  rememberServerBuildingId(building);
 
   buildings.push(building);
   playerPlacedBuildings.push(building);
   const group = addBuildingToScene(building);
   selectElement(group.userData.selectionInfo, group);
-  const placedLabel = activeBuildItem.label;
-  const buildDuration = activeBuildItem.buildDuration;
+  const placedLabel = item.label;
+  const buildDuration = item.buildDuration;
   cancelPlacement();
   buildMenuStatusEl.textContent = buildDuration
     ? `${placedLabel} construction started (${buildDuration}s).`
@@ -4701,11 +4876,27 @@ function ensurePathPreview() {
   scene.add(pathPreviewGroup);
 }
 
-function confirmPathDraft() {
+async function confirmPathDraft() {
   if (!pathPreviewValid) return;
 
   const tilesToBuild = pathDraftTiles.filter((tile) => !pathTileKeys.has(tile.key));
   if (tilesToBuild.length === 0) return;
+
+  if (serverSession) {
+    try {
+      await applyServerCommand({
+        Engine: {
+          CreatePath: {
+            kind: activePathKind,
+            waypoints: tilesToBuild.map(mapLocationFromTile),
+          },
+        },
+      });
+    } catch (error) {
+      buildMenuStatusEl.textContent = error.message ?? "Path rejected by server.";
+      return;
+    }
+  }
 
   playerPathCount += 1;
   const group = new THREE.Group();
@@ -5010,13 +5201,32 @@ function clearFencePreview() {
   }
 }
 
-function confirmFenceDraft() {
+async function confirmFenceDraft() {
   if (!fencePreviewValid) return;
 
   const segmentsToBuild = fenceSegmentsFromPoints(fenceDraftTiles).filter(
     (segment) => !playerFenceSegmentKeys.has(segment.key),
   );
   if (segmentsToBuild.length === 0) return;
+
+  if (serverSession) {
+    try {
+      for (const segment of segmentsToBuild) {
+        await applyServerCommand({
+          Engine: {
+            PlaceFence: {
+              kind: activeFenceKind,
+              start: mapLocationFromTile(segment.start),
+              end: mapLocationFromTile(segment.end),
+            },
+          },
+        });
+      }
+    } catch (error) {
+      buildMenuStatusEl.textContent = error.message ?? "Fence rejected by server.";
+      return;
+    }
+  }
 
   playerFenceCount += 1;
   const builtSegments = segmentsToBuild.map((segment) => ({ ...segment, kind: activeFenceKind }));
@@ -5078,6 +5288,45 @@ function pathTileFromGrid(col, row) {
     z: playableArea.minZ + clampedRow * PATH_TILE_SIZE + PATH_TILE_SIZE / 2,
     key: `${clampedCol}:${clampedRow}`,
   };
+}
+
+function mapLocationFromTile(tile) {
+  return { x: tile.col, y: tile.row };
+}
+
+function mapLocationFromWorldPosition(position) {
+  const point = Array.isArray(position)
+    ? { x: position[0], z: position[2] }
+    : { x: position.x, z: position.z };
+  const col = tileIndexForCoordinate(point.x, playableArea.minX, gridColumns);
+  const row = tileIndexForCoordinate(point.z, playableArea.minZ, gridRows);
+  return { x: col, y: row };
+}
+
+function mapLocationForBuilding(building) {
+  return mapLocationFromWorldPosition(building.position);
+}
+
+function serverBuildingForLocal(building, view = serverSession?.view) {
+  if (!building || !view) return null;
+  if (building.serverId) {
+    return view.buildings.find((candidate) => Number(candidate.id) === Number(building.serverId)) ?? null;
+  }
+  const location = mapLocationForBuilding(building);
+  return (
+    view.buildings.find(
+      (candidate) =>
+        candidate.kind === building.kind &&
+        Number(candidate.location.x) === location.x &&
+        Number(candidate.location.y) === location.y,
+    ) ?? null
+  );
+}
+
+function rememberServerBuildingId(building, view = serverSession?.view) {
+  const serverBuilding = serverBuildingForLocal(building, view);
+  if (serverBuilding) building.serverId = Number(serverBuilding.id);
+  return serverBuilding;
 }
 
 function pathTileFromKey(key) {

@@ -27,10 +27,11 @@ use std::fs;
 use std::path::{Path as FsPath, PathBuf};
 use ts_rs::TS;
 use zoo_game::{
-    AlertView, AreaView, BuildingView, EntityView, FenceView, JobView, ObjectiveView, PathView,
-    ResourceView, ZooApplyCommandRequest, ZooCommand, ZooCommandRequest, ZooCommandResponse,
-    ZooCreateWorldRequest, ZooCreateWorldResponse, ZooPlayerView, ZooSummary, ZooTickRequest,
-    ZooTickResponse, ZooView,
+    AlertView, AnimalSpeciesCostView, AnimalSpeciesView, AreaView, BuildingView, EntityView,
+    FenceView, JobView, ObjectiveView, PathView, ResourceView, ZooApplyCommandRequest, ZooCommand,
+    ZooCommandRequest, ZooCommandResponse, ZooCreateWorldRequest, ZooCreateWorldResponse,
+    ZooEconomyView, ZooPlayerView, ZooSummary, ZooTickRequest, ZooTickResponse, ZooView,
+    ZooWorldListItem, ZooWorldListResponse,
 };
 
 struct GeneratedFile {
@@ -66,6 +67,7 @@ fn generated_files() -> Result<Vec<GeneratedFile>> {
         schema_file::<ZooView>("json/ZooView.schema.json")?,
         schema_file::<ZooCreateWorldRequest>("json/ZooCreateWorldRequest.schema.json")?,
         schema_file::<ZooCreateWorldResponse>("json/ZooCreateWorldResponse.schema.json")?,
+        schema_file::<ZooWorldListResponse>("json/ZooWorldListResponse.schema.json")?,
         schema_file::<ZooApplyCommandRequest>("json/ZooApplyCommandRequest.schema.json")?,
         schema_file::<ZooTickRequest>("json/ZooTickRequest.schema.json")?,
         schema_file::<ZooTickResponse>("json/ZooTickResponse.schema.json")?,
@@ -210,6 +212,8 @@ fn render_zoo_ts() -> String {
         ZooCreateWorldRequest::decl(),
         ZooPlayerView::decl(),
         ZooCreateWorldResponse::decl(),
+        ZooWorldListItem::decl(),
+        ZooWorldListResponse::decl(),
         ZooApplyCommandRequest::decl(),
         ZooTickRequest::decl(),
         ZooTickResponse::decl(),
@@ -221,9 +225,12 @@ fn render_zoo_ts() -> String {
         AreaView::decl(),
         FenceView::decl(),
         EntityView::decl(),
+        AnimalSpeciesView::decl(),
+        AnimalSpeciesCostView::decl(),
         AlertView::decl(),
         ObjectiveView::decl(),
         ZooSummary::decl(),
+        ZooEconomyView::decl(),
     ] {
         out.push_str("export ");
         out.push_str(&decl);

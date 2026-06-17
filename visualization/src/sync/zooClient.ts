@@ -1,4 +1,10 @@
 export function createZooClient(baseUrl = "http://127.0.0.1:8080") {
+  function encodeBody(payload: unknown) {
+    return JSON.stringify(payload, (_key, value) =>
+      typeof value === "bigint" ? Number(value) : value,
+    );
+  }
+
   async function request(path, options: RequestInit & { headers?: HeadersInit } = {}) {
     const response = await fetch(`${baseUrl}${path}`, {
       headers: {
@@ -14,11 +20,14 @@ export function createZooClient(baseUrl = "http://127.0.0.1:8080") {
     return payload;
   }
 
-  return {
+    return {
+    listWorlds() {
+      return request("/api/worlds");
+    },
     createWorld(players = ["player-1"]) {
       return request("/api/worlds", {
         method: "POST",
-        body: JSON.stringify({ players }),
+        body: encodeBody({ players }),
       });
     },
     getPlayer(worldId, playerId) {
@@ -27,13 +36,13 @@ export function createZooClient(baseUrl = "http://127.0.0.1:8080") {
     applyCommand(worldId, playerId, expectedVersion, command) {
       return request(`/api/worlds/${worldId}/players/${playerId}/commands`, {
         method: "POST",
-        body: JSON.stringify({ expected_version: expectedVersion, command }),
+        body: encodeBody({ expected_version: expectedVersion, command }),
       });
     },
     tick(worldId, deltaSeconds) {
       return request(`/api/worlds/${worldId}/tick`, {
         method: "POST",
-        body: JSON.stringify({ delta_seconds: deltaSeconds }),
+        body: encodeBody({ delta_seconds: deltaSeconds }),
       });
     },
   };

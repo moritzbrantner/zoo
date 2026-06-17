@@ -11,6 +11,18 @@ const ANIMAL_HUNGER_PENALTY_PER_MISSED_MEAL: i64 = 12;
 const FEED_DELIVERY_COST: u64 = 5;
 const FEED_DELIVERY_BUFFER_MEALS: u64 = 3;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ZooRevenueTick {
+    ticket_revenue: u64,
+    guest_spend: u64,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct FeedDeliveryTick {
+    events: Vec<GameEvent>,
+    cost: u64,
+}
+
 #[derive(Default)]
 pub struct ZooLogic;
 
@@ -25,10 +37,12 @@ impl GameLogic for ZooLogic {
         update_building_stats(state, delta_seconds)?;
         sync_tracked_guests(state)?;
         let guest_outcome = update_guest_satisfaction_and_departures(state, delta_seconds)?;
-        apply_guest_arrivals_and_revenue(state, delta_seconds, &guest_outcome)?;
+        let revenue = apply_guest_arrivals_and_revenue(state, delta_seconds, &guest_outcome)?;
         sync_tracked_guests(state)?;
         let mut events = guest_outcome.events;
-        events.extend(deliver_animal_feed(state, delta_seconds)?);
+        let feed = deliver_animal_feed(state, delta_seconds)?;
+        events.extend(feed.events);
+        record_economy_tick(state, delta_seconds, revenue, feed.cost)?;
         update_animal_welfare(state, delta_seconds)?;
         events.extend(unlock_species_for_current_visitors(state));
         update_progression(state)?;
@@ -256,13 +270,13 @@ fn update_animal_welfare(state: &mut GameState, delta_seconds: u64) -> Result<()
 fn deliver_animal_feed(
     state: &mut GameState,
     delta_seconds: u64,
-) -> Result<Vec<GameEvent>, EngineError> {
+) -> Result<FeedDeliveryTick, EngineError> {
     if delta_seconds == 0 {
-        return Ok(Vec::new());
+        return Ok(FeedDeliveryTick::default());
     }
 
     let Some(main_building) = main_zookeeper_house(state) else {
-        return Ok(Vec::new());
+        return Ok(FeedDeliveryTick::default());
     };
     let now = state.now_seconds();
     let mut animal_counts_by_habitat = BTreeMap::<BuildingId, u64>::new();
@@ -281,6 +295,7 @@ fn deliver_animal_feed(
     }
 
     let mut events = Vec::new();
+    let mut cost = 0_u64;
     for (habitat, animal_count) in animal_counts_by_habitat {
         if assigned_staff_count(state, ZOOKEEPER, Some(habitat)) == 0 {
             continue;
@@ -330,6 +345,7 @@ fn deliver_animal_feed(
             .inventory_mut()
             .remove(COINS, FEED_DELIVERY_COST)
             .map_err(EngineError::from)?;
+        cost = cost.saturating_add(FEED_DELIVERY_COST);
         state.set_building_stat(
             habitat,
             LAST_FEED_DELIVERY_AT,
@@ -340,7 +356,7 @@ fn deliver_animal_feed(
         });
     }
 
-    Ok(events)
+    Ok(FeedDeliveryTick { events, cost })
 }
 
 fn resolve_animal_meals(
@@ -412,13 +428,11 @@ fn apply_guest_arrivals_and_revenue(
     state: &mut GameState,
     delta_seconds: u64,
     outcome: &guests::GuestTickOutcome,
-) -> Result<(), EngineError> {
+) -> Result<ZooRevenueTick, EngineError> {
+    let mut revenue = ZooRevenueTick::default();
     if delta_seconds >= 5 && outcome.excited_guest_count > 0 {
-        add_capped(
-            state.inventory_mut(),
-            COINS,
-            outcome.excited_guest_count * (delta_seconds / 5),
-        )?;
+        revenue.guest_spend = outcome.excited_guest_count * (delta_seconds / 5);
+        add_capped(state.inventory_mut(), COINS, revenue.guest_spend)?;
         add_capped(
             state.inventory_mut(),
             REPUTATION,
@@ -430,10 +444,10 @@ fn apply_guest_arrivals_and_revenue(
         let pricing = pricing_snapshot(state);
         add_capped(state.inventory_mut(), VISITORS, outcome.arrivals)?;
         if pricing.entry_fee > 0 {
-            let revenue = outcome
+            revenue.ticket_revenue = outcome
                 .arrivals
                 .saturating_mul(u64::try_from(pricing.entry_fee).unwrap_or(0));
-            add_capped(state.inventory_mut(), COINS, revenue)?;
+            add_capped(state.inventory_mut(), COINS, revenue.ticket_revenue)?;
         }
         add_capped(state.inventory_mut(), REPUTATION, outcome.arrivals / 10)?;
     }
@@ -442,6 +456,46 @@ fn apply_guest_arrivals_and_revenue(
         GUEST_DEPARTURES_LAST_TICK,
         i64::try_from(outcome.departures).unwrap_or(i64::MAX),
     );
+    Ok(revenue)
+}
+
+fn record_economy_tick(
+    state: &mut GameState,
+    delta_seconds: u64,
+    revenue: ZooRevenueTick,
+    feed_delivery_cost: u64,
+) -> Result<(), EngineError> {
+    let total_revenue = revenue.ticket_revenue.saturating_add(revenue.guest_spend);
+    let net_cashflow = i64::try_from(total_revenue).unwrap_or(i64::MAX)
+        - i64::try_from(feed_delivery_cost).unwrap_or(i64::MAX);
+    let projected_cashflow_per_minute = if delta_seconds == 0 {
+        0
+    } else {
+        net_cashflow.saturating_mul(60) / i64::try_from(delta_seconds).unwrap_or(1)
+    };
+
+    state.set_stat(
+        TICKET_REVENUE_LAST_TICK,
+        i64::try_from(revenue.ticket_revenue).unwrap_or(i64::MAX),
+    );
+    state.set_stat(
+        GUEST_SPEND_LAST_TICK,
+        i64::try_from(revenue.guest_spend).unwrap_or(i64::MAX),
+    );
+    state.set_stat(
+        FEED_DELIVERY_COST_LAST_TICK,
+        i64::try_from(feed_delivery_cost).unwrap_or(i64::MAX),
+    );
+    state.set_stat(
+        REVENUE_LAST_TICK,
+        i64::try_from(total_revenue).unwrap_or(i64::MAX),
+    );
+    state.set_stat(
+        EXPENSES_LAST_TICK,
+        i64::try_from(feed_delivery_cost).unwrap_or(i64::MAX),
+    );
+    state.set_stat(NET_CASHFLOW_LAST_TICK, net_cashflow);
+    state.set_stat(PROJECTED_CASHFLOW_PER_MINUTE, projected_cashflow_per_minute);
     Ok(())
 }
 

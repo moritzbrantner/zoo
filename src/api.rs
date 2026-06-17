@@ -7,7 +7,7 @@ pub struct ZooCommandRequest {
     pub world_id: WorldId,
     pub player_id: PlayerId,
     pub expected_version: u64,
-    pub command: GameCommand,
+    pub command: ZooCommand,
 }
 
 #[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -70,9 +70,22 @@ pub struct ZooCreateWorldResponse {
 
 #[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ZooWorldListItem {
+    pub world_id: WorldId,
+    pub version: u64,
+}
+
+#[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ZooWorldListResponse {
+    pub worlds: Vec<ZooWorldListItem>,
+}
+
+#[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ZooApplyCommandRequest {
     pub expected_version: u64,
-    pub command: GameCommand,
+    pub command: ZooCommand,
 }
 
 #[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -107,6 +120,7 @@ pub struct ZooView {
     pub alerts: Vec<AlertView>,
     pub objectives: Vec<ObjectiveView>,
     pub summary: ZooSummary,
+    pub economy: ZooEconomyView,
 }
 
 #[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -223,6 +237,18 @@ pub struct ObjectiveView {
     pub current: i64,
     pub target: i64,
     pub complete: bool,
+}
+
+#[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ZooEconomyView {
+    pub revenue_last_tick: i64,
+    pub expenses_last_tick: i64,
+    pub net_cashflow_last_tick: i64,
+    pub projected_cashflow_per_minute: i64,
+    pub ticket_revenue_last_tick: i64,
+    pub guest_spend_last_tick: i64,
+    pub feed_delivery_cost_last_tick: i64,
 }
 
 #[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]

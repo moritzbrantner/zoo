@@ -53,6 +53,7 @@ pub fn zoo_view(state: &GameState) -> ZooView {
 
     let summary = zoo_summary(state, &animals);
     let alerts = zoo_alerts(state, &summary);
+    let economy = zoo_economy(state);
     let objectives = zoo_objectives(state, &summary);
 
     ZooView {
@@ -81,6 +82,7 @@ pub fn zoo_view(state: &GameState) -> ZooView {
         alerts,
         objectives,
         summary,
+        economy,
     }
 }
 
@@ -329,31 +331,61 @@ fn zoo_alerts(state: &GameState, summary: &ZooSummary) -> Vec<AlertView> {
     alerts
 }
 
+fn zoo_economy(state: &GameState) -> ZooEconomyView {
+    ZooEconomyView {
+        revenue_last_tick: state.stat(REVENUE_LAST_TICK),
+        expenses_last_tick: state.stat(EXPENSES_LAST_TICK),
+        net_cashflow_last_tick: state.stat(NET_CASHFLOW_LAST_TICK),
+        projected_cashflow_per_minute: state.stat(PROJECTED_CASHFLOW_PER_MINUTE),
+        ticket_revenue_last_tick: state.stat(TICKET_REVENUE_LAST_TICK),
+        guest_spend_last_tick: state.stat(GUEST_SPEND_LAST_TICK),
+        feed_delivery_cost_last_tick: state.stat(FEED_DELIVERY_COST_LAST_TICK),
+    }
+}
+
 fn zoo_objectives(state: &GameState, summary: &ZooSummary) -> Vec<ObjectiveView> {
+    let species_variety = state
+        .entities()
+        .filter_map(|entity| is_animal_kind(entity.kind()).then(|| entity.kind().to_owned()))
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+
     vec![
         objective(
-            "habitats",
-            "Activate 3 habitats",
+            "positive_cashflow",
+            "Positive cashflow",
+            state.stat(PROJECTED_CASHFLOW_PER_MINUTE),
+            0,
+        ),
+        objective(
+            "first_habitat",
+            "Open first habitat",
             i64::from(summary.active_habitats),
-            3,
+            1,
         ),
         objective(
-            "reputation",
-            "Reach reputation level 3",
-            i64::from(summary.reputation_level),
-            3,
-        ),
-        objective(
-            "conservation",
-            "Earn 25 conservation points",
-            i64::try_from(state.inventory().amount(CONSERVATION_POINTS)).unwrap_or(i64::MAX),
+            "visitor_growth",
+            "Reach 25 visitors",
+            i64::try_from(summary.current_visitors).unwrap_or(i64::MAX),
             25,
         ),
         objective(
-            "welfare",
+            "stable_welfare",
             "Average animal welfare 70",
             summary.average_welfare,
             70,
+        ),
+        objective(
+            "service_revenue",
+            "Earn guest-service revenue",
+            state.stat(GUEST_SPEND_LAST_TICK),
+            1,
+        ),
+        objective(
+            "species_variety",
+            "Place 2 animal species",
+            i64::try_from(species_variety).unwrap_or(i64::MAX),
+            2,
         ),
     ]
 }

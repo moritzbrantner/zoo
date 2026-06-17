@@ -146,7 +146,7 @@
           <div>
             <h1>Zoo Operations</h1>
             <p id="phase-label">Staffing needed</p>
-            <p id="sync-status" class="sync-status">Sync: local demo</p>
+            <p id="sync-status" class="sync-status">Server: not connected</p>
           </div>
           <div class="hud-counters" aria-label="Zoo counters">
             <output id="available-workers" class="hud-counter" aria-live="polite">0 workers available</output>
@@ -163,6 +163,24 @@
             <span id="willingness-value">$0 willing</span>
             <span id="demand-value">0% demand</span>
           </div>
+        </div>
+        <div class="economy-panel" aria-label="Tycoon economy">
+          <div class="economy-line">
+            <span>Revenue</span>
+            <output id="economy-revenue">$0</output>
+          </div>
+          <div class="economy-line">
+            <span>Expenses</span>
+            <output id="economy-expenses">$0</output>
+          </div>
+          <div class="economy-line">
+            <span>Cashflow / min</span>
+            <output id="economy-cashflow">$0</output>
+          </div>
+        </div>
+        <div class="milestone-panel" aria-label="Sandbox milestones">
+          <h2>Milestones</h2>
+          <ul id="milestone-list"></ul>
         </div>
         <div id="resource-list" class="resource-list"></div>
       </section>

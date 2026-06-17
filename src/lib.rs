@@ -294,7 +294,10 @@ mod tests {
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
         let vegetables = state.inventory().amount(VEGETABLES);
-        state.inventory_mut().remove(VEGETABLES, vegetables).unwrap();
+        state
+            .inventory_mut()
+            .remove(VEGETABLES, vegetables)
+            .unwrap();
         let inventory_before = state.inventory().clone();
 
         assert!(matches!(
@@ -511,6 +514,24 @@ mod tests {
     }
 
     #[test]
+    fn zoo_apply_command_request_accepts_zoo_domain_commands() {
+        let state = new_zoo_state().unwrap();
+        let entry = customer_entry_id(&state);
+        let request = ZooApplyCommandRequest {
+            expected_version: 7,
+            command: ZooCommand::SetEntryFee {
+                building: entry,
+                value: 18,
+            },
+        };
+
+        let serialized = serde_json::to_value(&request).unwrap();
+
+        assert_eq!(serialized["expected_version"], 7);
+        assert_eq!(serialized["command"]["SetEntryFee"]["value"], 18);
+    }
+
+    #[test]
     fn zoo_logic_updates_animals_and_objectives() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
@@ -524,9 +545,13 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
-        let animal =
-            buy_named_animal_group(&mut state, RABBIT_COLONY, "Starter Rabbit Colony", animal_area)
-                .unwrap();
+        let animal = buy_named_animal_group(
+            &mut state,
+            RABBIT_COLONY,
+            "Starter Rabbit Colony",
+            animal_area,
+        )
+        .unwrap();
         let mut logic = ZooLogic;
         state.advance_time_with_logic(30, &mut logic).unwrap();
         assert!(state.entity_stat(animal, HUNGER).unwrap() > 20);
@@ -583,6 +608,13 @@ mod tests {
             2
         );
         assert!(staffed.entity_stat(animal, HUNGER).unwrap() < 20);
+        let economy = zoo_view(&staffed).economy;
+        assert_eq!(economy.feed_delivery_cost_last_tick, 5);
+        assert_eq!(economy.expenses_last_tick, 5);
+        assert_eq!(
+            economy.net_cashflow_last_tick,
+            economy.revenue_last_tick - 5
+        );
     }
 
     #[test]
@@ -640,7 +672,10 @@ mod tests {
             let mut state = new_zoo_state().unwrap();
             let current = state.inventory().amount(VISITORS);
             if threshold > current {
-                state.inventory_mut().add(VISITORS, threshold - current).unwrap();
+                state
+                    .inventory_mut()
+                    .add(VISITORS, threshold - current)
+                    .unwrap();
             }
             let events = unlock_species_for_current_visitors(&mut state);
             assert!(
@@ -806,6 +841,74 @@ mod tests {
     }
 
     #[test]
+    fn economy_view_reports_ticket_revenue_from_guest_arrivals() {
+        let mut state = rabbit_pricing_state();
+        let mut logic = ZooLogic;
+
+        state.advance_time_with_logic(60, &mut logic).unwrap();
+
+        let view = zoo_view(&state);
+        assert!(view.economy.ticket_revenue_last_tick > 0);
+        assert!(view.economy.revenue_last_tick >= view.economy.ticket_revenue_last_tick);
+        assert_eq!(
+            view.economy.net_cashflow_last_tick,
+            view.economy.revenue_last_tick - view.economy.expenses_last_tick
+        );
+        assert!(view.economy.projected_cashflow_per_minute > 0);
+    }
+
+    #[test]
+    fn sandbox_milestones_reflect_free_build_progress() {
+        let mut state = new_zoo_state().unwrap();
+        state.set_stat(PROJECTED_CASHFLOW_PER_MINUTE, 12);
+        state.set_stat(GUEST_SPEND_LAST_TICK, 3);
+        state.inventory_mut().add(VISITORS, 21).unwrap();
+        state.inventory_mut().add(MEDICINE, 2).unwrap();
+        unlock_species_for_current_visitors(&mut state);
+
+        let first_area = state
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .unwrap();
+        let second_area = state
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(14, 14))
+            .unwrap();
+        state.advance_time(18).unwrap();
+        state
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .unwrap();
+        state
+            .place_fence(
+                WOOD_FENCE,
+                MapLocation::new(14, 13),
+                MapLocation::new(15, 13),
+            )
+            .unwrap();
+        state
+            .place_fence(
+                WOOD_FENCE,
+                MapLocation::new(14, 15),
+                MapLocation::new(15, 15),
+            )
+            .unwrap();
+        buy_named_animal_group(&mut state, RABBIT_COLONY, "Starter Rabbits", first_area).unwrap();
+        buy_named_animal_group(&mut state, TORTOISE_GROUP, "Starter Tortoises", second_area)
+            .unwrap();
+
+        let objectives = zoo_view(&state)
+            .objectives
+            .into_iter()
+            .map(|objective| (objective.id, objective.complete))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(objectives.get("positive_cashflow"), Some(&true));
+        assert_eq!(objectives.get("first_habitat"), Some(&true));
+        assert_eq!(objectives.get("visitor_growth"), Some(&true));
+        assert_eq!(objectives.get("stable_welfare"), Some(&true));
+        assert_eq!(objectives.get("service_revenue"), Some(&true));
+        assert_eq!(objectives.get("species_variety"), Some(&true));
+    }
+
+    #[test]
     fn animal_species_view_reports_unlocks_and_placed_counts() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
@@ -815,8 +918,13 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
-        buy_named_animal_group(&mut state, RABBIT_COLONY, "Starter Rabbit Colony", animal_area)
-            .unwrap();
+        buy_named_animal_group(
+            &mut state,
+            RABBIT_COLONY,
+            "Starter Rabbit Colony",
+            animal_area,
+        )
+        .unwrap();
 
         let view = zoo_view(&state);
         let rabbit = view
@@ -867,7 +975,11 @@ mod tests {
         ));
 
         state
-            .place_fence(STEEL_FENCE, MapLocation::new(9, 14), MapLocation::new(9, 15))
+            .place_fence(
+                STEEL_FENCE,
+                MapLocation::new(9, 14),
+                MapLocation::new(9, 15),
+            )
             .unwrap();
         state.inventory_mut().add(MEDICINE, 8).unwrap();
         let elephant =
@@ -900,9 +1012,13 @@ mod tests {
         state
             .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
             .unwrap();
-        let animal =
-            buy_named_animal_group(&mut state, RABBIT_COLONY, "Starter Rabbit Colony", animal_area)
-                .unwrap();
+        let animal = buy_named_animal_group(
+            &mut state,
+            RABBIT_COLONY,
+            "Starter Rabbit Colony",
+            animal_area,
+        )
+        .unwrap();
         if assign_keeper {
             let keeper = state
                 .entity_ids_of_blueprint(EntityBlueprintRef::Unit(ZOOKEEPER.into()))

@@ -1140,6 +1140,48 @@
         }
       }
     },
+    "ZooEconomyView": {
+      "type": "object",
+      "required": [
+        "expenses_last_tick",
+        "feed_delivery_cost_last_tick",
+        "guest_spend_last_tick",
+        "net_cashflow_last_tick",
+        "projected_cashflow_per_minute",
+        "revenue_last_tick",
+        "ticket_revenue_last_tick"
+      ],
+      "properties": {
+        "expenses_last_tick": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "feed_delivery_cost_last_tick": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "guest_spend_last_tick": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "net_cashflow_last_tick": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "projected_cashflow_per_minute": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "revenue_last_tick": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "ticket_revenue_last_tick": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
     "ZooSummary": {
       "type": "object",
       "required": [
@@ -1230,6 +1272,7 @@
         "areas",
         "available_tech_nodes",
         "buildings",
+        "economy",
         "entities",
         "fences",
         "jobs",
@@ -1271,6 +1314,9 @@
           "items": {
             "$ref": "#/definitions/BuildingView"
           }
+        },
+        "economy": {
+          "$ref": "#/definitions/ZooEconomyView"
         },
         "entities": {
           "type": "array",

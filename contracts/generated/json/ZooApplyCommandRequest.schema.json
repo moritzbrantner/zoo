@@ -8,7 +8,7 @@
   ],
   "properties": {
     "command": {
-      "$ref": "#/definitions/GameCommand"
+      "$ref": "#/definitions/ZooCommand"
     },
     "expected_version": {
       "type": "integer",
@@ -837,6 +837,101 @@
           "$ref": "#/definitions/InventoryScope"
         }
       }
+    },
+    "ZooCommand": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Engine"
+          ],
+          "properties": {
+            "Engine": {
+              "$ref": "#/definitions/GameCommand"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "SetEntryFee"
+          ],
+          "properties": {
+            "SetEntryFee": {
+              "type": "object",
+              "required": [
+                "building",
+                "value"
+              ],
+              "properties": {
+                "building": {
+                  "$ref": "#/definitions/BuildingId"
+                },
+                "value": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "BuyAnimal"
+          ],
+          "properties": {
+            "BuyAnimal": {
+              "type": "object",
+              "required": [
+                "kind",
+                "location"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/definitions/MapLocation"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "MoveAnimal"
+          ],
+          "properties": {
+            "MoveAnimal": {
+              "type": "object",
+              "required": [
+                "entity",
+                "location"
+              ],
+              "properties": {
+                "entity": {
+                  "$ref": "#/definitions/EntityId"
+                },
+                "location": {
+                  "$ref": "#/definitions/MapLocation"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     }
   }
 }

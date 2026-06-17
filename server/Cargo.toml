@@ -12,6 +12,7 @@ farm_engine = { git = "https://github.com/moritzbrantner/farm-game-engine", rev 
 farm_persistence = { git = "https://github.com/moritzbrantner/farm-game-engine", rev = "956681e079ef0ffbc6d5393ddd01b65264e3a387", features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+rusqlite = { version = "0.32", features = ["bundled"] }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
 tower-http = { workspace = true, features = ["cors"] }
 zoo_game = { path = ".." }
