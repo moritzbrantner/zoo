@@ -31,8 +31,8 @@ wasm-bindgen = "0.2"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-farm_engine = { path = "../farm-game-engine/crates/farm_engine", features = ["serde"] }
-farm_scenario = { path = "../farm-game-engine/crates/farm_scenario", features = ["serde"] }
+farm_engine = { git = "https://github.com/moritzbrantner/farm-game-engine", rev = "99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5", features = ["serde"] }
+farm_scenario = { git = "https://github.com/moritzbrantner/farm-game-engine", rev = "99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5", features = ["serde"] }
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 serde = { workspace = true, features = ["derive"] }

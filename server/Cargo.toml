@@ -8,8 +8,8 @@ publish = false
 
 [dependencies]
 axum.workspace = true
-farm_engine = { path = "../../farm-game-engine/crates/farm_engine", features = ["serde"] }
-farm_persistence = { path = "../../farm-game-engine/crates/farm_persistence", features = ["serde"] }
+farm_engine = { git = "https://github.com/moritzbrantner/farm-game-engine", rev = "99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5", features = ["serde"] }
+farm_persistence = { git = "https://github.com/moritzbrantner/farm-game-engine", rev = "99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5", features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 rusqlite = { version = "0.32", features = ["bundled"] }
