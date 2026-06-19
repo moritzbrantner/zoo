@@ -158,6 +158,20 @@
         }
       }
     },
+    "BuildingFootprint": {
+      "type": "object",
+      "required": [
+        "occupied_offsets"
+      ],
+      "properties": {
+        "occupied_offsets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GridOffset"
+          }
+        }
+      }
+    },
     "BuildingId": {
       "type": "integer",
       "format": "uint64",
@@ -167,6 +181,7 @@
       "type": "object",
       "required": [
         "assigned_workers",
+        "footprint",
         "height",
         "id",
         "inventory",
@@ -175,6 +190,7 @@
         "level",
         "location",
         "manned",
+        "orientation",
         "production",
         "required_workers",
         "stats",
@@ -185,6 +201,9 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
+        },
+        "footprint": {
+          "$ref": "#/definitions/BuildingFootprint"
         },
         "height": {
           "type": "integer",
@@ -218,6 +237,9 @@
         },
         "manned": {
           "type": "boolean"
+        },
+        "orientation": {
+          "$ref": "#/definitions/GridOrientation"
         },
         "production": {
           "type": "string"
@@ -911,6 +933,32 @@
           },
           "additionalProperties": false
         }
+      ]
+    },
+    "GridOffset": {
+      "type": "object",
+      "required": [
+        "dx",
+        "dy"
+      ],
+      "properties": {
+        "dx": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "dy": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "GridOrientation": {
+      "type": "string",
+      "enum": [
+        "North",
+        "East",
+        "South",
+        "West"
       ]
     },
     "JobCompletion": {

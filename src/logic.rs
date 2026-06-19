@@ -560,8 +560,7 @@ fn validate_animal_area_for_kind(
         });
     }
 
-    if attached_fence_count(state, building.location, requirements.fence_kind)
-        < requirements.min_fence_count
+    if attached_fence_count(state, building, requirements.fence_kind) < requirements.min_fence_count
     {
         return Err(AnimalPurchaseError::AnimalAreaRequirementsNotMet {
             animal_kind: kind.to_string(),
@@ -604,13 +603,29 @@ fn main_zookeeper_house(state: &GameState) -> Option<BuildingId> {
         .map(|building| building.id)
 }
 
-fn attached_fence_count(state: &GameState, location: MapLocation, fence_kind: &str) -> u32 {
+fn attached_fence_count(state: &GameState, building: &Building, fence_kind: &str) -> u32 {
+    let occupied_tiles = building
+        .footprint
+        .occupied_offsets
+        .iter()
+        .map(|offset| {
+            let offset = building.orientation.rotate_offset(*offset);
+            MapLocation::at_elevation(
+                building.location.x + offset.dx,
+                building.location.y + offset.dy,
+                building.location.elevation,
+            )
+        })
+        .collect::<Vec<_>>();
+
     state
         .fences()
         .filter(|fence| {
             fence.kind.as_str() == fence_kind
-                && (fence.start.is_adjacent_to(location, state.map_topology())
-                    || fence.end.is_adjacent_to(location, state.map_topology()))
+                && occupied_tiles.iter().any(|location| {
+                    fence.start.is_adjacent_to(*location, state.map_topology())
+                        || fence.end.is_adjacent_to(*location, state.map_topology())
+                })
         })
         .count() as u32
 }

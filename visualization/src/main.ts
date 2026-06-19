@@ -4678,6 +4678,7 @@ async function placeActiveBuilding(event) {
           ConstructBuilding: {
             kind: item.kind,
             location: mapLocationFromWorldPosition(position),
+            orientation: "North",
           },
         },
       });

@@ -139,6 +139,8 @@ pub struct BuildingView {
     pub kind: String,
     pub label: String,
     pub location: MapLocation,
+    pub orientation: GridOrientation,
+    pub footprint: BuildingFootprint,
     pub height: u32,
     pub level: u32,
     pub required_workers: u32,

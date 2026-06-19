@@ -236,6 +236,7 @@ mod tests {
         let result = sim.apply_command(GameCommand::ConstructBuilding {
             kind: ANIMAL_AREA.into(),
             location: MapLocation::new(20, 2),
+            orientation: GridOrientation::North,
         });
 
         assert!(result.is_err());

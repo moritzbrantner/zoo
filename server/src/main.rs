@@ -893,10 +893,10 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use farm_engine::{GameCommand, MapLocation};
+    use farm_engine::{GameCommand, GridOrientation, MapLocation};
     use std::path::PathBuf;
     use tower::ServiceExt;
-    use zoo_game::{GUEST_PATH, ZEBRA_HERD, ZooCommand};
+    use zoo_game::{GUEST_PATH, TICKET_BOOTH, ZEBRA_HERD, ZooCommand};
 
     #[tokio::test]
     async fn creates_world_and_fetches_player() {
@@ -977,6 +977,81 @@ mod tests {
                 .filter(|entity| entity.kind == ZEBRA_HERD)
                 .count(),
             0
+        );
+    }
+
+    #[tokio::test]
+    async fn construct_building_command_uses_authoritative_rectangular_placement() {
+        let state = AppState::default();
+        let Json(created) = create_world(
+            State(state.clone()),
+            Json(ZooCreateWorldRequest {
+                players: vec!["alice".to_owned()],
+            }),
+        )
+        .await
+        .unwrap();
+
+        let Json(accepted) = apply_command(
+            State(state.clone()),
+            Path((created.world_id.to_string(), "alice".to_owned())),
+            Json(ZooApplyCommandRequest {
+                expected_version: 0,
+                command: ZooCommand::Engine(GameCommand::ConstructBuilding {
+                    kind: TICKET_BOOTH.into(),
+                    location: MapLocation::new(15, 5),
+                    orientation: GridOrientation::East,
+                }),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert!(accepted.accepted, "{:?}", accepted.error);
+        assert_eq!(accepted.version, 1);
+        let booth = accepted
+            .view
+            .buildings
+            .iter()
+            .find(|building| building.kind == TICKET_BOOTH)
+            .expect("accepted command should add the ticket booth");
+        assert_eq!(booth.location, MapLocation::new(15, 5));
+        assert_eq!(booth.orientation, GridOrientation::East);
+        assert_eq!(booth.footprint.occupied_offsets.len(), 4);
+        let accepted_checksum = accepted.checksum.clone();
+
+        let Json(rejected) = apply_command(
+            State(state.clone()),
+            Path((created.world_id.to_string(), "alice".to_owned())),
+            Json(ZooApplyCommandRequest {
+                expected_version: 1,
+                command: ZooCommand::Engine(GameCommand::ConstructBuilding {
+                    kind: TICKET_BOOTH.into(),
+                    location: MapLocation::new(17, 5),
+                    orientation: GridOrientation::East,
+                }),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert!(!rejected.accepted);
+        assert_eq!(rejected.version, 1);
+        assert_eq!(rejected.checksum, accepted_checksum);
+        assert!(
+            rejected
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("placement rule is not met"))
+        );
+        assert_eq!(
+            rejected
+                .view
+                .buildings
+                .iter()
+                .filter(|building| building.kind == TICKET_BOOTH)
+                .count(),
+            1
         );
     }
 

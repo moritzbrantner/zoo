@@ -107,6 +107,8 @@ fn building_view(state: &GameState, building: &Building) -> BuildingView {
         kind: building.kind.to_string(),
         label: label_for(building.kind.as_str()).to_owned(),
         location: building.location,
+        orientation: building.orientation,
+        footprint: building.footprint.clone(),
         height: building.height,
         level: building.level,
         required_workers,

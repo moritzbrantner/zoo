@@ -545,7 +545,7 @@ checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 [[package]]
 name = "farm_catalog"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=956681e079ef0ffbc6d5393ddd01b65264e3a387#956681e079ef0ffbc6d5393ddd01b65264e3a387"
+source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5#99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5"
 dependencies = [
  "schemars",
  "serde",
@@ -555,7 +555,7 @@ dependencies = [
 [[package]]
 name = "farm_engine"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=956681e079ef0ffbc6d5393ddd01b65264e3a387#956681e079ef0ffbc6d5393ddd01b65264e3a387"
+source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5#99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5"
 dependencies = [
  "farm_catalog",
  "farm_nav",
@@ -568,12 +568,12 @@ dependencies = [
 [[package]]
 name = "farm_nav"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=956681e079ef0ffbc6d5393ddd01b65264e3a387#956681e079ef0ffbc6d5393ddd01b65264e3a387"
+source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5#99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5"
 
 [[package]]
 name = "farm_persistence"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=956681e079ef0ffbc6d5393ddd01b65264e3a387#956681e079ef0ffbc6d5393ddd01b65264e3a387"
+source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5#99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5"
 dependencies = [
  "farm_engine",
 ]
@@ -581,7 +581,7 @@ dependencies = [
 [[package]]
 name = "farm_scenario"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=956681e079ef0ffbc6d5393ddd01b65264e3a387#956681e079ef0ffbc6d5393ddd01b65264e3a387"
+source = "git+https://github.com/moritzbrantner/farm-game-engine?rev=99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5#99922eeae3abdb77b5dbdcfb2c460ab71f3b68e5"
 dependencies = [
  "farm_catalog",
  "farm_engine",
@@ -1859,6 +1859,7 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "farm_engine",
+ "farm_scenario",
  "schemars",
  "serde",
  "serde_json",
