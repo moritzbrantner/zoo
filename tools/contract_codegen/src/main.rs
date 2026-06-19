@@ -30,7 +30,8 @@ use zoo_game::{
     AlertView, AnimalSpeciesCostView, AnimalSpeciesView, AreaView, BuildingView, EntityView,
     FenceView, JobView, ObjectiveView, PathView, ResourceView, ZooApplyCommandRequest, ZooCommand,
     ZooCommandRequest, ZooCommandResponse, ZooCreateWorldRequest, ZooCreateWorldResponse,
-    ZooEconomyView, ZooPlayerView, ZooSummary, ZooTickRequest, ZooTickResponse, ZooView,
+    ZooEconomyView, ZooPlacementEvaluationRequest, ZooPlacementEvaluationResponse,
+    ZooPlacementRejectionView, ZooPlayerView, ZooSummary, ZooTickRequest, ZooTickResponse, ZooView,
     ZooWorldListItem, ZooWorldListResponse,
 };
 
@@ -69,6 +70,12 @@ fn generated_files() -> Result<Vec<GeneratedFile>> {
         schema_file::<ZooCreateWorldResponse>("json/ZooCreateWorldResponse.schema.json")?,
         schema_file::<ZooWorldListResponse>("json/ZooWorldListResponse.schema.json")?,
         schema_file::<ZooApplyCommandRequest>("json/ZooApplyCommandRequest.schema.json")?,
+        schema_file::<ZooPlacementEvaluationRequest>(
+            "json/ZooPlacementEvaluationRequest.schema.json",
+        )?,
+        schema_file::<ZooPlacementEvaluationResponse>(
+            "json/ZooPlacementEvaluationResponse.schema.json",
+        )?,
         schema_file::<ZooTickRequest>("json/ZooTickRequest.schema.json")?,
         schema_file::<ZooTickResponse>("json/ZooTickResponse.schema.json")?,
         GeneratedFile {
@@ -215,6 +222,9 @@ fn render_zoo_ts() -> String {
         ZooWorldListItem::decl(),
         ZooWorldListResponse::decl(),
         ZooApplyCommandRequest::decl(),
+        ZooPlacementEvaluationRequest::decl(),
+        ZooPlacementEvaluationResponse::decl(),
+        ZooPlacementRejectionView::decl(),
         ZooTickRequest::decl(),
         ZooTickResponse::decl(),
         ZooView::decl(),

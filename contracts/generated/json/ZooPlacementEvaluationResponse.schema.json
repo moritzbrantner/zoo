@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ZooPlacementEvaluationResponse",
+  "type": "object",
+  "required": [
+    "occupied_tiles",
+    "valid"
+  ],
+  "properties": {
+    "occupied_tiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/MapLocation"
+      }
+    },
+    "rejection": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ZooPlacementRejectionView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "valid": {
+      "type": "boolean"
+    }
+  },
+  "definitions": {
+    "MapLocation": {
+      "type": "object",
+      "required": [
+        "elevation",
+        "x",
+        "y"
+      ],
+      "properties": {
+        "elevation": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "x": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "y": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "ZooPlacementRejectionView": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
