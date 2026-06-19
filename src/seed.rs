@@ -51,7 +51,7 @@ fn seed_zoo_state(state: &mut GameState) -> Result<(), EngineError> {
     state.create_area(BUILDABLE_GRASS, rectangle(0, 0, ZOO_SIZE - 1, ZOO_SIZE - 1))?;
     state.create_area(STARTER_PLOT, rectangle(4, 0, 27, 17))?;
     state.create_area(HABITAT_ZONE, rectangle(2, 2, ZOO_SIZE - 3, ZOO_CENTER + 6))?;
-    state.create_area(GUEST_ZONE, rectangle(1, 0, ZOO_SIZE - 2, ZOO_SIZE - 3))?;
+    state.create_area(GUEST_ZONE, rectangle(4, 0, 27, 9))?;
     state.create_area(
         STAFF_ZONE,
         rectangle(
