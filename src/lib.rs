@@ -143,11 +143,117 @@ mod tests {
         assert!(starter_plot.tiles.contains(&MapLocation::new(27, 17)));
         assert!(!starter_plot.tiles.contains(&MapLocation::new(3, 0)));
         assert!(!starter_plot.tiles.contains(&MapLocation::new(28, 17)));
+
+        let view = zoo_view(&state);
+        let visible_starter_plot = view
+            .areas
+            .iter()
+            .find(|area| area.kind == STARTER_PLOT)
+            .expect("starter plot should be visible in the view");
+        assert_eq!(visible_starter_plot.tiles, starter_plot.tiles);
+    }
+
+    #[test]
+    fn player_placeable_buildings_require_starter_plot_and_their_domain_zone() {
+        let catalog = zoo_catalog();
+
+        for (kind, domain_zone) in [
+            (CUSTOMER_ENTRY, GUEST_ZONE),
+            (TICKET_BOOTH, GUEST_ZONE),
+            (GUEST_PLAZA, GUEST_ZONE),
+            (RESTROOM, GUEST_ZONE),
+            (SNACK_KIOSK, GUEST_ZONE),
+            (SOUVENIR_STALL, GUEST_ZONE),
+            (ZOOKEEPER_HOUSE, STAFF_ZONE),
+            (KEEPER_KITCHEN, STAFF_ZONE),
+            (FEED_SHED, STAFF_ZONE),
+            (VET_CLINIC, STAFF_ZONE),
+            (MAINTENANCE_SHED, STAFF_ZONE),
+            (RESEARCH_OFFICE, STAFF_ZONE),
+            (ANIMAL_AREA, HABITAT_ZONE),
+            (SAVANNA_HABITAT, HABITAT_ZONE),
+            (WETLANDS_HABITAT, HABITAT_ZONE),
+            (AVIARY, HABITAT_ZONE),
+            (REPTILE_HOUSE, HABITAT_ZONE),
+        ] {
+            let building = catalog
+                .building(kind)
+                .unwrap_or_else(|| panic!("{kind} should exist in the catalog"));
+
+            assert!(
+                building
+                    .placement_rules
+                    .contains(&PlacementRule::RequiresAreaKind(STARTER_PLOT.into())),
+                "{kind} should require the starter plot"
+            );
+            assert!(
+                building
+                    .placement_rules
+                    .contains(&PlacementRule::RequiresAreaKind(domain_zone.into())),
+                "{kind} should require {domain_zone}"
+            );
+        }
+    }
+
+    #[test]
+    fn placement_evaluation_rejects_candidates_outside_required_zoo_zones() {
+        let state = new_zoo_state().unwrap();
+
+        let habitat_in_plot_outside_habitat_zone =
+            state.evaluate_building_placement(BuildingPlacementCandidate {
+                kind: ANIMAL_AREA.into(),
+                location: MapLocation::new(8, 0),
+                orientation: GridOrientation::North,
+            });
+        assert!(!habitat_in_plot_outside_habitat_zone.valid);
+        assert!(matches!(
+            habitat_in_plot_outside_habitat_zone.rejection,
+            Some(PlacementRejection::RuleNotMet(PlacementRule::RequiresAreaKind(kind)))
+                if kind.as_str() == HABITAT_ZONE
+        ));
+
+        let guest_in_plot_outside_guest_zone =
+            state.evaluate_building_placement(BuildingPlacementCandidate {
+                kind: TICKET_BOOTH.into(),
+                location: MapLocation::new(8, 11),
+                orientation: GridOrientation::North,
+            });
+        assert!(!guest_in_plot_outside_guest_zone.valid);
+        assert!(matches!(
+            guest_in_plot_outside_guest_zone.rejection,
+            Some(PlacementRejection::RuleNotMet(PlacementRule::RequiresAreaKind(kind)))
+                if kind.as_str() == GUEST_ZONE
+        ));
+
+        let staff_in_plot_outside_staff_zone =
+            state.evaluate_building_placement(BuildingPlacementCandidate {
+                kind: KEEPER_KITCHEN.into(),
+                location: MapLocation::new(4, 11),
+                orientation: GridOrientation::North,
+            });
+        assert!(!staff_in_plot_outside_staff_zone.valid);
+        assert!(matches!(
+            staff_in_plot_outside_staff_zone.rejection,
+            Some(PlacementRejection::RuleNotMet(PlacementRule::RequiresAreaKind(kind)))
+                if kind.as_str() == STAFF_ZONE
+        ));
     }
 
     #[test]
     fn placement_evaluation_reports_zoo_rejections() {
         let mut state = new_zoo_state().unwrap();
+        let out_of_bounds = state.evaluate_building_placement(BuildingPlacementCandidate {
+            kind: ANIMAL_AREA.into(),
+            location: MapLocation::new(ZOO_SIZE, ZOO_SIZE),
+            orientation: GridOrientation::North,
+        });
+        assert!(!out_of_bounds.valid);
+        assert!(matches!(
+            out_of_bounds.rejection,
+            Some(PlacementRejection::OutOfBounds(location))
+                if location == MapLocation::new(ZOO_SIZE, ZOO_SIZE)
+        ));
+
         let outside_plot = state.evaluate_building_placement(BuildingPlacementCandidate {
             kind: ANIMAL_AREA.into(),
             location: MapLocation::new(28, 11),
