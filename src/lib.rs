@@ -203,6 +203,83 @@ mod tests {
     }
 
     #[test]
+    fn placement_evaluation_rotates_zoo_rectangular_footprints() {
+        let state = new_zoo_state().unwrap();
+
+        let north = state.evaluate_building_placement(BuildingPlacementCandidate {
+            kind: CUSTOMER_ENTRY.into(),
+            location: MapLocation::new(14, 3),
+            orientation: GridOrientation::North,
+        });
+        assert!(north.valid);
+        assert_eq!(
+            north.occupied_tiles,
+            vec![
+                MapLocation::new(14, 3),
+                MapLocation::new(15, 3),
+                MapLocation::new(16, 3),
+                MapLocation::new(14, 4),
+                MapLocation::new(15, 4),
+                MapLocation::new(16, 4),
+            ]
+        );
+
+        let east = state.evaluate_building_placement(BuildingPlacementCandidate {
+            kind: CUSTOMER_ENTRY.into(),
+            location: MapLocation::new(15, 6),
+            orientation: GridOrientation::East,
+        });
+        assert!(east.valid);
+        assert_eq!(
+            east.occupied_tiles,
+            vec![
+                MapLocation::new(15, 6),
+                MapLocation::new(15, 5),
+                MapLocation::new(15, 4),
+                MapLocation::new(16, 6),
+                MapLocation::new(16, 5),
+                MapLocation::new(16, 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn rotated_zoo_footprint_overlap_is_rejected() {
+        let mut state = new_zoo_state().unwrap();
+
+        state
+            .start_construction_at_oriented(
+                CUSTOMER_ENTRY,
+                MapLocation::new(15, 6),
+                GridOrientation::East,
+            )
+            .unwrap();
+
+        let overlap = state.evaluate_building_placement(BuildingPlacementCandidate {
+            kind: CUSTOMER_ENTRY.into(),
+            location: MapLocation::new(15, 5),
+            orientation: GridOrientation::East,
+        });
+
+        assert!(!overlap.valid);
+        assert_eq!(
+            overlap.occupied_tiles,
+            vec![
+                MapLocation::new(15, 5),
+                MapLocation::new(15, 4),
+                MapLocation::new(15, 3),
+                MapLocation::new(16, 5),
+                MapLocation::new(16, 4),
+                MapLocation::new(16, 3),
+            ]
+        );
+        assert!(matches!(
+            overlap.rejection,
+            Some(PlacementRejection::RuleNotMet(PlacementRule::NoOverlap))
+        ));
+    }
+
+    #[test]
     fn commands_mutate_paths_fences_transfers_and_player_isolation() {
         let mut world = new_zoo_world(["alice".into(), "bob".into()]).unwrap();
         let bob_coins = world
