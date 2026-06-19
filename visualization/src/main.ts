@@ -12,6 +12,7 @@ import {
 } from "./config/runtime";
 import { createHotkeyBadge, installHotkeys, setButtonLabelWithHotkey } from "./hotkeys";
 import { baseResourceState, animalAttractionProfiles } from "./state/baseState";
+import { createLocalZooClient } from "./sync/localZooClient";
 import { createZooClient } from "./sync/zooClient";
 
 const canvas = document.querySelector("#zoo-scene");
@@ -1011,6 +1012,35 @@ async function connectServerWorld() {
     const world = await zooClient.createWorld(["player-1"]);
     const player = world.players[0];
     serverSession = {
+      mode: "server",
+      client: zooClient,
+      worldId: world.world_id,
+      playerId: player.player_id,
+      version: world.version,
+      checksum: player.checksum,
+      view: player.view,
+      entryBuildingId: player.view.buildings.find((building) => building.kind === "customer_entry")
+        ?.id,
+    };
+    lastServerTickSecond = Math.floor(Number(player.view.now_seconds ?? 0));
+    applyServerView(player.view);
+    updateServerStatus();
+    return true;
+  } catch (error) {
+    return connectLocalWasmWorld();
+  }
+}
+
+async function connectLocalWasmWorld() {
+  if (!syncStatusEl) return false;
+  syncStatusEl.textContent = "WASM: starting local simulation";
+  try {
+    const client = await createLocalZooClient();
+    const world = await client.createWorld(["player-1"]);
+    const player = world.players[0];
+    serverSession = {
+      mode: "wasm",
+      client,
       worldId: world.world_id,
       playerId: player.player_id,
       version: world.version,
@@ -1025,7 +1055,7 @@ async function connectServerWorld() {
     return true;
   } catch (error) {
     serverSession = null;
-    syncStatusEl.textContent = "Server required: run zoo_server";
+    syncStatusEl.textContent = "WASM unavailable";
     return false;
   }
 }
@@ -1034,6 +1064,10 @@ function updateServerStatus() {
   if (!syncStatusEl) return;
   if (!serverSession) {
     syncStatusEl.textContent = "Server: disconnected";
+    return;
+  }
+  if (serverSession.mode === "wasm") {
+    syncStatusEl.textContent = `WASM: local v${serverSession.version}`;
     return;
   }
   syncStatusEl.textContent = `Server: ${serverSession.worldId} v${serverSession.version}`;
@@ -1088,7 +1122,7 @@ async function applyServerCommand(command) {
   if (!serverSession) {
     throw new Error("Server session is not connected.");
   }
-  const response = await zooClient.applyCommand(
+  const response = await serverSession.client.applyCommand(
     serverSession.worldId,
     serverSession.playerId,
     serverSession.version,
@@ -1112,7 +1146,7 @@ async function tickServerTo(time) {
 
   serverTickInFlight = true;
   try {
-    const response = await zooClient.tick(serverSession.worldId, deltaSeconds);
+    const response = await serverSession.client.tick(serverSession.worldId, deltaSeconds);
     serverSession.version = response.version;
     const player =
       response.players.find((candidate) => candidate.player_id === serverSession.playerId) ??
@@ -6516,6 +6550,42 @@ function installTestApi() {
       startSimulationPreset(preset.id);
       return currentTestState();
     },
+    async startLocalWasmSession() {
+      resetGameState();
+      const connected = await connectLocalWasmWorld();
+      if (!connected) throw new Error("Local WASM session failed to start");
+      hasStartedGame = true;
+      simulationStarted = true;
+      setMenuOpen(false);
+      updateMainMenu();
+      return currentTestState();
+    },
+    async evaluateWasmPlacement(kind, x, y, orientation = "North") {
+      if (!serverSession?.client?.evaluatePlacement) {
+        throw new Error("No WASM placement evaluator is connected");
+      }
+      return serverSession.client.evaluatePlacement(
+        kind,
+        { x, y, elevation: 0 },
+        orientation,
+      );
+    },
+    async applySessionCommand(command, expectedVersion = serverSession?.version ?? 0) {
+      if (!serverSession) {
+        throw new Error("No command session is connected");
+      }
+      const response = await serverSession.client.applyCommand(
+        serverSession.worldId,
+        serverSession.playerId,
+        expectedVersion,
+        command,
+      );
+      serverSession.version = response.version;
+      serverSession.checksum = response.checksum;
+      applyServerView(response.view);
+      updateServerStatus();
+      return response;
+    },
     assignWorker(selectionId) {
       const building = buildings.find((candidate) => `building-${candidate.id}` === selectionId);
       if (!building) throw new Error(`No building found for ${selectionId}`);
@@ -6634,6 +6704,7 @@ function currentTestState() {
     time: Math.floor(currentTime),
     phase: phaseForSimulation(),
     simulationStarted,
+    syncStatus: syncStatusEl?.textContent ?? null,
     selectedId: selectedElement?.id ?? null,
     selectedLabel: selectedElement?.label ?? null,
     land: {

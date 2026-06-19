@@ -90,6 +90,29 @@ pub struct ZooApplyCommandRequest {
 
 #[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ZooPlacementEvaluationRequest {
+    pub kind: String,
+    pub location: MapLocation,
+    pub orientation: GridOrientation,
+}
+
+#[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ZooPlacementEvaluationResponse {
+    pub valid: bool,
+    pub occupied_tiles: Vec<MapLocation>,
+    pub rejection: Option<ZooPlacementRejectionView>,
+}
+
+#[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ZooPlacementRejectionView {
+    pub code: String,
+    pub message: String,
+}
+
+#[cfg_attr(feature = "contracts", derive(schemars::JsonSchema, ts_rs::TS))]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ZooTickRequest {
     pub delta_seconds: u64,
 }
@@ -439,4 +462,113 @@ pub fn command_response(
         view,
         error,
     })
+}
+
+pub fn evaluate_zoo_building_placement(
+    state: &GameState,
+    request: ZooPlacementEvaluationRequest,
+) -> ZooPlacementEvaluationResponse {
+    let evaluation = state.evaluate_building_placement(BuildingPlacementCandidate {
+        kind: request.kind.into(),
+        location: request.location,
+        orientation: request.orientation,
+    });
+    let rejection = evaluation.rejection.map(|rejection| {
+        let code = rejection.code().to_owned();
+        let message = placement_rejection_message(&rejection);
+        ZooPlacementRejectionView { code, message }
+    });
+
+    ZooPlacementEvaluationResponse {
+        valid: evaluation.valid,
+        occupied_tiles: evaluation.occupied_tiles,
+        rejection,
+    }
+}
+
+fn placement_rejection_message(rejection: &PlacementRejection) -> String {
+    match rejection {
+        PlacementRejection::UnknownBuildingKind(kind) => {
+            format!("Unknown building kind: {kind}.")
+        }
+        PlacementRejection::LockedBuilding(kind) => {
+            format!("{kind} is locked.")
+        }
+        PlacementRejection::UnknownLevel { kind, level } => {
+            format!("{kind} has no level {level}.")
+        }
+        PlacementRejection::RequirementNotMet(requirement) => {
+            format!("Requirement not met: {requirement:?}.")
+        }
+        PlacementRejection::WorkerUnavailable { required } => {
+            format!("{required} workers are required.")
+        }
+        PlacementRejection::NotBuildable(location) => {
+            format!("Tile {},{} is not buildable.", location.x, location.y)
+        }
+        PlacementRejection::OutOfBounds(location) => {
+            format!(
+                "Tile {},{} is outside the zoo bounds.",
+                location.x, location.y
+            )
+        }
+        PlacementRejection::RuleNotMet(rule) => placement_rule_message(rule),
+        PlacementRejection::InsufficientResources(error) => match error {
+            ResourceError::Insufficient {
+                resource,
+                needed,
+                available,
+            } => format!("{resource} is too low: need {needed}, have {available}."),
+            ResourceError::CapacityExceeded {
+                resource,
+                incoming,
+                capacity,
+            } => format!("{resource} capacity exceeded: {incoming} incoming, capacity {capacity}."),
+            ResourceError::ArithmeticOverflow => "Resource arithmetic overflowed.".to_owned(),
+        },
+        PlacementRejection::ArithmeticOverflow => "Placement arithmetic overflowed.".to_owned(),
+    }
+}
+
+fn placement_rule_message(rule: &PlacementRule) -> String {
+    match rule {
+        PlacementRule::RequiresAreaKind(kind) => {
+            format!("Placement must be inside {kind}.")
+        }
+        PlacementRule::NoPathOverlap => "Placement cannot overlap paths.".to_owned(),
+        PlacementRule::AdjacentToPath => "Placement must touch a path.".to_owned(),
+        PlacementRule::NoOverlap => "Placement overlaps an existing object.".to_owned(),
+        PlacementRule::WithinBounds => "Placement must stay inside the zoo bounds.".to_owned(),
+        PlacementRule::OnTileKind(kind) => format!("Placement must be on {kind}."),
+        PlacementRule::On(target) => format!("Placement must be on {target:?}."),
+        PlacementRule::AdjacentTo(target) => format!("Placement must touch {target:?}."),
+        PlacementRule::Not(inner) => format!("Placement must not match {inner:?}."),
+    }
+}
+
+pub fn apply_local_zoo_command_request(
+    state: &mut GameState,
+    version: &mut u64,
+    request: ZooApplyCommandRequest,
+) -> Result<ZooCommandResponse, ZooError> {
+    if request.expected_version != *version {
+        return command_response(
+            false,
+            *version,
+            Vec::new(),
+            state,
+            Some(format!(
+                "version mismatch: expected {}, found {}",
+                request.expected_version, *version
+            )),
+        );
+    }
+
+    match apply_zoo_command(state, request.command) {
+        Ok(outcome) => {
+            *version += 1;
+            command_response(true, *version, outcome.events, state, None)
+        }
+        Err(error) => command_response(false, *version, Vec::new(), state, Some(error.to_string())),
+    }
 }

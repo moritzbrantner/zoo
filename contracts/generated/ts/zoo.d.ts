@@ -18,6 +18,12 @@ export type ZooWorldListResponse = { worlds: Array<ZooWorldListItem>, };
 
 export type ZooApplyCommandRequest = { expected_version: bigint, command: ZooCommand, };
 
+export type ZooPlacementEvaluationRequest = { kind: string, location: MapLocation, orientation: GridOrientation, };
+
+export type ZooPlacementEvaluationResponse = { valid: boolean, occupied_tiles: Array<MapLocation>, rejection: ZooPlacementRejectionView | null, };
+
+export type ZooPlacementRejectionView = { code: string, message: string, };
+
 export type ZooTickRequest = { delta_seconds: bigint, };
 
 export type ZooTickResponse = { version: bigint, events: { [key in PlayerId]?: Array<GameEvent> }, players: Array<ZooPlayerView>, };

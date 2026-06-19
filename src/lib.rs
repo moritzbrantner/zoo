@@ -1,12 +1,13 @@
 use farm_engine::{
     AreaDefinition, Building, BuildingDefinition, BuildingFootprint, BuildingId,
-    BuildingLevelDefinition, BuildingStatus, Catalog, CommandId, CommandOutcome, Effect,
-    EngineError, EntityBlueprintRef, EntityId, EntityRecord, FenceDefinition, GameCommand,
-    GameEvent, GameLogic, GameState, GameWorld, GameWorldError, GridOrientation, Job,
-    JobCompletion, LevelDefinition, MapLocation, NpcDefinition, NpcKind, PathDefinition,
-    PlacementRule, PlacementTarget, PlayerId, ProductionQueueConfig, ProductionRule,
-    ProductionStatus, Requirement, ResourceAmount, ResourceDefinition, ResourceId, ResourceStorage,
-    StatId, TechNodeDefinition, TileDefinition, UnitDefinition, UpgradeDefinition, WorldId,
+    BuildingLevelDefinition, BuildingPlacementCandidate, BuildingStatus, Catalog, CommandId,
+    CommandOutcome, Effect, EngineError, EntityBlueprintRef, EntityId, EntityRecord,
+    FenceDefinition, GameCommand, GameEvent, GameLogic, GameState, GameWorld, GameWorldError,
+    GridOrientation, Job, JobCompletion, LevelDefinition, MapLocation, NpcDefinition, NpcKind,
+    PathDefinition, PlacementRejection, PlacementRule, PlacementTarget, PlayerId,
+    ProductionQueueConfig, ProductionRule, ProductionStatus, Requirement, ResourceAmount,
+    ResourceDefinition, ResourceError, ResourceId, ResourceStorage, StatId, TechNodeDefinition,
+    TileDefinition, UnitDefinition, UpgradeDefinition, WorldId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -811,6 +812,105 @@ mod tests {
             request.command,
             ZooCommand::Engine(GameCommand::CreatePath { .. })
         ));
+    }
+
+    #[test]
+    fn zoo_placement_evaluation_response_reports_tiles_and_rejection_reason() {
+        let state = new_zoo_state().unwrap();
+
+        let valid = evaluate_zoo_building_placement(
+            &state,
+            ZooPlacementEvaluationRequest {
+                kind: ANIMAL_AREA.into(),
+                location: MapLocation::new(8, 11),
+                orientation: GridOrientation::North,
+            },
+        );
+
+        assert!(valid.valid);
+        assert_eq!(valid.occupied_tiles.len(), 16);
+        assert_eq!(valid.rejection, None);
+
+        let invalid = evaluate_zoo_building_placement(
+            &state,
+            ZooPlacementEvaluationRequest {
+                kind: ANIMAL_AREA.into(),
+                location: MapLocation::new(28, 11),
+                orientation: GridOrientation::North,
+            },
+        );
+
+        assert!(!invalid.valid);
+        assert_eq!(
+            invalid
+                .rejection
+                .as_ref()
+                .map(|rejection| rejection.code.as_str()),
+            Some("placement_rule_not_met")
+        );
+        assert!(
+            invalid
+                .rejection
+                .as_ref()
+                .is_some_and(|rejection| rejection.message.contains(STARTER_PLOT))
+        );
+    }
+
+    #[test]
+    fn local_zoo_command_response_matches_server_accept_and_reject_shape() {
+        let mut state = new_zoo_state().unwrap();
+        let mut version = 0;
+
+        let accepted = apply_local_zoo_command_request(
+            &mut state,
+            &mut version,
+            ZooApplyCommandRequest {
+                expected_version: 0,
+                command: ZooCommand::Engine(GameCommand::ConstructBuilding {
+                    kind: ANIMAL_AREA.into(),
+                    location: MapLocation::new(8, 11),
+                    orientation: GridOrientation::North,
+                }),
+            },
+        )
+        .unwrap();
+
+        assert!(accepted.accepted);
+        assert_eq!(accepted.version, 1);
+        assert_eq!(version, 1);
+        assert!(
+            accepted
+                .view
+                .buildings
+                .iter()
+                .any(|building| building.kind == ANIMAL_AREA)
+        );
+
+        let building_count = state.buildings().count();
+        let rejected = apply_local_zoo_command_request(
+            &mut state,
+            &mut version,
+            ZooApplyCommandRequest {
+                expected_version: 1,
+                command: ZooCommand::Engine(GameCommand::ConstructBuilding {
+                    kind: ANIMAL_AREA.into(),
+                    location: MapLocation::new(28, 11),
+                    orientation: GridOrientation::North,
+                }),
+            },
+        )
+        .unwrap();
+
+        assert!(!rejected.accepted);
+        assert_eq!(rejected.version, 1);
+        assert_eq!(version, 1);
+        assert_eq!(state.buildings().count(), building_count);
+        assert!(
+            rejected
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("placement rule is not met"))
+        );
     }
 
     #[test]

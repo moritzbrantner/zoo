@@ -1,0 +1,16 @@
+{
+  "name": "zoo_game",
+  "type": "module",
+  "description": "Zoo management slice built on the shared farm game engine.",
+  "version": "0.1.0",
+  "files": [
+    "zoo_game_bg.wasm",
+    "zoo_game.js",
+    "zoo_game.d.ts"
+  ],
+  "main": "zoo_game.js",
+  "types": "zoo_game.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
