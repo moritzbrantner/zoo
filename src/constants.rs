@@ -21,6 +21,7 @@ pub const PLAZA: &str = "plaza";
 pub const GUEST_PATH: &str = "guest_path";
 pub const SERVICE_PATH: &str = "service_path";
 pub const BUILDABLE_GRASS: &str = "buildable_grass";
+pub const STARTER_PLOT: &str = "starter_plot";
 pub const HABITAT_ZONE: &str = "habitat_zone";
 pub const GUEST_ZONE: &str = "guest_zone";
 pub const STAFF_ZONE: &str = "staff_zone";

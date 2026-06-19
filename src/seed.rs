@@ -49,6 +49,7 @@ fn seed_zoo_state(state: &mut GameState) -> Result<(), EngineError> {
     }
 
     state.create_area(BUILDABLE_GRASS, rectangle(0, 0, ZOO_SIZE - 1, ZOO_SIZE - 1))?;
+    state.create_area(STARTER_PLOT, rectangle(4, 0, 27, 17))?;
     state.create_area(HABITAT_ZONE, rectangle(2, 2, ZOO_SIZE - 3, ZOO_CENTER + 6))?;
     state.create_area(GUEST_ZONE, rectangle(1, 0, ZOO_SIZE - 2, ZOO_SIZE - 3))?;
     state.create_area(
@@ -66,9 +67,8 @@ fn seed_zoo_state(state: &mut GameState) -> Result<(), EngineError> {
         row(ZOO_CENTER + 1, ZOO_CENTER - 6, ZOO_CENTER + 6),
     )?;
 
-    let entry = state.start_construction_at(CUSTOMER_ENTRY, MapLocation::new(ZOO_CENTER, 1))?;
-    let house =
-        state.start_construction_at(ZOOKEEPER_HOUSE, MapLocation::new(ZOO_CENTER, ZOO_CENTER))?;
+    let entry = state.start_construction_at(CUSTOMER_ENTRY, MapLocation::new(ZOO_CENTER - 2, 1))?;
+    let house = state.start_construction_at(ZOOKEEPER_HOUSE, MapLocation::new(18, 14))?;
     state.building_inventory_mut(house)?.add(ANIMAL_FEED, 20)?;
     state.building_inventory_mut(house)?.add(MEDICINE, 6)?;
     state.set_building_stat(entry, CLEANLINESS, 85)?;
@@ -100,11 +100,14 @@ fn seed_zoo_state(state: &mut GameState) -> Result<(), EngineError> {
 
 pub(crate) fn add_entry_and_guest_buildings(catalog: &mut Catalog) {
     catalog.add_building(
-        BuildingDefinition::new(CUSTOMER_ENTRY, "Customer Entry").with_level(
-            BuildingLevelDefinition::new(1, 0, Vec::new())
-                .with_height(2)
-                .with_inventory_capacity(vec![ResourceAmount::new(VISITORS, 300)]),
-        ),
+        BuildingDefinition::new(CUSTOMER_ENTRY, "Customer Entry")
+            .with_placement_rules(guest_rules())
+            .with_level(
+                BuildingLevelDefinition::new(1, 0, Vec::new())
+                    .with_height(2)
+                    .with_footprint(footprint(3, 2))
+                    .with_inventory_capacity(vec![ResourceAmount::new(VISITORS, 300)]),
+            ),
     );
 
     catalog.add_building(guest_building(
@@ -198,6 +201,7 @@ pub(crate) fn add_staff_buildings(catalog: &mut Catalog) {
             .with_level(
                 BuildingLevelDefinition::new(1, 0, Vec::new())
                     .with_height(2)
+                    .with_footprint(footprint(3, 3))
                     .with_inventory_capacity(vec![
                         ResourceAmount::new(ANIMAL_FEED, 100),
                         ResourceAmount::new(MEDICINE, 30),
@@ -231,6 +235,7 @@ pub(crate) fn add_staff_buildings(catalog: &mut Catalog) {
             .with_placement_rules(staff_rules())
             .with_level(
                 BuildingLevelDefinition::new(1, 5, vec![ResourceAmount::new(LUMBER, 15)])
+                    .with_footprint(footprint_for(FEED_SHED))
                     .with_storage_bonus(vec![ResourceAmount::new(ANIMAL_FEED, 60)]),
             ),
     );
@@ -298,6 +303,7 @@ pub(crate) fn add_habitats(catalog: &mut Catalog) {
                     ],
                 )
                 .with_height(1)
+                .with_footprint(footprint_for(ANIMAL_AREA))
                 .with_inventory_capacity(vec![
                     ResourceAmount::new(ANIMAL_FEED, 30),
                     ResourceAmount::new(WATER, 20),
@@ -339,6 +345,7 @@ pub(crate) fn add_habitats(catalog: &mut Catalog) {
                         ],
                     )
                     .with_height(2)
+                    .with_footprint(footprint_for(kind))
                     .with_inventory_capacity(vec![
                         ResourceAmount::new(feed, 40),
                         ResourceAmount::new(WATER, 30),
@@ -367,6 +374,7 @@ pub(crate) fn add_habitats(catalog: &mut Catalog) {
                         ],
                     )
                     .with_height(3)
+                    .with_footprint(footprint_for(kind))
                     .with_inventory_capacity(vec![
                         ResourceAmount::new(feed, 80),
                         ResourceAmount::new(WATER, 60),
@@ -509,6 +517,7 @@ fn guest_building(
         .with_level(
             BuildingLevelDefinition::new(1, build_time, cost)
                 .with_height(2)
+                .with_footprint(footprint_for(kind))
                 .with_production_queue(ProductionQueueConfig::new(3))
                 .with_production(production),
         )
@@ -526,6 +535,7 @@ fn staff_building(
         .with_level(
             BuildingLevelDefinition::new(1, build_time, cost)
                 .with_height(2)
+                .with_footprint(footprint_for(kind))
                 .with_inventory_capacity(vec![ResourceAmount::new(ANIMAL_FEED, 60)])
                 .with_production_queue(ProductionQueueConfig::new(4))
                 .with_production(production),
@@ -535,7 +545,9 @@ fn staff_building(
 fn habitat_rules() -> Vec<PlacementRule> {
     vec![
         PlacementRule::WithinBounds,
+        PlacementRule::RequiresAreaKind(STARTER_PLOT.into()),
         PlacementRule::RequiresAreaKind(HABITAT_ZONE.into()),
+        PlacementRule::NoPathOverlap,
         PlacementRule::AdjacentToPath,
         PlacementRule::NoOverlap,
     ]
@@ -544,7 +556,9 @@ fn habitat_rules() -> Vec<PlacementRule> {
 fn animal_area_rules() -> Vec<PlacementRule> {
     vec![
         PlacementRule::WithinBounds,
+        PlacementRule::RequiresAreaKind(STARTER_PLOT.into()),
         PlacementRule::RequiresAreaKind(HABITAT_ZONE.into()),
+        PlacementRule::NoPathOverlap,
         PlacementRule::AdjacentToPath,
         PlacementRule::NoOverlap,
     ]
@@ -560,7 +574,9 @@ pub(crate) fn fence_rules() -> Vec<PlacementRule> {
 fn guest_rules() -> Vec<PlacementRule> {
     vec![
         PlacementRule::WithinBounds,
+        PlacementRule::RequiresAreaKind(STARTER_PLOT.into()),
         PlacementRule::RequiresAreaKind(GUEST_ZONE.into()),
+        PlacementRule::NoPathOverlap,
         PlacementRule::AdjacentToPath,
         PlacementRule::NoOverlap,
     ]
@@ -569,10 +585,27 @@ fn guest_rules() -> Vec<PlacementRule> {
 fn staff_rules() -> Vec<PlacementRule> {
     vec![
         PlacementRule::WithinBounds,
+        PlacementRule::RequiresAreaKind(STARTER_PLOT.into()),
         PlacementRule::RequiresAreaKind(STAFF_ZONE.into()),
+        PlacementRule::NoPathOverlap,
         PlacementRule::AdjacentToPath,
         PlacementRule::NoOverlap,
     ]
+}
+
+fn footprint(width: u32, depth: u32) -> BuildingFootprint {
+    BuildingFootprint::rectangle(width, depth)
+}
+
+fn footprint_for(kind: &str) -> BuildingFootprint {
+    match kind {
+        CUSTOMER_ENTRY => footprint(3, 2),
+        TICKET_BOOTH | RESTROOM | SNACK_KIOSK | SOUVENIR_STALL | FEED_SHED => footprint(2, 2),
+        GUEST_PLAZA | ZOOKEEPER_HOUSE | AVIARY | REPTILE_HOUSE => footprint(3, 3),
+        KEEPER_KITCHEN | VET_CLINIC | MAINTENANCE_SHED | RESEARCH_OFFICE => footprint(3, 2),
+        ANIMAL_AREA | SAVANNA_HABITAT | WETLANDS_HABITAT => footprint(4, 4),
+        _ => BuildingFootprint::single_tile(),
+    }
 }
 
 fn rectangle(min_x: i32, min_y: i32, max_x: i32, max_y: i32) -> Vec<MapLocation> {

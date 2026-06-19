@@ -1,12 +1,12 @@
 use farm_engine::{
-    AreaDefinition, Building, BuildingDefinition, BuildingId, BuildingLevelDefinition,
-    BuildingStatus, Catalog, CommandId, CommandOutcome, Effect, EngineError, EntityBlueprintRef,
-    EntityId, EntityRecord, FenceDefinition, GameCommand, GameEvent, GameLogic, GameState,
-    GameWorld, GameWorldError, Job, JobCompletion, LevelDefinition, MapLocation, NpcDefinition,
-    NpcKind, PathDefinition, PlacementRule, PlacementTarget, PlayerId, ProductionQueueConfig,
-    ProductionRule, ProductionStatus, Requirement, ResourceAmount, ResourceDefinition, ResourceId,
-    ResourceStorage, StatId, TechNodeDefinition, TileDefinition, UnitDefinition, UpgradeDefinition,
-    WorldId,
+    AreaDefinition, Building, BuildingDefinition, BuildingFootprint, BuildingId,
+    BuildingLevelDefinition, BuildingStatus, Catalog, CommandId, CommandOutcome, Effect,
+    EngineError, EntityBlueprintRef, EntityId, EntityRecord, FenceDefinition, GameCommand,
+    GameEvent, GameLogic, GameState, GameWorld, GameWorldError, GridOrientation, Job,
+    JobCompletion, LevelDefinition, MapLocation, NpcDefinition, NpcKind, PathDefinition,
+    PlacementRule, PlacementTarget, PlayerId, ProductionQueueConfig, ProductionRule,
+    ProductionStatus, Requirement, ResourceAmount, ResourceDefinition, ResourceId, ResourceStorage,
+    StatId, TechNodeDefinition, TileDefinition, UnitDefinition, UpgradeDefinition, WorldId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -51,7 +51,9 @@ pub(crate) use self::view::is_habitat_kind;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use farm_engine::{BuildingStatus, GameCommand, ResourceError};
+    use farm_engine::{
+        BuildingPlacementCandidate, BuildingStatus, GameCommand, PlacementRejection, ResourceError,
+    };
 
     #[test]
     fn catalog_validates() {
@@ -79,7 +81,7 @@ mod tests {
             .iter()
             .find(|building| building.kind == CUSTOMER_ENTRY)
             .expect("customer entry should be seeded");
-        assert_eq!(entry.location, MapLocation::new(ZOO_CENTER, 1));
+        assert_eq!(entry.location, MapLocation::new(ZOO_CENTER - 2, 1));
         assert!(
             view.buildings
                 .iter()
@@ -90,7 +92,7 @@ mod tests {
             .iter()
             .find(|building| building.kind == ZOOKEEPER_HOUSE)
             .expect("zookeeper house should be seeded");
-        assert_eq!(house.location, MapLocation::new(ZOO_CENTER, ZOO_CENTER));
+        assert_eq!(house.location, MapLocation::new(18, 14));
         let guest_path = view
             .paths
             .iter()
@@ -126,6 +128,78 @@ mod tests {
                 .iter()
                 .any(|species| species.kind == LION_PRIDE && !species.unlocked)
         );
+    }
+
+    #[test]
+    fn starter_plot_is_seeded_as_visible_buildable_grid() {
+        let state = new_zoo_state().unwrap();
+        let starter_plot = state
+            .areas()
+            .find(|area| area.kind.as_str() == STARTER_PLOT)
+            .expect("starter plot should be seeded");
+
+        assert_eq!(starter_plot.tiles.len(), 24 * 18);
+        assert!(starter_plot.tiles.contains(&MapLocation::new(4, 0)));
+        assert!(starter_plot.tiles.contains(&MapLocation::new(27, 17)));
+        assert!(!starter_plot.tiles.contains(&MapLocation::new(3, 0)));
+        assert!(!starter_plot.tiles.contains(&MapLocation::new(28, 17)));
+    }
+
+    #[test]
+    fn placement_evaluation_reports_zoo_rejections() {
+        let mut state = new_zoo_state().unwrap();
+        let outside_plot = state.evaluate_building_placement(BuildingPlacementCandidate {
+            kind: ANIMAL_AREA.into(),
+            location: MapLocation::new(28, 11),
+            orientation: GridOrientation::North,
+        });
+        assert!(!outside_plot.valid);
+        assert!(matches!(
+            outside_plot.rejection,
+            Some(PlacementRejection::RuleNotMet(PlacementRule::RequiresAreaKind(kind)))
+                if kind.as_str() == STARTER_PLOT
+        ));
+
+        let on_path = state.evaluate_building_placement(BuildingPlacementCandidate {
+            kind: ANIMAL_AREA.into(),
+            location: MapLocation::new(8, 14),
+            orientation: GridOrientation::North,
+        });
+        assert!(!on_path.valid);
+        assert!(matches!(
+            on_path.rejection,
+            Some(PlacementRejection::RuleNotMet(PlacementRule::NoPathOverlap))
+        ));
+
+        let valid = state.evaluate_building_placement(BuildingPlacementCandidate {
+            kind: ANIMAL_AREA.into(),
+            location: MapLocation::new(8, 11),
+            orientation: GridOrientation::North,
+        });
+        assert!(valid.valid);
+        assert_eq!(valid.occupied_tiles.len(), 16);
+
+        let coins = state.inventory().amount(COINS);
+        state.inventory_mut().remove(COINS, coins).unwrap();
+        let unaffordable = state.evaluate_building_placement(BuildingPlacementCandidate {
+            kind: ANIMAL_AREA.into(),
+            location: MapLocation::new(8, 11),
+            orientation: GridOrientation::North,
+        });
+        assert!(matches!(
+            unaffordable.rejection,
+            Some(PlacementRejection::InsufficientResources(_))
+        ));
+
+        let locked = state.evaluate_building_placement(BuildingPlacementCandidate {
+            kind: WETLANDS_HABITAT.into(),
+            location: MapLocation::new(8, 11),
+            orientation: GridOrientation::North,
+        });
+        assert!(matches!(
+            locked.rejection,
+            Some(PlacementRejection::LockedBuilding(kind)) if kind.as_str() == WETLANDS_HABITAT
+        ));
     }
 
     #[test]
@@ -172,7 +246,7 @@ mod tests {
         ));
 
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         assert_eq!(
             state.building(animal_area).unwrap().kind.as_str(),
@@ -187,7 +261,7 @@ mod tests {
         ));
 
         let fence = state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         assert_eq!(state.fence(fence).unwrap().kind.as_str(), WOOD_FENCE);
     }
@@ -196,7 +270,7 @@ mod tests {
     fn animal_purchase_requires_species_area_setup() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
 
@@ -208,7 +282,7 @@ mod tests {
         ));
 
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         let rabbit = buy_animal_group(&mut state, RABBIT_COLONY, animal_area).unwrap();
         assert_eq!(
@@ -222,7 +296,7 @@ mod tests {
     fn animal_purchase_enforces_species_specific_fence_counts_and_spends_costs() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state.inventory_mut().add(VISITORS, 141).unwrap();
@@ -230,8 +304,8 @@ mod tests {
         state
             .place_fence(
                 STEEL_FENCE,
-                MapLocation::new(8, 13),
-                MapLocation::new(9, 13),
+                MapLocation::new(8, 10),
+                MapLocation::new(9, 10),
             )
             .unwrap();
 
@@ -256,8 +330,8 @@ mod tests {
         state
             .place_fence(
                 STEEL_FENCE,
-                MapLocation::new(8, 15),
-                MapLocation::new(9, 15),
+                MapLocation::new(10, 10),
+                MapLocation::new(11, 10),
             )
             .unwrap();
         let coins_before = state.inventory().amount(COINS);
@@ -287,11 +361,11 @@ mod tests {
     fn failed_animal_purchase_leaves_inventory_and_animals_unchanged() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         let vegetables = state.inventory().amount(VEGETABLES);
         state
@@ -325,16 +399,20 @@ mod tests {
     fn animal_purchase_rejects_mixed_species_in_one_area() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state.inventory_mut().add(VISITORS, 16).unwrap();
         unlock_species_for_current_visitors(&mut state);
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 15), MapLocation::new(9, 15))
+            .place_fence(
+                WOOD_FENCE,
+                MapLocation::new(10, 10),
+                MapLocation::new(11, 10),
+            )
             .unwrap();
         buy_animal_group(&mut state, RABBIT_COLONY, animal_area).unwrap();
         assert!(matches!(
@@ -351,14 +429,14 @@ mod tests {
     fn zoo_move_npc_command_rehomes_animals_only_to_valid_areas() {
         let mut state = new_zoo_state().unwrap();
         let first_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         let second_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(14, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(4, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         let rabbit = buy_animal_group(&mut state, RABBIT_COLONY, first_area).unwrap();
         let original_location = state.entity(rabbit).unwrap().location;
@@ -383,11 +461,7 @@ mod tests {
         );
 
         state
-            .place_fence(
-                WOOD_FENCE,
-                MapLocation::new(14, 13),
-                MapLocation::new(15, 13),
-            )
+            .place_fence(WOOD_FENCE, MapLocation::new(4, 10), MapLocation::new(5, 10))
             .unwrap();
         let outcome = apply_zoo_command(
             &mut state,
@@ -410,11 +484,11 @@ mod tests {
     fn zoo_create_npc_command_buys_animals_through_area_rules() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         let animal_area_location = state.building(animal_area).unwrap().location;
 
@@ -532,10 +606,35 @@ mod tests {
     }
 
     #[test]
+    fn zoo_apply_command_request_accepts_engine_path_commands() {
+        let payload = serde_json::json!({
+            "expected_version": 7,
+            "command": {
+                "Engine": {
+                    "CreatePath": {
+                        "kind": "service_path",
+                        "waypoints": [
+                            { "x": 11, "y": 15, "elevation": 0 },
+                            { "x": 12, "y": 15, "elevation": 0 }
+                        ]
+                    }
+                }
+            }
+        });
+
+        let request: ZooApplyCommandRequest = serde_json::from_value(payload).unwrap();
+
+        assert!(matches!(
+            request.command,
+            ZooCommand::Engine(GameCommand::CreatePath { .. })
+        ));
+    }
+
+    #[test]
     fn zoo_logic_updates_animals_and_objectives() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         assert_eq!(
@@ -543,7 +642,7 @@ mod tests {
             BuildingStatus::Active
         );
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         let animal = buy_named_animal_group(
             &mut state,
@@ -717,21 +816,21 @@ mod tests {
     fn locked_species_purchase_reports_required_and_current_visitors() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state
             .place_fence(
                 STEEL_FENCE,
-                MapLocation::new(8, 13),
-                MapLocation::new(9, 13),
+                MapLocation::new(8, 10),
+                MapLocation::new(9, 10),
             )
             .unwrap();
         state
             .place_fence(
                 STEEL_FENCE,
-                MapLocation::new(8, 15),
-                MapLocation::new(9, 15),
+                MapLocation::new(10, 10),
+                MapLocation::new(11, 10),
             )
             .unwrap();
 
@@ -768,7 +867,7 @@ mod tests {
     fn backfill_unlocks_species_already_present_in_legacy_states() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state.inventory_mut().add(VISITORS, 141).unwrap();
@@ -776,15 +875,15 @@ mod tests {
         state
             .place_fence(
                 STEEL_FENCE,
-                MapLocation::new(8, 13),
-                MapLocation::new(9, 13),
+                MapLocation::new(8, 10),
+                MapLocation::new(9, 10),
             )
             .unwrap();
         state
             .place_fence(
                 STEEL_FENCE,
-                MapLocation::new(8, 15),
-                MapLocation::new(9, 15),
+                MapLocation::new(10, 10),
+                MapLocation::new(11, 10),
             )
             .unwrap();
         let lion =
@@ -867,28 +966,20 @@ mod tests {
         unlock_species_for_current_visitors(&mut state);
 
         let first_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         let second_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(14, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(4, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         state
-            .place_fence(
-                WOOD_FENCE,
-                MapLocation::new(14, 13),
-                MapLocation::new(15, 13),
-            )
+            .place_fence(WOOD_FENCE, MapLocation::new(4, 10), MapLocation::new(5, 10))
             .unwrap();
         state
-            .place_fence(
-                WOOD_FENCE,
-                MapLocation::new(14, 15),
-                MapLocation::new(15, 15),
-            )
+            .place_fence(WOOD_FENCE, MapLocation::new(6, 10), MapLocation::new(7, 10))
             .unwrap();
         buy_named_animal_group(&mut state, RABBIT_COLONY, "Starter Rabbits", first_area).unwrap();
         buy_named_animal_group(&mut state, TORTOISE_GROUP, "Starter Tortoises", second_area)
@@ -912,11 +1003,11 @@ mod tests {
     fn animal_species_view_reports_unlocks_and_placed_counts() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         buy_named_animal_group(
             &mut state,
@@ -954,15 +1045,15 @@ mod tests {
     fn elephant_purchase_requires_four_steel_fences() {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state.inventory_mut().add(VISITORS, 141).unwrap();
         unlock_species_for_current_visitors(&mut state);
         for (start, end) in [
-            (MapLocation::new(8, 13), MapLocation::new(9, 13)),
-            (MapLocation::new(8, 15), MapLocation::new(9, 15)),
-            (MapLocation::new(7, 14), MapLocation::new(7, 15)),
+            (MapLocation::new(8, 10), MapLocation::new(9, 10)),
+            (MapLocation::new(10, 10), MapLocation::new(11, 10)),
+            (MapLocation::new(7, 11), MapLocation::new(7, 12)),
         ] {
             state.place_fence(STEEL_FENCE, start, end).unwrap();
         }
@@ -977,8 +1068,8 @@ mod tests {
         state
             .place_fence(
                 STEEL_FENCE,
-                MapLocation::new(9, 14),
-                MapLocation::new(9, 15),
+                MapLocation::new(12, 11),
+                MapLocation::new(12, 12),
             )
             .unwrap();
         state.inventory_mut().add(MEDICINE, 8).unwrap();
@@ -991,11 +1082,11 @@ mod tests {
     fn rabbit_pricing_state() -> GameState {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         buy_animal_group(&mut state, RABBIT_COLONY, animal_area).unwrap();
         state
@@ -1006,11 +1097,11 @@ mod tests {
     ) -> (GameState, BuildingId, EntityId, BuildingId) {
         let mut state = new_zoo_state().unwrap();
         let animal_area = state
-            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 14))
+            .start_construction_at(ANIMAL_AREA, MapLocation::new(8, 11))
             .unwrap();
         state.advance_time(18).unwrap();
         state
-            .place_fence(WOOD_FENCE, MapLocation::new(8, 13), MapLocation::new(9, 13))
+            .place_fence(WOOD_FENCE, MapLocation::new(8, 10), MapLocation::new(9, 10))
             .unwrap();
         let animal = buy_named_animal_group(
             &mut state,

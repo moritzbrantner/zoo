@@ -60,6 +60,11 @@ pub fn zoo_catalog() -> Catalog {
         Vec::new(),
     ));
     catalog.add_area(AreaDefinition::new(
+        STARTER_PLOT,
+        "Starter Plot",
+        Vec::new(),
+    ));
+    catalog.add_area(AreaDefinition::new(
         HABITAT_ZONE,
         "Habitat Zone",
         Vec::new(),

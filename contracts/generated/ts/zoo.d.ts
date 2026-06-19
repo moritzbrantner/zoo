@@ -26,7 +26,7 @@ export type ZooView = { now_seconds: bigint, resources: Array<ResourceView>, bui
 
 export type ResourceView = { id: string, label: string, amount: bigint, capacity: bigint | null, };
 
-export type BuildingView = { id: bigint, kind: string, label: string, location: MapLocation, height: number, level: number, required_workers: number, assigned_workers: number, manned: boolean, status: string, production: string, inventory: Array<ResourceView>, stats: { [key in string]?: bigint }, };
+export type BuildingView = { id: bigint, kind: string, label: string, location: MapLocation, orientation: GridOrientation, footprint: BuildingFootprint, height: number, level: number, required_workers: number, assigned_workers: number, manned: boolean, status: string, production: string, inventory: Array<ResourceView>, stats: { [key in string]?: bigint }, };
 
 export type JobView = { id: bigint, kind: string, completes_at_seconds: bigint, assigned_entities: Array<bigint>, };
 

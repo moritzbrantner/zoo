@@ -159,6 +159,14 @@
                 },
                 "location": {
                   "$ref": "#/definitions/MapLocation"
+                },
+                "orientation": {
+                  "default": "North",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/GridOrientation"
+                    }
+                  ]
                 }
               }
             }
@@ -779,6 +787,15 @@
           },
           "additionalProperties": false
         }
+      ]
+    },
+    "GridOrientation": {
+      "type": "string",
+      "enum": [
+        "North",
+        "East",
+        "South",
+        "West"
       ]
     },
     "InventoryScope": {
