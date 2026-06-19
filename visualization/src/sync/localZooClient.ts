@@ -75,7 +75,7 @@ export async function createLocalZooClient() {
         ],
       };
     },
-    evaluatePlacement(kind, location, orientation = "North") {
+    evaluatePlacement(_worldId, _playerId, kind, location, orientation = "North") {
       return decodeBody(
         zoo.evaluate_building_placement_json(
           encodeBody({

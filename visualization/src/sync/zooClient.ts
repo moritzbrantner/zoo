@@ -39,6 +39,12 @@ export function createZooClient(baseUrl = "http://127.0.0.1:8080") {
         body: encodeBody({ expected_version: expectedVersion, command }),
       });
     },
+    evaluatePlacement(worldId, playerId, kind, location, orientation = "North") {
+      return request(`/api/worlds/${worldId}/players/${playerId}/placement`, {
+        method: "POST",
+        body: encodeBody({ kind, location, orientation }),
+      });
+    },
     tick(worldId, deltaSeconds) {
       return request(`/api/worlds/${worldId}/tick`, {
         method: "POST",
