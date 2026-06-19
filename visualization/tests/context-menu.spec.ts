@@ -235,14 +235,19 @@ test("snaps off-grid building placement to tile centers", async ({ page }) => {
   await page.getByRole("button", { name: "Place building" }).click();
 
   await page.getByRole("button", { name: "Place Restroom" }).click();
-  const point = await groundPoint(page, -4.2, -3.2);
+  const point = await groundPoint(page, 3.2, -3.2);
   await page.mouse.click(point.x, point.y);
 
-  const state = await page.evaluate(() => window.__zooTestApi.getState());
-  const placedRestroom = state.buildings.find((building) =>
-    building.id.startsWith("placed_restroom_"),
-  );
-  expect(placedRestroom).toBeTruthy();
-  expect(placedRestroom.position.x).toBe(-4.5);
+  const placedRestroom = await expect
+    .poll(async () => {
+      const state = await page.evaluate(() => window.__zooTestApi.getState());
+      return state.buildings.find((building) => building.id.startsWith("placed_restroom_"));
+    })
+    .toBeTruthy()
+    .then(async () => {
+      const state = await page.evaluate(() => window.__zooTestApi.getState());
+      return state.buildings.find((building) => building.id.startsWith("placed_restroom_"));
+    });
+  expect(placedRestroom.position.x).toBe(3.5);
   expect(placedRestroom.position.z).toBe(-3.5);
 });

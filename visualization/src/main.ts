@@ -655,8 +655,12 @@ let boundaryFenceGroup = null;
 let perimeterSceneryGroup = null;
 let placementPreview = null;
 let placementPreviewMaterial = null;
+let placementPreviewTileGroup = null;
 let activeBuildItem = null;
 let placementValid = false;
+let placementEvaluation = null;
+let placementEvaluationRequestId = 0;
+let placementPreviewPosition = null;
 let lastPointerClientPoint = null;
 let placementPointerPoint = null;
 let placedBuildingCount = 0;
@@ -699,6 +703,7 @@ const playerFenceSegments = [];
 const zooClient = createZooClient();
 let serverSession = null;
 let serverTickInFlight = false;
+let serverCommandInFlight = false;
 let lastServerTickSecond = 0;
 
 setupLights();
@@ -1122,24 +1127,37 @@ async function applyServerCommand(command) {
   if (!serverSession) {
     throw new Error("Server session is not connected.");
   }
-  const response = await serverSession.client.applyCommand(
-    serverSession.worldId,
-    serverSession.playerId,
-    serverSession.version,
-    command,
-  );
-  serverSession.version = response.version;
-  serverSession.checksum = response.checksum;
-  applyServerView(response.view);
-  updateServerStatus();
-  if (!response.accepted) {
-    throw new Error(response.error ?? "Server rejected command.");
+  serverCommandInFlight = true;
+  try {
+    await waitForServerTickIdle();
+    const response = await serverSession.client.applyCommand(
+      serverSession.worldId,
+      serverSession.playerId,
+      serverSession.version,
+      command,
+    );
+    serverSession.version = response.version;
+    serverSession.checksum = response.checksum;
+    applyServerView(response.view);
+    updateServerStatus();
+    if (!response.accepted) {
+      throw new Error(response.error ?? "Server rejected command.");
+    }
+    return response;
+  } finally {
+    serverCommandInFlight = false;
   }
-  return response;
+}
+
+async function waitForServerTickIdle() {
+  const deadline = performance.now() + 1000;
+  while (serverTickInFlight && performance.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 16));
+  }
 }
 
 async function tickServerTo(time) {
-  if (!serverSession || serverTickInFlight) return;
+  if (!serverSession || serverTickInFlight || serverCommandInFlight) return;
   const roundedTime = Math.floor(time);
   const deltaSeconds = Math.min(60, roundedTime - lastServerTickSecond);
   if (deltaSeconds < 1) return;
@@ -1664,22 +1682,15 @@ function rotateActiveBuildItem(direction) {
 
   const nextQuarter = normalizedRotationQuarter(activeBuildItem.rotationQuarter + direction);
   const nextSize = rotatedFootprintSize(activeBuildItem.baseSize, nextQuarter);
-  const rotatedItem = {
+  activeBuildItem = {
     ...activeBuildItem,
     size: nextSize,
     rotationQuarter: nextQuarter,
   };
 
-  if (placementPointerPoint) {
-    const position = snapPlacementPoint(placementPointerPoint, nextSize);
-    if (!canPlaceBuilding(rotatedItem, position)) {
-      buildMenuStatusEl.textContent = placementInvalidMessage(rotatedItem, position);
-      return;
-    }
-  }
-
-  activeBuildItem = rotatedItem;
   placementValid = false;
+  placementEvaluation = null;
+  placementPreviewPosition = null;
   createPlacementPreview(activeBuildItem);
   if (placementPointerPoint) {
     updatePlacementPreviewAtPoint(placementPointerPoint);
@@ -1740,6 +1751,10 @@ function buildingRotationRadians(building) {
   return normalizedRotationQuarter(building.rotationQuarter ?? 0) * (Math.PI / 2);
 }
 
+function orientationFromRotationQuarter(rotationQuarter = 0) {
+  return ["North", "East", "South", "West"][normalizedRotationQuarter(rotationQuarter)];
+}
+
 function buildingRequiresPath(building) {
   const kind = building.kind ?? building.id;
   return Boolean(building.requiresPath ?? buildingManifestByKind[kind]?.requiresPath);
@@ -1757,6 +1772,8 @@ function setPlacementItem(item) {
     rotationQuarter: 0,
   };
   placementValid = false;
+  placementEvaluation = null;
+  placementPreviewPosition = null;
   placementPointerPoint = null;
   createPlacementPreview(activeBuildItem);
   buildMenuStatusEl.textContent = "Click a clear tile to place.";
@@ -1766,6 +1783,9 @@ function setPlacementItem(item) {
 function cancelPlacement() {
   activeBuildItem = null;
   placementValid = false;
+  placementEvaluation = null;
+  placementPreviewPosition = null;
+  placementEvaluationRequestId += 1;
   placementPointerPoint = null;
   if (placementPreview) placementPreview.visible = false;
   buildMenuStatusEl.textContent = "Choose a building or map tool.";
@@ -4592,11 +4612,8 @@ function createPlacementPreview(item) {
     depthWrite: false,
   });
 
-  const footprint = new THREE.Mesh(
-    new THREE.BoxGeometry(item.size[0], 0.08, item.size[1]),
-    placementPreviewMaterial,
-  );
-  footprint.position.y = 0.045;
+  placementPreviewTileGroup = new THREE.Group();
+  placementPreviewTileGroup.position.y = 0.045;
 
   const ghostBuilding = createBuildingMesh(
     {
@@ -4614,38 +4631,123 @@ function createPlacementPreview(item) {
   preparePlacementGhost(ghostBuilding);
 
   placementPreview = new THREE.Group();
-  placementPreview.add(footprint, ghostBuilding);
+  placementPreview.add(placementPreviewTileGroup, ghostBuilding);
   placementPreview.visible = false;
   scene.add(placementPreview);
 }
 
-function updatePlacementPreview(event) {
+function updatePlacementPreview(event, options = {}) {
   if (!activeBuildItem || !placementSurface || !placementPreview) return null;
 
   const point = groundPointFromPointer(event);
   placementPointerPoint = point ? point.clone() : null;
-  return updatePlacementPreviewAtPoint(point);
+  return updatePlacementPreviewAtPoint(point, options);
 }
 
-function updatePlacementPreviewAtPoint(point) {
+function updatePlacementPreviewAtPoint(point, { awaitEvaluation = false } = {}) {
   if (!activeBuildItem || !placementPreview) return null;
 
   if (!point) {
     placementPreview.visible = false;
     placementValid = false;
+    placementEvaluation = null;
+    placementPreviewPosition = null;
+    placementEvaluationRequestId += 1;
     buildMenuStatusEl.textContent = "Point at the zoo grounds.";
     return null;
   }
 
-  const position = snapPlacementPoint(point, activeBuildItem.size);
-  placementValid = canPlaceBuilding(activeBuildItem, position);
+  const position = snapPlacementPoint(point);
+  placementValid = false;
+  placementEvaluation = null;
+  placementPreviewPosition = position;
   placementPreview.position.set(position.x, 0, position.z);
   placementPreview.visible = true;
+  updatePlacementPreviewValidity(false);
+  buildMenuStatusEl.textContent = "Checking placement...";
+  const requestId = ++placementEvaluationRequestId;
+  const evaluationPromise = applyPlacementEvaluation(activeBuildItem, position, requestId);
+  if (awaitEvaluation) {
+    return evaluationPromise.then(() => position);
+  }
+  return position;
+}
+
+async function applyPlacementEvaluation(item, position, requestId) {
+  let evaluation;
+  try {
+    evaluation = await evaluatePlacementCandidate(item, position);
+  } catch (error) {
+    evaluation = {
+      valid: false,
+      occupied_tiles: [],
+      rejection: {
+        code: "placement_evaluation_failed",
+        message: error.message ?? "Placement check failed.",
+      },
+    };
+  }
+  if (requestId !== placementEvaluationRequestId || activeBuildItem !== item) return;
+
+  placementEvaluation = evaluation;
+  placementValid = Boolean(evaluation.valid);
+  renderPlacementFootprintTiles(evaluation.occupied_tiles ?? []);
   updatePlacementPreviewValidity(placementValid);
+  if (activeBuildItem) {
+    canvas.style.cursor = placementValid ? "copy" : "not-allowed";
+  }
   buildMenuStatusEl.textContent = placementValid
     ? "Click to place."
-    : placementInvalidMessage(activeBuildItem, position);
-  return position;
+    : placementInvalidMessage(item, position);
+}
+
+async function evaluatePlacementCandidate(item, position) {
+  const location = mapLocationFromWorldPosition(position);
+  const orientation = orientationFromRotationQuarter(item.rotationQuarter);
+  if (serverSession?.client?.evaluatePlacement) {
+    return serverSession.client.evaluatePlacement(
+      serverSession.worldId,
+      serverSession.playerId,
+      item.kind,
+      location,
+      orientation,
+    );
+  }
+
+  const valid = canPlaceBuilding(item, position);
+  return {
+    valid,
+    occupied_tiles: footprintTiles(position.x, position.z, item.size[0], item.size[1]).map(
+      mapLocationFromTile,
+    ),
+    rejection: valid
+      ? null
+      : {
+          code: "local_preview_rejected",
+          message: localPlacementInvalidMessage(item, position),
+        },
+  };
+}
+
+function renderPlacementFootprintTiles(occupiedTiles) {
+  if (!placementPreviewTileGroup) return;
+
+  while (placementPreviewTileGroup.children.length > 0) {
+    const child = placementPreviewTileGroup.children[0];
+    placementPreviewTileGroup.remove(child);
+    child.geometry?.dispose?.();
+  }
+
+  for (const tile of occupiedTiles) {
+    const center = worldPositionFromMapLocation(tile);
+    const mesh = new THREE.Mesh(pathTileGeometry, placementPreviewMaterial);
+    mesh.position.set(
+      center.x - placementPreview.position.x,
+      0,
+      center.z - placementPreview.position.z,
+    );
+    placementPreviewTileGroup.add(mesh);
+  }
 }
 
 function preparePlacementGhost(root) {
@@ -4701,10 +4803,11 @@ function disposeObject3D(root) {
 }
 
 async function placeActiveBuilding(event) {
-  const position = updatePlacementPreview(event);
+  const position = await updatePlacementPreview(event, { awaitEvaluation: true });
   if (!activeBuildItem || !position || !placementValid) return false;
 
   const item = activeBuildItem;
+  const orientation = orientationFromRotationQuarter(item.rotationQuarter);
   if (serverSession) {
     try {
       const response = await applyServerCommand({
@@ -4712,7 +4815,7 @@ async function placeActiveBuilding(event) {
           ConstructBuilding: {
             kind: item.kind,
             location: mapLocationFromWorldPosition(position),
-            orientation: "North",
+            orientation,
           },
         },
       });
@@ -4733,6 +4836,7 @@ async function placeActiveBuilding(event) {
     size: [...item.size],
     baseSize: [...item.baseSize],
     rotationQuarter: item.rotationQuarter,
+    orientation,
     requiresPath: Boolean(item.requiresPath),
     requiredWorkers: item.requiredWorkers ?? 0,
     resourceOutput: { ...(item.resourceOutput ?? {}) },
@@ -5326,7 +5430,7 @@ function pathTileFromGrid(col, row) {
 }
 
 function mapLocationFromTile(tile) {
-  return { x: tile.col, y: tile.row };
+  return { x: tile.col, y: tile.row, elevation: 0 };
 }
 
 function mapLocationFromWorldPosition(position) {
@@ -5335,11 +5439,18 @@ function mapLocationFromWorldPosition(position) {
     : { x: position.x, z: position.z };
   const col = tileIndexForCoordinate(point.x, playableArea.minX, gridColumns);
   const row = tileIndexForCoordinate(point.z, playableArea.minZ, gridRows);
-  return { x: col, y: row };
+  return { x: col, y: row, elevation: 0 };
 }
 
 function mapLocationForBuilding(building) {
   return mapLocationFromWorldPosition(building.position);
+}
+
+function worldPositionFromMapLocation(location) {
+  return {
+    x: playableArea.minX + (Number(location.x) + 0.5) * PATH_TILE_SIZE,
+    z: playableArea.minZ + (Number(location.y) + 0.5) * PATH_TILE_SIZE,
+  };
 }
 
 function serverBuildingForLocal(building, view = serverSession?.view) {
@@ -5685,40 +5796,17 @@ function groundPointFromPointer(event) {
   return hit?.point ?? null;
 }
 
-function snapPlacementPoint(point, size) {
+function snapPlacementPoint(point) {
   return {
-    x: snapCoordinateToTileCenter(
-      point.x,
-      playableArea.minX,
-      playableArea.maxX,
-      gridColumns,
-      size[0],
-    ),
-    z: snapCoordinateToTileCenter(
-      point.z,
-      playableArea.minZ,
-      playableArea.maxZ,
-      gridRows,
-      size[1],
-    ),
+    x: snapCoordinateToTileCenter(point.x, playableArea.minX, gridColumns),
+    z: snapCoordinateToTileCenter(point.z, playableArea.minZ, gridRows),
   };
 }
 
-function snapCoordinateToTileCenter(value, min, max, tileCount, footprint) {
+function snapCoordinateToTileCenter(value, min, tileCount) {
   const firstCenter = min + PATH_TILE_SIZE / 2;
-  const halfFootprint = footprint / 2;
   const requestedIndex = tileIndexForCoordinate(value, min, tileCount);
-  const minIndex = Math.max(0, Math.ceil((min + halfFootprint - firstCenter) / PATH_TILE_SIZE));
-  const maxIndex = Math.min(
-    tileCount - 1,
-    Math.floor((max - halfFootprint - firstCenter) / PATH_TILE_SIZE),
-  );
-
-  if (minIndex > maxIndex) {
-    return THREE.MathUtils.clamp(value, min + halfFootprint, max - halfFootprint);
-  }
-
-  const index = THREE.MathUtils.clamp(requestedIndex, minIndex, maxIndex);
+  const index = THREE.MathUtils.clamp(requestedIndex, 0, tileCount - 1);
   return firstCenter + index * PATH_TILE_SIZE;
 }
 
@@ -5746,6 +5834,13 @@ function canPlaceBuilding(item, position, options = {}) {
 }
 
 function placementInvalidMessage(item, position) {
+  if (placementEvaluation?.rejection?.message) {
+    return placementEvaluation.rejection.message;
+  }
+  return localPlacementInvalidMessage(item, position);
+}
+
+function localPlacementInvalidMessage(item, position) {
   if (item.requiresPath && !buildingFootprintIsPathAdjacent(item, position, item.size)) {
     return `${item.label} must touch a path.`;
   }
@@ -6565,6 +6660,8 @@ function installTestApi() {
         throw new Error("No WASM placement evaluator is connected");
       }
       return serverSession.client.evaluatePlacement(
+        serverSession.worldId,
+        serverSession.playerId,
         kind,
         { x, y, elevation: 0 },
         orientation,
@@ -6661,6 +6758,17 @@ function installTestApi() {
     },
     getState() {
       return currentTestState();
+    },
+    placementPreviewState() {
+      if (!activeBuildItem || !placementPreviewPosition) return null;
+      return {
+        kind: activeBuildItem.kind,
+        orientation: orientationFromRotationQuarter(activeBuildItem.rotationQuarter),
+        valid: placementValid,
+        location: mapLocationFromWorldPosition(placementPreviewPosition),
+        occupiedTiles: (placementEvaluation?.occupied_tiles ?? []).map((tile) => ({ ...tile })),
+        rejection: placementEvaluation?.rejection ? { ...placementEvaluation.rejection } : null,
+      };
     },
     selectionPoint(selectionId) {
       const point = testPointForSelection(selectionId);
@@ -6767,6 +6875,7 @@ function currentTestState() {
         depth: building.size[1],
       },
       rotationQuarter: building.rotationQuarter ?? 0,
+      orientation: building.orientation ?? orientationFromRotationQuarter(building.rotationQuarter),
       status: buildingMeshes.get(building.id)?.userData.state?.status ?? "Planned",
       requiredWorkers: requiredWorkerCount(building),
       assignedWorkers: assignedWorkerCount(building),

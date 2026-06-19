@@ -16,9 +16,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tower_http::cors::CorsLayer;
 use zoo_game::{
     ZooApplyCommandRequest, ZooCommand, ZooCommandResponse, ZooCreateWorldRequest,
-    ZooCreateWorldResponse, ZooLogic, ZooPlayerView, ZooTickRequest, ZooTickResponse,
-    ZooWorldListItem, ZooWorldListResponse, apply_zoo_command, command_response, new_zoo_world,
-    zoo_checksum, zoo_view,
+    ZooCreateWorldResponse, ZooLogic, ZooPlacementEvaluationRequest,
+    ZooPlacementEvaluationResponse, ZooPlayerView, ZooTickRequest, ZooTickResponse,
+    ZooWorldListItem, ZooWorldListResponse, apply_zoo_command, command_response,
+    evaluate_zoo_building_placement, new_zoo_world, zoo_checksum, zoo_view,
 };
 
 #[derive(Clone)]
@@ -527,6 +528,10 @@ fn app(state: AppState) -> Router {
             "/api/worlds/{world_id}/players/{player_id}/commands",
             post(apply_command),
         )
+        .route(
+            "/api/worlds/{world_id}/players/{player_id}/placement",
+            post(evaluate_placement),
+        )
         .route("/api/worlds/{world_id}/tick", post(tick_world))
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -612,6 +617,19 @@ async fn apply_command(
             .map(Json)
             .map_err(internal_error),
     }
+}
+
+async fn evaluate_placement(
+    State(state): State<AppState>,
+    Path((world_id, player_id)): Path<(String, String)>,
+    Json(request): Json<ZooPlacementEvaluationRequest>,
+) -> Result<Json<ZooPlacementEvaluationResponse>, (StatusCode, Json<ApiError>)> {
+    let world_id = WorldId::new(world_id.clone());
+    let player_id = PlayerId::new(player_id);
+    let stored = state.load_world(&world_id).map_err(repository_error)?;
+    let world = GameWorld::from_document(stored.document).map_err(internal_error)?;
+    let player_state = world.require_player(player_id).map_err(internal_error)?;
+    Ok(Json(evaluate_zoo_building_placement(player_state, request)))
 }
 
 async fn tick_world(
@@ -1052,6 +1070,51 @@ mod tests {
                 .filter(|building| building.kind == TICKET_BOOTH)
                 .count(),
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn evaluates_building_placement_without_applying_command() {
+        let state = AppState::default();
+        let Json(created) = create_world(
+            State(state.clone()),
+            Json(ZooCreateWorldRequest {
+                players: vec!["alice".to_owned()],
+            }),
+        )
+        .await
+        .unwrap();
+
+        let Json(evaluation) = evaluate_placement(
+            State(state.clone()),
+            Path((created.world_id.to_string(), "alice".to_owned())),
+            Json(ZooPlacementEvaluationRequest {
+                kind: TICKET_BOOTH.into(),
+                location: MapLocation::new(15, 5),
+                orientation: GridOrientation::East,
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert!(evaluation.valid, "{evaluation:?}");
+        assert_eq!(evaluation.occupied_tiles.len(), 4);
+        assert!(evaluation.rejection.is_none());
+
+        let Json(fetched) = get_player(
+            State(state),
+            Path((created.world_id.to_string(), "alice".to_owned())),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            fetched
+                .view
+                .buildings
+                .iter()
+                .filter(|building| building.kind == TICKET_BOOTH)
+                .count(),
+            0
         );
     }
 
