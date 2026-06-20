@@ -14,12 +14,24 @@ Tiny one-shot fixes may be implemented directly.
 
 When the plan is decision-complete, synthesize the conversation into a PRD issue using the project issue tracker.
 
+The PRD body must include explicit acceptance criteria and out-of-scope boundaries before it is marked ready for the agent loop.
+
 Apply both labels:
 
 - `prd`
 - `ready-for-agent`
 
 The `prd` + `ready-for-agent` label pair authorizes the agent-loop to route the PRD through issue slicing later.
+
+Implementation slice issues created from the PRD must include:
+
+```markdown
+## Parent
+
+#<parent-prd-issue-number>
+```
+
+Do not label implementation slices `ready-for-agent` until that parent link exists.
 
 ## Stop Point
 
@@ -34,3 +46,7 @@ Do not create implementation slice issues by default. The agent-loop, or a later
 Explicit user direction wins. If the user clearly asks for direct implementation, follow that request unless it conflicts with safety, permissions, or repo policy.
 
 If the current session cannot mutate GitHub Issues, end with a final plan whose next action is to create the PRD issue with labels `prd` and `ready-for-agent`.
+
+## Model policy
+
+Agent-loop workers use the hosted model policy from the installed `agent-loop` skill. See `~/.codex/skills/agent-loop/references/model-policy.md`.

@@ -2,7 +2,7 @@ BUN ?= bun
 CARGO ?= cargo
 VISUALIZATION_DIR := visualization
 
-.PHONY: help ci check build test rust-check rust-build rust-test contracts contracts-check frontend-install frontend-typecheck frontend-build frontend-test frontend-dev frontend-preview clean
+.PHONY: help ci check build test rust-check rust-build rust-test contracts contracts-check wasm-build frontend-install frontend-typecheck frontend-build frontend-test frontend-dev frontend-preview clean
 
 help:
 	@printf '%s\n' \
@@ -38,13 +38,17 @@ contracts:
 contracts-check:
 	$(CARGO) run -p zoo_contract_codegen -- --check
 
+wasm-build:
+	wasm-pack build . --target web --out-dir $(VISUALIZATION_DIR)/src/wasm --out-name zoo_game --features wasm
+	rm -f $(VISUALIZATION_DIR)/src/wasm/.gitignore
+
 frontend-install:
 	cd $(VISUALIZATION_DIR) && $(BUN) install --frozen-lockfile
 
-frontend-typecheck:
+frontend-typecheck: wasm-build
 	cd $(VISUALIZATION_DIR) && $(BUN) run typecheck
 
-frontend-build:
+frontend-build: wasm-build
 	cd $(VISUALIZATION_DIR) && $(BUN) run build
 
 frontend-test:

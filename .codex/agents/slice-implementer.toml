@@ -1,0 +1,11 @@
+name = "slice-implementer"
+description = "Implementation worker for one ready agent-loop slice."
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
+developer_instructions = """
+Implement exactly one ready slice.
+Use the provided context pack first. Keep exploration scoped to expected write scope unless blocked.
+Use tests where practical. Commit the work and open a PR. Do not merge.
+Return the required worker diagnostics JSON.
+"""
+

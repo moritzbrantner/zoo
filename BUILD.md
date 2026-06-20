@@ -8,6 +8,7 @@ day-to-day checks so those surfaces stay in sync.
 
 - Rust 1.85 or newer
 - Bun
+- wasm-pack
 
 Install frontend dependencies:
 

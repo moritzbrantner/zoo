@@ -2,6 +2,7 @@
 import "./styles.css";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import initWasm, { WasmZoo } from "./wasm/zoo_game.js";
 import { buildingManifest, fenceManifest, resourceManifest } from "./assets/assetManifest";
 import {
   DEFAULT_ENTRY_FEE,
@@ -429,6 +430,8 @@ const PATH_TILE_VISUAL_SIZE = PATH_TILE_SIZE;
 const PATH_TILE_EPSILON = 1e-6;
 const INITIAL_GRID_COLUMNS = 24;
 const INITIAL_GRID_ROWS = 18;
+const SERVER_GRID_MIN_X = 4;
+const SERVER_GRID_MIN_Y = 0;
 const LAND_EXPANSION_COLUMNS = 2;
 const LAND_EXPANSION_ROWS = 2;
 const LAND_PURCHASE_BASE_COST = 120;
@@ -653,11 +656,14 @@ let boardGridGroup = null;
 let boundaryFenceGroup = null;
 let perimeterSceneryGroup = null;
 let placementPreview = null;
+let placementFootprintPreviewGroup = null;
 let placementPreviewMaterial = null;
 let activeBuildItem = null;
 let placementValid = false;
+let placementEvaluation = null;
 let lastPointerClientPoint = null;
 let placementPointerPoint = null;
+let placementPreviewToken = 0;
 let placedBuildingCount = 0;
 let activePathTool = false;
 let pathDrawing = false;
@@ -699,7 +705,11 @@ const zooClient = createZooClient();
 let serverSession = null;
 let serverTickInFlight = false;
 let lastServerTickSecond = 0;
+let wasmReadyPromise = null;
+let localWasmZoo = null;
+let wasmCatalog = null;
 
+initializeWasmZoo();
 setupLights();
 createBoard();
 createBuildings();
@@ -1020,13 +1030,15 @@ async function connectServerWorld() {
         ?.id,
     };
     lastServerTickSecond = Math.floor(Number(player.view.now_seconds ?? 0));
+    await resetLocalWasmZoo();
     applyServerView(player.view);
     updateServerStatus();
     return true;
   } catch (error) {
     serverSession = null;
-    syncStatusEl.textContent = "Server required: run zoo_server";
-    return false;
+    await resetLocalWasmZoo();
+    syncStatusEl.textContent = "Server: offline, using local Rust";
+    return true;
   }
 }
 
@@ -1037,6 +1049,95 @@ function updateServerStatus() {
     return;
   }
   syncStatusEl.textContent = `Server: ${serverSession.worldId} v${serverSession.version}`;
+}
+
+function initializeWasmZoo() {
+  if (!wasmReadyPromise) {
+    wasmReadyPromise = initWasm()
+      .then(() => resetLocalWasmZoo())
+      .catch((error) => {
+        localWasmZoo = null;
+        syncStatusEl.textContent = "WASM unavailable";
+        throw error;
+      });
+  }
+  return wasmReadyPromise;
+}
+
+async function resetLocalWasmZoo() {
+  localWasmZoo?.free?.();
+  localWasmZoo = new WasmZoo();
+  wasmCatalog = JSON.parse(localWasmZoo.catalog_json());
+  applyWasmCatalogToBuildItems(wasmCatalog);
+  return localWasmZoo;
+}
+
+function applyWasmCatalogToBuildItems(catalogDocument) {
+  const catalog = catalogDocument?.catalog ?? catalogDocument;
+  if (!catalog?.buildings) return;
+  for (const item of buildCatalog) {
+    const definition = catalog.buildings[item.kind];
+    const level = definition?.levels?.[1];
+    if (!level?.footprint?.occupied_offsets) continue;
+    item.footprint = level.footprint;
+    item.buildDuration = Number(level.build_time_seconds ?? item.buildDuration ?? 0);
+    item.costResources = level.cost ?? [];
+    const bounds = footprintBounds(item.footprint.occupied_offsets);
+    item.baseSize = [bounds.width, bounds.depth];
+    item.size = [bounds.width, bounds.depth];
+  }
+}
+
+function footprintBounds(offsets) {
+  const xs = offsets.map((offset) => Number(offset.dx));
+  const ys = offsets.map((offset) => Number(offset.dy));
+  const minX = Math.min(...xs, 0);
+  const maxX = Math.max(...xs, 0);
+  const minY = Math.min(...ys, 0);
+  const maxY = Math.max(...ys, 0);
+  return {
+    width: maxX - minX + 1,
+    depth: maxY - minY + 1,
+  };
+}
+
+async function requireLocalWasmZoo() {
+  await initializeWasmZoo();
+  if (!localWasmZoo) throw new Error("Local Rust simulation is not available.");
+  return localWasmZoo;
+}
+
+async function evaluatePlacementWithWasm(item, position) {
+  const zoo = await requireLocalWasmZoo();
+  return JSON.parse(
+    zoo.evaluate_placement_json(
+      JSON.stringify({
+        kind: item.kind,
+        location: mapLocationFromWorldPosition(position),
+        orientation: orientationForRotationQuarter(item.rotationQuarter),
+      }),
+    ),
+  );
+}
+
+async function applyLocalWasmCommand(command) {
+  const zoo = await requireLocalWasmZoo();
+  const response = JSON.parse(zoo.apply_zoo_command_json(JSON.stringify(command)));
+  applyServerView(response.view);
+  return response;
+}
+
+async function applyAuthoritativeCommand(command) {
+  let response = null;
+  if (serverSession) {
+    response = await applyServerCommand(command);
+  }
+  const localResponse = await applyLocalWasmCommand(command);
+  return response ?? localResponse;
+}
+
+function orientationForRotationQuarter(rotationQuarter = 0) {
+  return ["North", "East", "South", "West"][normalizedRotationQuarter(rotationQuarter)];
 }
 
 function applyServerView(view) {
@@ -1636,14 +1737,6 @@ function rotateActiveBuildItem(direction) {
     rotationQuarter: nextQuarter,
   };
 
-  if (placementPointerPoint) {
-    const position = snapPlacementPoint(placementPointerPoint, nextSize);
-    if (!canPlaceBuilding(rotatedItem, position)) {
-      buildMenuStatusEl.textContent = placementInvalidMessage(rotatedItem, position);
-      return;
-    }
-  }
-
   activeBuildItem = rotatedItem;
   placementValid = false;
   createPlacementPreview(activeBuildItem);
@@ -1677,7 +1770,7 @@ function rotatePlacedBuilding(building, direction) {
   building.size = nextSize;
   const group = buildingMeshes.get(building.id);
   if (group) {
-    group.rotation.y = buildingRotationRadians(building);
+    applyBuildingVisualTransform(group, building);
   }
   relayoutAnimalsInBuilding(building);
   if (selectedElement?.building === building) {
@@ -2219,15 +2312,25 @@ function addBuildingToScene(building) {
   if ((building.kind ?? building.id) === "customer_entry") {
     building.position = parkEntryBuildingPosition();
   }
-  const group = createBuildingMesh(building);
+  const group = new THREE.Group();
+  const visualGroup = createBuildingMesh(building);
+  group.userData.visualRoot = visualGroup;
+  group.add(visualGroup);
   group.position.set(...building.position);
-  group.rotation.y = buildingRotationRadians(building);
+  applyBuildingVisualTransform(group, building);
   group.userData.building = building;
   scene.add(group);
   buildingMeshes.set(building.id, group);
   tagSelectable(group, createBuildingInfo(building), group);
   updateBuilding(building, currentTime);
   return group;
+}
+
+function applyBuildingVisualTransform(root, building) {
+  const visualRoot = root.userData.visualRoot ?? root;
+  const centerOffset = footprintCenterOffset(building);
+  visualRoot.position.set(centerOffset.x, 0, centerOffset.z);
+  visualRoot.rotation.y = buildingRotationRadians(building);
 }
 
 function createBuildingMesh(building, { preview = false } = {}) {
@@ -3034,6 +3137,10 @@ function setActivePathKind(kind) {
 
 function activePathLabel() {
   return (pathDefinitionByKind[activePathKind] ?? pathDefinitionByKind.guest_path).label;
+}
+
+function activePathCommandKind() {
+  return activePathKind === "staff_path" ? "service_path" : activePathKind;
 }
 
 function activePathMaterial() {
@@ -4558,11 +4665,7 @@ function createPlacementPreview(item) {
     depthWrite: false,
   });
 
-  const footprint = new THREE.Mesh(
-    new THREE.BoxGeometry(item.size[0], 0.08, item.size[1]),
-    placementPreviewMaterial,
-  );
-  footprint.position.y = 0.045;
+  placementFootprintPreviewGroup = new THREE.Group();
 
   const ghostBuilding = createBuildingMesh(
     {
@@ -4575,12 +4678,13 @@ function createPlacementPreview(item) {
     },
     { preview: true },
   );
-  ghostBuilding.position.y = 0.02;
+  const centerOffset = footprintCenterOffset(item);
+  ghostBuilding.position.set(centerOffset.x, 0.02, centerOffset.z);
   ghostBuilding.rotation.y = buildingRotationRadians(item);
   preparePlacementGhost(ghostBuilding);
 
   placementPreview = new THREE.Group();
-  placementPreview.add(footprint, ghostBuilding);
+  placementPreview.add(placementFootprintPreviewGroup, ghostBuilding);
   placementPreview.visible = false;
   scene.add(placementPreview);
 }
@@ -4593,25 +4697,59 @@ function updatePlacementPreview(event) {
   return updatePlacementPreviewAtPoint(point);
 }
 
-function updatePlacementPreviewAtPoint(point) {
+async function updatePlacementPreviewAtPoint(point) {
   if (!activeBuildItem || !placementPreview) return null;
 
   if (!point) {
     placementPreview.visible = false;
     placementValid = false;
+    placementEvaluation = null;
     buildMenuStatusEl.textContent = "Point at the zoo grounds.";
     return null;
   }
 
+  const token = ++placementPreviewToken;
   const position = snapPlacementPoint(point, activeBuildItem.size);
-  placementValid = canPlaceBuilding(activeBuildItem, position);
   placementPreview.position.set(position.x, 0, position.z);
   placementPreview.visible = true;
-  updatePlacementPreviewValidity(placementValid);
-  buildMenuStatusEl.textContent = placementValid
-    ? "Click to place."
-    : placementInvalidMessage(activeBuildItem, position);
+  buildMenuStatusEl.textContent = "Checking placement.";
+
+  try {
+    const evaluation = await evaluatePlacementWithWasm(activeBuildItem, position);
+    if (token !== placementPreviewToken) return position;
+    placementEvaluation = evaluation;
+    placementValid = Boolean(evaluation.valid);
+    renderPlacementFootprintPreview(evaluation, position);
+    updatePlacementPreviewValidity(placementValid);
+    buildMenuStatusEl.textContent = placementValid
+      ? "Click to place."
+      : evaluation.message || "Choose a valid tile.";
+  } catch (error) {
+    if (token !== placementPreviewToken) return position;
+    placementEvaluation = null;
+    placementValid = false;
+    renderPlacementFootprintPreview(null, position);
+    updatePlacementPreviewValidity(false);
+    buildMenuStatusEl.textContent = error.message ?? "Placement evaluator unavailable.";
+  }
   return position;
+}
+
+function renderPlacementFootprintPreview(evaluation, anchorPosition) {
+  if (!placementFootprintPreviewGroup) return;
+  while (placementFootprintPreviewGroup.children.length > 0) {
+    placementFootprintPreviewGroup.remove(placementFootprintPreviewGroup.children[0]);
+  }
+
+  const occupiedTiles =
+    evaluation?.occupied_tiles?.map(tileFromMapLocation) ??
+    footprintTiles(anchorPosition.x, anchorPosition.z, activeBuildItem.size[0], activeBuildItem.size[1]);
+
+  for (const tile of occupiedTiles) {
+    const mesh = new THREE.Mesh(pathTileGeometry, placementPreviewMaterial);
+    mesh.position.set(tile.x - anchorPosition.x, 0.045, tile.z - anchorPosition.z);
+    placementFootprintPreviewGroup.add(mesh);
+  }
 }
 
 function preparePlacementGhost(root) {
@@ -4655,6 +4793,38 @@ function updatePlacementPreviewValidity(valid) {
   });
 }
 
+function footprintCenterOffset(item) {
+  const offsets = item.footprint?.occupied_offsets;
+  if (!offsets?.length) return { x: 0, z: 0 };
+  const rotated = offsets.map((offset) =>
+    rotateFootprintOffset(
+      { dx: Number(offset.dx), dy: Number(offset.dy) },
+      normalizedRotationQuarter(item.rotationQuarter ?? 0),
+    ),
+  );
+  const minX = Math.min(...rotated.map((offset) => offset.dx));
+  const maxX = Math.max(...rotated.map((offset) => offset.dx));
+  const minY = Math.min(...rotated.map((offset) => offset.dy));
+  const maxY = Math.max(...rotated.map((offset) => offset.dy));
+  return {
+    x: ((minX + maxX) / 2) * PATH_TILE_SIZE,
+    z: ((minY + maxY) / 2) * PATH_TILE_SIZE,
+  };
+}
+
+function rotateFootprintOffset(offset, rotationQuarter) {
+  switch (normalizedRotationQuarter(rotationQuarter)) {
+    case 1:
+      return { dx: offset.dy, dy: -offset.dx };
+    case 2:
+      return { dx: -offset.dx, dy: -offset.dy };
+    case 3:
+      return { dx: -offset.dy, dy: offset.dx };
+    default:
+      return offset;
+  }
+}
+
 function disposeObject3D(root) {
   root.traverse((child) => {
     child.geometry?.dispose?.();
@@ -4667,27 +4837,24 @@ function disposeObject3D(root) {
 }
 
 async function placeActiveBuilding(event) {
-  const position = updatePlacementPreview(event);
+  const position = await updatePlacementPreview(event);
   if (!activeBuildItem || !position || !placementValid) return false;
 
   const item = activeBuildItem;
-  if (serverSession) {
-    try {
-      const response = await applyServerCommand({
-        Engine: {
-          ConstructBuilding: {
-            kind: item.kind,
-            location: mapLocationFromWorldPosition(position),
-            orientation: "North",
-          },
+  try {
+    const response = await applyAuthoritativeCommand({
+      Engine: {
+        ConstructBuilding: {
+          kind: item.kind,
+          location: mapLocationFromWorldPosition(position),
+          orientation: orientationForRotationQuarter(item.rotationQuarter),
         },
-      });
-      buildMenuStatusEl.textContent = `${item.label} accepted by server.`;
-      applyServerView(response.view);
-    } catch (error) {
-      buildMenuStatusEl.textContent = error.message ?? `${item.label} rejected by server.`;
-      return false;
-    }
+      },
+    });
+    if (response?.view) applyServerView(response.view);
+  } catch (error) {
+    buildMenuStatusEl.textContent = error.message ?? `${item.label} rejected by Rust rules.`;
+    return false;
   }
 
   placedBuildingCount += 1;
@@ -4698,6 +4865,14 @@ async function placeActiveBuilding(event) {
     position: [position.x, 0, position.z],
     size: [...item.size],
     baseSize: [...item.baseSize],
+    footprint: item.footprint
+      ? {
+          occupied_offsets: item.footprint.occupied_offsets.map((offset) => ({
+            dx: Number(offset.dx),
+            dy: Number(offset.dy),
+          })),
+        }
+      : undefined,
     rotationQuarter: item.rotationQuarter,
     requiresPath: Boolean(item.requiresPath),
     requiredWorkers: item.requiredWorkers ?? 0,
@@ -4883,20 +5058,18 @@ async function confirmPathDraft() {
   const tilesToBuild = pathDraftTiles.filter((tile) => !pathTileKeys.has(tile.key));
   if (tilesToBuild.length === 0) return;
 
-  if (serverSession) {
-    try {
-      await applyServerCommand({
-        Engine: {
-          CreatePath: {
-            kind: activePathKind,
-            waypoints: tilesToBuild.map(mapLocationFromTile),
-          },
+  try {
+    await applyAuthoritativeCommand({
+      Engine: {
+        CreatePath: {
+          kind: activePathCommandKind(),
+          waypoints: tilesToBuild.map(mapLocationFromTile),
         },
-      });
-    } catch (error) {
-      buildMenuStatusEl.textContent = error.message ?? "Path rejected by server.";
-      return;
-    }
+      },
+    });
+  } catch (error) {
+    buildMenuStatusEl.textContent = error.message ?? "Path rejected by Rust rules.";
+    return;
   }
 
   playerPathCount += 1;
@@ -5210,23 +5383,21 @@ async function confirmFenceDraft() {
   );
   if (segmentsToBuild.length === 0) return;
 
-  if (serverSession) {
-    try {
-      for (const segment of segmentsToBuild) {
-        await applyServerCommand({
-          Engine: {
-            PlaceFence: {
-              kind: activeFenceKind,
-              start: mapLocationFromTile(segment.start),
-              end: mapLocationFromTile(segment.end),
-            },
+  try {
+    for (const segment of segmentsToBuild) {
+      await applyAuthoritativeCommand({
+        Engine: {
+          PlaceFence: {
+            kind: activeFenceKind,
+            start: mapLocationFromTile(segment.start),
+            end: mapLocationFromTile(segment.end),
           },
-        });
-      }
-    } catch (error) {
-      buildMenuStatusEl.textContent = error.message ?? "Fence rejected by server.";
-      return;
+        },
+      });
     }
+  } catch (error) {
+    buildMenuStatusEl.textContent = error.message ?? "Fence rejected by Rust rules.";
+    return;
   }
 
   playerFenceCount += 1;
@@ -5292,7 +5463,7 @@ function pathTileFromGrid(col, row) {
 }
 
 function mapLocationFromTile(tile) {
-  return { x: tile.col, y: tile.row };
+  return { x: tile.col + SERVER_GRID_MIN_X, y: tile.row + SERVER_GRID_MIN_Y, elevation: 0 };
 }
 
 function mapLocationFromWorldPosition(position) {
@@ -5301,7 +5472,14 @@ function mapLocationFromWorldPosition(position) {
     : { x: position.x, z: position.z };
   const col = tileIndexForCoordinate(point.x, playableArea.minX, gridColumns);
   const row = tileIndexForCoordinate(point.z, playableArea.minZ, gridRows);
-  return { x: col, y: row };
+  return { x: col + SERVER_GRID_MIN_X, y: row + SERVER_GRID_MIN_Y, elevation: 0 };
+}
+
+function tileFromMapLocation(location) {
+  return pathTileFromGrid(
+    Number(location.x) - SERVER_GRID_MIN_X,
+    Number(location.y) - SERVER_GRID_MIN_Y,
+  );
 }
 
 function mapLocationForBuilding(building) {

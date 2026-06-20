@@ -4,6 +4,7 @@
 /.vite/
 /playwright-report/
 /test-results/
+.agent-loop/
 *.tsbuildinfo
 **/node_modules/
 **/dist/
