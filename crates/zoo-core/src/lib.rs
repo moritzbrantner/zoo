@@ -314,10 +314,8 @@ impl GameState {
         if habitat.animals >= habitat.capacity() {
             return ActionResult::error("That habitat is at its MVP capacity");
         }
-        if let Some(current) = habitat.species {
-            if current != species {
-                return ActionResult::error("The MVP keeps one species per habitat");
-            }
+        if habitat.species.is_some_and(|current| current != species) {
+            return ActionResult::error("The MVP keeps one species per habitat");
         }
 
         if let Err(message) = self.spend(species.purchase_cost()) {
