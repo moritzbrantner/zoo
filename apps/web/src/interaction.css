@@ -1,0 +1,143 @@
+.viewport {
+  overflow: hidden;
+  user-select: none;
+}
+
+.park {
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.tile {
+  touch-action: none;
+}
+
+.viewport.panning,
+.viewport.panning .park,
+.viewport.panning .tile,
+.viewport.panning .animal-marker {
+  cursor: grab;
+}
+
+.viewport.panning:active,
+.viewport.panning .park:active {
+  cursor: grabbing;
+}
+
+.viewport.panning {
+  touch-action: none;
+}
+
+.camera-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding-left: 4px;
+}
+
+.camera-controls button {
+  min-width: 31px;
+  height: 31px;
+  border: 1px solid #123c34;
+  border-radius: 4px;
+  color: #e9f3ef;
+  background: #1e5548;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: inset 1px 1px 0 rgb(255 255 255 / 12%);
+}
+
+.camera-controls button:hover {
+  color: #1d3028;
+  background: #f2d274;
+}
+
+.camera-controls strong {
+  min-width: 46px;
+  text-align: center;
+  color: #d7e9e2;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.camera-controls .camera-reset {
+  margin-left: 2px;
+}
+
+.speed-controls {
+  margin-left: 2px;
+}
+
+.placement-ghost {
+  position: absolute;
+  width: 58px;
+  height: 30px;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  pointer-events: none;
+  background: rgb(246 211 111 / 42%);
+  outline: 2px solid rgb(255 244 184 / 75%);
+  outline-offset: -5px;
+  filter: brightness(1.08);
+}
+
+.placement-price {
+  position: absolute;
+  min-width: 128px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  color: #25352d;
+  background: #f4e7a3;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.message-stack {
+  min-width: 0;
+  align-self: center;
+}
+
+.message-stack .message {
+  min-height: 37px;
+}
+
+.tool-hint {
+  padding: 4px 4px 0;
+  overflow: hidden;
+  color: #b8d6cc;
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tool {
+  min-width: 82px;
+}
+
+@media (max-width: 1100px) {
+  .camera-controls strong {
+    display: none;
+  }
+
+  .stat {
+    min-width: 96px;
+  }
+}
+
+@media (max-width: 900px) {
+  .camera-controls {
+    margin-left: 0;
+  }
+
+  .toolbar {
+    max-width: calc(100vw - 20px);
+    overflow-x: auto;
+  }
+
+  .tool {
+    min-width: 78px;
+  }
+}
