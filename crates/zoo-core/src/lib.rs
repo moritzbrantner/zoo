@@ -500,11 +500,7 @@ impl GameState {
         let guest_happiness = if self.guests.is_empty() {
             60
         } else {
-            self.guests
-                .iter()
-                .map(|guest| guest.happiness)
-                .sum::<u32>()
-                / self.guests.len() as u32
+            self.guests.iter().map(|guest| guest.happiness).sum::<u32>() / self.guests.len() as u32
         };
         self.rating = (250 + appeal / 3 + welfare * 2 + guest_happiness).clamp(0, 999);
     }
