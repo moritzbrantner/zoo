@@ -215,7 +215,10 @@ impl GameState {
         let mut touches_path = false;
         for tile_y in y..y + HABITAT_HEIGHT {
             for tile_x in x..x + HABITAT_WIDTH {
-                for neighbor in self.neighbors(Position { x: tile_x, y: tile_y }) {
+                for neighbor in self.neighbors(Position {
+                    x: tile_x,
+                    y: tile_y,
+                }) {
                     if matches!(
                         self.tile(neighbor.x, neighbor.y),
                         Some(TileKind::Path | TileKind::Entrance)
@@ -273,7 +276,9 @@ impl GameState {
         match self.tile(x, y) {
             None => ActionResult::error("That tile is outside the park"),
             Some(TileKind::Grass) => ActionResult::ok("Nothing to demolish"),
-            Some(TileKind::Entrance) => ActionResult::error("The park entrance cannot be demolished"),
+            Some(TileKind::Entrance) => {
+                ActionResult::error("The park entrance cannot be demolished")
+            }
             Some(TileKind::Path) => {
                 self.set_tile(x, y, TileKind::Grass);
                 ActionResult::ok("Path removed")
@@ -297,7 +302,11 @@ impl GameState {
         let Some(species) = Species::parse(species_name) else {
             return ActionResult::error("Unknown species");
         };
-        let Some(index) = self.habitats.iter().position(|habitat| habitat.id == habitat_id) else {
+        let Some(index) = self
+            .habitats
+            .iter()
+            .position(|habitat| habitat.id == habitat_id)
+        else {
             return ActionResult::error("Select a habitat first");
         };
 
@@ -319,7 +328,10 @@ impl GameState {
         habitat.animals += 1;
         habitat.welfare = 96_u32.saturating_sub(habitat.animals.saturating_sub(2) * 4);
         self.recalculate_rating();
-        ActionResult::ok(format!("{} adopted into habitat #{habitat_id}", species.label()))
+        ActionResult::ok(format!(
+            "{} adopted into habitat #{habitat_id}",
+            species.label()
+        ))
     }
 
     fn tick(&mut self, minutes: u32) {
@@ -431,7 +443,13 @@ impl GameState {
             if matches!(guest.state, GuestState::Viewing) {
                 guest.viewing_minutes = guest.viewing_minutes.saturating_sub(1);
                 if guest.viewing_minutes == 0 {
-                    returning.push((index, Position { x: guest.x, y: guest.y }));
+                    returning.push((
+                        index,
+                        Position {
+                            x: guest.x,
+                            y: guest.y,
+                        },
+                    ));
                 }
             }
         }
@@ -451,7 +469,11 @@ impl GameState {
     }
 
     fn charge_upkeep(&mut self) {
-        let animal_count: i64 = self.habitats.iter().map(|habitat| habitat.animals as i64).sum();
+        let animal_count: i64 = self
+            .habitats
+            .iter()
+            .map(|habitat| habitat.animals as i64)
+            .sum();
         let upkeep = self.habitats.len() as i64 * 250 + animal_count * 125;
         self.cash_cents -= upkeep;
         self.expenses_today_cents += upkeep;
@@ -466,7 +488,11 @@ impl GameState {
                 .filter(|habitat| habitat.animals > 0)
                 .map(|habitat| habitat.welfare)
                 .sum();
-            let count = self.habitats.iter().filter(|habitat| habitat.animals > 0).count() as u32;
+            let count = self
+                .habitats
+                .iter()
+                .filter(|habitat| habitat.animals > 0)
+                .count() as u32;
             total / count.max(1)
         } else {
             50
@@ -474,7 +500,11 @@ impl GameState {
         let guest_happiness = if self.guests.is_empty() {
             60
         } else {
-            self.guests.iter().map(|guest| guest.happiness).sum::<u32>() / self.guests.len() as u32
+            self.guests
+                .iter()
+                .map(|guest| guest.happiness)
+                .sum::<u32>()
+                / self.guests.len() as u32
         };
         self.rating = (250 + appeal / 3 + welfare * 2 + guest_happiness).clamp(0, 999);
     }
