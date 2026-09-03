@@ -1,0 +1,14 @@
+[package]
+name = "zoo-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Deterministic simulation core for the Zoo management game"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "0.2"
