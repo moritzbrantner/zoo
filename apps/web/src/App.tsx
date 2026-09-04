@@ -24,6 +24,10 @@ type Habitat = {
   animals: number
   capacity: number
   welfare: number
+  welfare_target: number
+  social_score: number
+  space_score: number
+  welfare_status: string
   appeal: number
 }
 
@@ -545,10 +549,14 @@ export default function App() {
               </div>
               <div className="habitat-card">
                 <div className="habitat-name">{speciesLabel(selectedHabitat.species)}</div>
+                <div className="guest-thought">{selectedHabitat.welfare_status}</div>
                 <dl>
                   <div><dt>Animals</dt><dd>{selectedHabitat.animals}/{selectedHabitat.capacity}</dd></div>
                   <div><dt>Footprint</dt><dd>{selectedHabitat.width}×{selectedHabitat.height}</dd></div>
-                  <div><dt>Welfare</dt><dd>{selectedHabitat.welfare}%</dd></div>
+                  <div><dt>Current welfare</dt><dd>{selectedHabitat.welfare}%</dd></div>
+                  <div><dt>Welfare target</dt><dd>{selectedHabitat.welfare_target}%</dd></div>
+                  <div><dt>Social fit</dt><dd>{selectedHabitat.social_score}%</dd></div>
+                  <div><dt>Space fit</dt><dd>{selectedHabitat.space_score}%</dd></div>
                   <div><dt>Appeal</dt><dd>{selectedHabitat.appeal}</dd></div>
                 </dl>
                 <div className="meter"><span style={{width: `${selectedHabitat.welfare}%`}} /></div>
