@@ -730,7 +730,10 @@ impl GameState {
                 self.upkeep_accumulator = 0;
                 self.charge_upkeep();
             }
-            if self.minute_of_day % CARE_DECAY_INTERVAL_MINUTES == 0 {
+            if self
+                .minute_of_day
+                .is_multiple_of(CARE_DECAY_INTERVAL_MINUTES)
+            {
                 self.advance_habitat_care();
             }
 
