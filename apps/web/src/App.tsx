@@ -3,6 +3,8 @@ import init, {ZooGame} from "./wasm/zoo_core"
 
 type Tool = "select" | "pan" | "path" | "habitat" | "bulldoze"
 type Speed = 0 | 1 | 2 | 4
+type HabitatOrientation = "horizontal" | "vertical"
+type OrientationCode = 0 | 1
 
 type Tile = {
   x: number
@@ -17,6 +19,7 @@ type Habitat = {
   y: number
   width: number
   height: number
+  orientation: HabitatOrientation
   species: "capybara" | "flamingo" | null
   animals: number
   capacity: number
@@ -59,12 +62,22 @@ type ActionResult = {
 
 type Point = {x: number; y: number}
 
+type PlacementEvaluation = {
+  ok: boolean
+  message: string
+  x: number
+  y: number
+  width: number
+  height: number
+  orientation: HabitatOrientation
+  cost_cents: number
+  occupied_tiles: Point[]
+}
+
 const tileWidth = 58
 const tileHeight = 30
 const originX = 620
 const originY = 68
-const habitatWidth = 4
-const habitatHeight = 3
 
 function isoPosition(x: number, y: number) {
   return {
@@ -100,7 +113,7 @@ function toolHint(tool: Tool) {
     case "path":
       return "Drag across tiles to paint paths · $10 per new tile."
     case "habitat":
-      return "Hover to preview the 4×3 footprint · $700. Rust validates placement when you click."
+      return "Hover for authoritative placement feedback. Rotate with the ↻ button or R key."
     case "bulldoze":
       return "Click a path or habitat to remove it."
     default:
@@ -126,6 +139,7 @@ export default function App() {
   const [messageKind, setMessageKind] = useState<"info" | "error">("info")
   const [selectedHabitatId, setSelectedHabitatId] = useState<number | null>(null)
   const [hoveredTile, setHoveredTile] = useState<Point | null>(null)
+  const [orientation, setOrientation] = useState<OrientationCode>(0)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState<Point>({x: 0, y: 0})
 
@@ -169,6 +183,15 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    const rotateWithKeyboard = (event: KeyboardEvent) => {
+      if (tool !== "habitat" || event.key.toLowerCase() !== "r" || event.repeat) return
+      setOrientation((current) => (current === 0 ? 1 : 0))
+    }
+    window.addEventListener("keydown", rotateWithKeyboard)
+    return () => window.removeEventListener("keydown", rotateWithKeyboard)
+  }, [tool])
+
   const perform = useCallback(
     (command: () => string) => {
       const result = JSON.parse(command()) as ActionResult
@@ -184,6 +207,14 @@ export default function App() {
     () => snapshot?.habitats.find((habitat) => habitat.id === selectedHabitatId) ?? null,
     [selectedHabitatId, snapshot],
   )
+
+  const placement = useMemo(() => {
+    const game = gameRef.current
+    if (!game || !snapshot || tool !== "habitat" || !hoveredTile) return null
+    return JSON.parse(
+      game.evaluate_habitat(hoveredTile.x, hoveredTile.y, orientation),
+    ) as PlacementEvaluation
+  }, [hoveredTile, orientation, snapshot, tool])
 
   const paintPath = useCallback(
     (tile: Tile) => {
@@ -222,7 +253,7 @@ export default function App() {
       return
     }
     if (tool === "habitat") {
-      perform(() => game.place_habitat(tile.x, tile.y))
+      perform(() => game.place_habitat(tile.x, tile.y, orientation))
       return
     }
     perform(() => game.bulldoze(tile.x, tile.y))
@@ -264,11 +295,16 @@ export default function App() {
     perform(() => game.adopt(selectedHabitatId, species))
   }
 
+  const rotateHabitat = () => {
+    setOrientation((current) => (current === 0 ? 1 : 0))
+  }
+
   const reset = () => {
     gameRef.current?.reset()
     setTool("select")
     setSelectedHabitatId(null)
     setHoveredTile(null)
+    setOrientation(0)
     setZoom(1)
     setPan({x: 0, y: 0})
     setMessage("New park started.")
@@ -293,12 +329,9 @@ export default function App() {
   )
 
   const ghostTiles =
-    tool === "habitat" && hoveredTile
-      ? Array.from({length: habitatWidth * habitatHeight}, (_, index) => ({
-          x: hoveredTile.x + (index % habitatWidth),
-          y: hoveredTile.y + Math.floor(index / habitatWidth),
-        })).filter((tile) => tile.x < snapshot.width && tile.y < snapshot.height)
-      : []
+    placement?.occupied_tiles.filter(
+      (tile) => tile.x >= 0 && tile.y >= 0 && tile.x < snapshot.width && tile.y < snapshot.height,
+    ) ?? []
 
   return (
     <main className="game-shell">
@@ -375,7 +408,7 @@ export default function App() {
               const position = isoPosition(tile.x, tile.y)
               return (
                 <div
-                  className="placement-ghost"
+                  className={`placement-ghost ${placement?.ok ? "valid" : "invalid"}`}
                   key={`ghost:${tile.x}:${tile.y}`}
                   style={{
                     left: position.left,
@@ -386,16 +419,17 @@ export default function App() {
               )
             })}
 
-            {tool === "habitat" && hoveredTile && (
+            {placement && hoveredTile && (
               <div
-                className="placement-price bevel"
+                className={`placement-price bevel ${placement.ok ? "valid" : "invalid"}`}
                 style={{
                   left: isoPosition(hoveredTile.x, hoveredTile.y).left + 24,
-                  top: isoPosition(hoveredTile.x, hoveredTile.y).top - 36,
+                  top: isoPosition(hoveredTile.x, hoveredTile.y).top - 48,
                   zIndex: 700,
                 }}
               >
-                4×3 habitat · $700
+                <b>{placement.ok ? "✓ Valid" : "! Invalid"} · {placement.width}×{placement.height} · {money(placement.cost_cents)}</b>
+                <small>{placement.message}</small>
               </div>
             )}
 
@@ -460,6 +494,7 @@ export default function App() {
                 <div className="habitat-name">{speciesLabel(selectedHabitat.species)}</div>
                 <dl>
                   <div><dt>Animals</dt><dd>{selectedHabitat.animals}/{selectedHabitat.capacity}</dd></div>
+                  <div><dt>Footprint</dt><dd>{selectedHabitat.width}×{selectedHabitat.height}</dd></div>
                   <div><dt>Welfare</dt><dd>{selectedHabitat.welfare}%</dd></div>
                   <div><dt>Appeal</dt><dd>{selectedHabitat.appeal}</dd></div>
                 </dl>
@@ -482,7 +517,7 @@ export default function App() {
                 <h2>Opening objective</h2>
                 <ol>
                   <li>Drag the path tool to extend the entrance route.</li>
-                  <li>Preview and place a 4×3 meadow habitat beside a path.</li>
+                  <li>Use the Rust-driven preview to place a habitat beside a path.</li>
                   <li>Select the habitat and adopt animals.</li>
                   <li>Watch guests arrive and pay admission.</li>
                 </ol>
@@ -508,6 +543,13 @@ export default function App() {
           <ToolButton active={tool === "pan"} icon="✋" label="Pan map" onClick={() => setTool("pan")} />
           <ToolButton active={tool === "path"} icon="▦" label="Path · $10" onClick={() => setTool("path")} />
           <ToolButton active={tool === "habitat"} icon="▱" label="Habitat · $700" onClick={() => setTool("habitat")} />
+          <ToolButton
+            active={false}
+            disabled={tool !== "habitat"}
+            icon="↻"
+            label={`Rotate · ${orientation === 0 ? "4×3" : "3×4"}`}
+            onClick={rotateHabitat}
+          />
           <ToolButton active={tool === "bulldoze"} icon="⌫" label="Demolish" onClick={() => setTool("bulldoze")} />
         </nav>
       </footer>
@@ -517,17 +559,19 @@ export default function App() {
 
 function ToolButton({
   active,
+  disabled = false,
   icon,
   label,
   onClick,
 }: {
   active: boolean
+  disabled?: boolean
   icon: string
   label: string
   onClick: () => void
 }) {
   return (
-    <button className={`tool ${active ? "active" : ""}`} onClick={onClick}>
+    <button className={`tool ${active ? "active" : ""}`} disabled={disabled} onClick={onClick}>
       <span>{icon}</span>
       <small>{label}</small>
     </button>
