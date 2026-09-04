@@ -210,12 +210,7 @@ impl Habitat {
         let water = self.water_score();
         let cleanliness = self.cleanliness_score();
         let shelter = self.shelter_score();
-        (social.saturating_mul(2)
-            + space.saturating_mul(2)
-            + food
-            + water
-            + cleanliness
-            + shelter)
+        (social.saturating_mul(2) + space.saturating_mul(2) + food + water + cleanliness + shelter)
             / 8
     }
 
@@ -1480,7 +1475,10 @@ mod tests {
         assert!(state.habitats[0].welfare > state.habitats[0].welfare_target());
 
         state.tick(60);
-        assert_eq!(state.habitats[0].welfare, state.habitats[0].welfare_target());
+        assert_eq!(
+            state.habitats[0].welfare,
+            state.habitats[0].welfare_target()
+        );
     }
 
     #[test]
@@ -1505,8 +1503,16 @@ mod tests {
         crowded.tick(60);
 
         assert_eq!(
-            (first.habitats[0].food, first.habitats[0].water, first.habitats[0].cleanliness),
-            (second.habitats[0].food, second.habitats[0].water, second.habitats[0].cleanliness)
+            (
+                first.habitats[0].food,
+                first.habitats[0].water,
+                first.habitats[0].cleanliness
+            ),
+            (
+                second.habitats[0].food,
+                second.habitats[0].water,
+                second.habitats[0].cleanliness
+            )
         );
         assert!(crowded.habitats[0].food < first.habitats[0].food);
         assert!(crowded.habitats[0].water < first.habitats[0].water);
@@ -1608,7 +1614,10 @@ mod tests {
         assert_eq!(first.habitats[0].welfare, second.habitats[0].welfare);
         assert_eq!(first.habitats[0].food, second.habitats[0].food);
         assert_eq!(first.habitats[0].water, second.habitats[0].water);
-        assert_eq!(first.habitats[0].cleanliness, second.habitats[0].cleanliness);
+        assert_eq!(
+            first.habitats[0].cleanliness,
+            second.habitats[0].cleanliness
+        );
     }
 
     #[test]
