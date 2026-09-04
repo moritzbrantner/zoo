@@ -24,6 +24,13 @@ type Habitat = {
   animals: number
   capacity: number
   welfare: number
+  welfare_target: number
+  social_score: number
+  space_score: number
+  welfare_status: string
+  social_minimum: number | null
+  preferred_group: number | null
+  space_per_animal: number | null
   appeal: number
 }
 
@@ -548,10 +555,22 @@ export default function App() {
                 <dl>
                   <div><dt>Animals</dt><dd>{selectedHabitat.animals}/{selectedHabitat.capacity}</dd></div>
                   <div><dt>Footprint</dt><dd>{selectedHabitat.width}×{selectedHabitat.height}</dd></div>
-                  <div><dt>Welfare</dt><dd>{selectedHabitat.welfare}%</dd></div>
+                  <div><dt>Welfare</dt><dd>{selectedHabitat.welfare}% → {selectedHabitat.welfare_target}%</dd></div>
                   <div><dt>Appeal</dt><dd>{selectedHabitat.appeal}</dd></div>
                 </dl>
                 <div className="meter"><span style={{width: `${selectedHabitat.welfare}%`}} /></div>
+                <h3>Habitat fit</h3>
+                <div className="welfare-status">{selectedHabitat.welfare_status}</div>
+                <dl className="welfare-details">
+                  <div><dt>Social fit</dt><dd>{selectedHabitat.social_score}%</dd></div>
+                  <div><dt>Space fit</dt><dd>{selectedHabitat.space_score}%</dd></div>
+                  {selectedHabitat.social_minimum !== null && (
+                    <div><dt>Group</dt><dd>min {selectedHabitat.social_minimum} · prefer {selectedHabitat.preferred_group}</dd></div>
+                  )}
+                  {selectedHabitat.space_per_animal !== null && (
+                    <div><dt>Space need</dt><dd>{selectedHabitat.space_per_animal} tiles / animal</dd></div>
+                  )}
+                </dl>
                 <h3>Adopt animal</h3>
                 <button className="shop-row" onClick={() => adopt("capybara")}>
                   <span><b>Capybara</b><small>High appeal, social</small></span>

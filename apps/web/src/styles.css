@@ -656,3 +656,24 @@ dd {
 .complaint-grid strong {
   font-variant-numeric: tabular-nums;
 }
+
+
+.welfare-status {
+  margin: 8px 0 10px;
+  padding: 9px 10px;
+  border: 1px solid #8b8668;
+  border-radius: 4px;
+  background: #f3edcc;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.welfare-details {
+  margin-bottom: 18px;
+}
+
+.welfare-details dd {
+  max-width: 150px;
+  text-align: right;
+}
