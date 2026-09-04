@@ -50,6 +50,12 @@ impl HabitatOrientation {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WelfareProfile {
+    minimum_social_group: u32,
+    space_per_animal: u32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Species {
@@ -77,6 +83,19 @@ impl Species {
         match self {
             Self::Capybara => 95,
             Self::Flamingo => 80,
+        }
+    }
+
+    fn welfare_profile(self) -> WelfareProfile {
+        match self {
+            Self::Capybara => WelfareProfile {
+                minimum_social_group: 2,
+                space_per_animal: 4,
+            },
+            Self::Flamingo => WelfareProfile {
+                minimum_social_group: 3,
+                space_per_animal: 2,
+            },
         }
     }
 
@@ -110,6 +129,67 @@ impl Habitat {
         self.species.map_or(0, |species| {
             species.appeal().saturating_mul(self.animals.max(1))
         })
+    }
+
+    fn social_score(&self) -> u32 {
+        let Some(species) = self.species else {
+            return 100;
+        };
+        if self.animals == 0 {
+            return 100;
+        }
+
+        let minimum_group = species.welfare_profile().minimum_social_group.max(1);
+        self.animals
+            .saturating_mul(100)
+            .checked_div(minimum_group)
+            .unwrap_or(100)
+            .min(100)
+    }
+
+    fn space_score(&self) -> u32 {
+        let Some(species) = self.species else {
+            return 100;
+        };
+        if self.animals == 0 {
+            return 100;
+        }
+
+        let available_space = self.width.saturating_mul(self.height);
+        let required_space = self
+            .animals
+            .saturating_mul(species.welfare_profile().space_per_animal);
+        if required_space <= available_space {
+            100
+        } else {
+            available_space
+                .saturating_mul(100)
+                .checked_div(required_space)
+                .unwrap_or(0)
+                .min(100)
+        }
+    }
+
+    fn welfare_target(&self) -> u32 {
+        let social = self.social_score();
+        let space = self.space_score();
+        (social.saturating_mul(3) + space.saturating_mul(2)) / 5
+    }
+
+    fn welfare_status(&self) -> String {
+        let Some(species) = self.species else {
+            return "Ready for animals".to_owned();
+        };
+        let social = self.social_score();
+        let space = self.space_score();
+        let minimum_group = species.welfare_profile().minimum_social_group;
+
+        match (social < 100, space < 100) {
+            (true, true) => "Social group is too small and habitat space is crowded".to_owned(),
+            (true, false) => format!("Social group needs at least {minimum_group} animals"),
+            (false, true) => "Habitat space is crowded for this group".to_owned(),
+            (false, false) => "Social group and space needs are met".to_owned(),
+        }
     }
 }
 
@@ -488,7 +568,6 @@ impl GameState {
         let habitat = &mut self.habitats[index];
         habitat.species = Some(species);
         habitat.animals += 1;
-        habitat.welfare = 96_u32.saturating_sub(habitat.animals.saturating_sub(2) * 4);
         self.recalculate_rating();
         ActionResult::ok(format!(
             "{} adopted into habitat #{habitat_id}",
@@ -519,6 +598,7 @@ impl GameState {
                 self.charge_upkeep();
             }
 
+            self.advance_animal_welfare();
             self.advance_guest_needs();
 
             if self.movement_accumulator >= 3 {
@@ -528,6 +608,20 @@ impl GameState {
 
             self.advance_viewing();
             self.recalculate_rating();
+        }
+    }
+
+    fn advance_animal_welfare(&mut self) {
+        for habitat in &mut self.habitats {
+            if habitat.animals == 0 {
+                continue;
+            }
+            let target = habitat.welfare_target();
+            if habitat.welfare < target {
+                habitat.welfare = habitat.welfare.saturating_add(1).min(target);
+            } else if habitat.welfare > target {
+                habitat.welfare = habitat.welfare.saturating_sub(1).max(target);
+            }
         }
     }
 
@@ -860,6 +954,10 @@ impl GameState {
                 animals: habitat.animals,
                 capacity: habitat.capacity(),
                 welfare: habitat.welfare,
+                welfare_target: habitat.welfare_target(),
+                social_score: habitat.social_score(),
+                space_score: habitat.space_score(),
+                welfare_status: habitat.welfare_status(),
                 appeal: habitat.appeal(),
             })
             .collect();
@@ -924,6 +1022,10 @@ struct HabitatView {
     animals: u32,
     capacity: u32,
     welfare: u32,
+    welfare_target: u32,
+    social_score: u32,
+    space_score: u32,
+    welfare_status: String,
     appeal: u32,
 }
 
@@ -1137,6 +1239,72 @@ mod tests {
     }
 
     #[test]
+    fn species_have_distinct_social_welfare_requirements() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 4, HabitatOrientation::Horizontal).ok);
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let capybara_habitat = state.habitats[0].id;
+        let flamingo_habitat = state.habitats[1].id;
+
+        assert!(state.adopt(capybara_habitat, "capybara").ok);
+        assert!(state.adopt(flamingo_habitat, "flamingo").ok);
+
+        let capybara = state
+            .habitats
+            .iter()
+            .find(|habitat| habitat.id == capybara_habitat)
+            .expect("capybara habitat exists");
+        let flamingo = state
+            .habitats
+            .iter()
+            .find(|habitat| habitat.id == flamingo_habitat)
+            .expect("flamingo habitat exists");
+        assert_eq!(capybara.social_score(), 50);
+        assert_eq!(flamingo.social_score(), 33);
+        assert!(capybara.welfare_target() > flamingo.welfare_target());
+    }
+
+    #[test]
+    fn grouping_improves_social_welfare_until_space_becomes_a_tradeoff() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        assert_eq!(state.habitats[0].social_score(), 50);
+        assert_eq!(state.habitats[0].space_score(), 100);
+
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        assert_eq!(state.habitats[0].social_score(), 100);
+        assert_eq!(state.habitats[0].space_score(), 100);
+
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        assert_eq!(state.habitats[0].social_score(), 100);
+        assert_eq!(state.habitats[0].space_score(), 75);
+        assert_eq!(state.habitats[0].welfare_target(), 90);
+    }
+
+    #[test]
+    fn welfare_converges_gradually_toward_species_target() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        assert!(state.adopt(habitat_id, "flamingo").ok);
+
+        let target = state.habitats[0].welfare_target();
+        assert_eq!(state.habitats[0].welfare, 100);
+        assert!(target < 100);
+
+        state.tick(1);
+        assert_eq!(state.habitats[0].welfare, 99);
+        assert!(state.habitats[0].welfare > target);
+
+        state.tick(60);
+        assert_eq!(state.habitats[0].welfare, target);
+    }
+
+    #[test]
     fn animal_adoption_drives_appeal_and_guest_revenue() {
         let mut state = GameState::default();
         assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
@@ -1173,6 +1341,7 @@ mod tests {
         assert_eq!(first.cash_cents, second.cash_cents);
         assert_eq!(first.rating, second.rating);
         assert_eq!(first.guests.len(), second.guests.len());
+        assert_eq!(first.habitats[0].welfare, second.habitats[0].welfare);
     }
 
     #[test]
