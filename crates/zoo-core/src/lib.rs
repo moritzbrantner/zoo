@@ -29,6 +29,29 @@ struct Position {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+enum HabitatOrientation {
+    Horizontal,
+    Vertical,
+}
+
+impl HabitatOrientation {
+    fn from_code(value: u8) -> Self {
+        match value {
+            1 => Self::Vertical,
+            _ => Self::Horizontal,
+        }
+    }
+
+    fn dimensions(self) -> (u32, u32) {
+        match self {
+            Self::Horizontal => (HABITAT_WIDTH, HABITAT_HEIGHT),
+            Self::Vertical => (HABITAT_HEIGHT, HABITAT_WIDTH),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 enum Species {
     Capybara,
     Flamingo,
@@ -72,6 +95,7 @@ struct Habitat {
     y: u32,
     width: u32,
     height: u32,
+    orientation: HabitatOrientation,
     species: Option<Species>,
     animals: u32,
     welfare: u32,
@@ -108,6 +132,64 @@ struct Guest {
     route: Vec<Position>,
     route_index: usize,
     viewing_minutes: u32,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct PlacementEvaluation {
+    ok: bool,
+    message: String,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    orientation: HabitatOrientation,
+    cost_cents: i64,
+    occupied_tiles: Vec<Position>,
+}
+
+impl PlacementEvaluation {
+    fn valid(
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        orientation: HabitatOrientation,
+        occupied_tiles: Vec<Position>,
+    ) -> Self {
+        Self {
+            ok: true,
+            message: "Habitat can be placed here".to_owned(),
+            x,
+            y,
+            width,
+            height,
+            orientation,
+            cost_cents: HABITAT_COST,
+            occupied_tiles,
+        }
+    }
+
+    fn invalid(
+        message: impl Into<String>,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        orientation: HabitatOrientation,
+        occupied_tiles: Vec<Position>,
+    ) -> Self {
+        Self {
+            ok: false,
+            message: message.into(),
+            x,
+            y,
+            width,
+            height,
+            orientation,
+            cost_cents: HABITAT_COST,
+            occupied_tiles,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -199,53 +281,111 @@ impl GameState {
         }
     }
 
-    fn can_place_habitat(&self, x: u32, y: u32) -> Result<(), &'static str> {
-        if x + HABITAT_WIDTH > self.width || y + HABITAT_HEIGHT > self.height {
-            return Err("The habitat would extend outside the park");
-        }
-
-        for tile_y in y..y + HABITAT_HEIGHT {
-            for tile_x in x..x + HABITAT_WIDTH {
-                if self.tile(tile_x, tile_y) != Some(TileKind::Grass) {
-                    return Err("The habitat footprint must be clear grass");
-                }
-            }
-        }
-
-        let mut touches_path = false;
-        for tile_y in y..y + HABITAT_HEIGHT {
-            for tile_x in x..x + HABITAT_WIDTH {
-                for neighbor in self.neighbors(Position {
+    fn habitat_footprint(
+        &self,
+        x: u32,
+        y: u32,
+        orientation: HabitatOrientation,
+    ) -> (u32, u32, Vec<Position>) {
+        let (width, height) = orientation.dimensions();
+        let mut occupied_tiles = Vec::with_capacity((width * height) as usize);
+        for tile_y in y..y.saturating_add(height) {
+            for tile_x in x..x.saturating_add(width) {
+                occupied_tiles.push(Position {
                     x: tile_x,
                     y: tile_y,
-                }) {
-                    if matches!(
-                        self.tile(neighbor.x, neighbor.y),
-                        Some(TileKind::Path | TileKind::Entrance)
-                    ) {
-                        touches_path = true;
-                    }
-                }
+                });
             }
         }
-
-        if !touches_path {
-            return Err("Habitats need at least one path along their edge");
-        }
-        Ok(())
+        (width, height, occupied_tiles)
     }
 
-    fn place_habitat(&mut self, x: u32, y: u32) -> ActionResult {
+    fn evaluate_habitat(
+        &self,
+        x: u32,
+        y: u32,
+        orientation: HabitatOrientation,
+    ) -> PlacementEvaluation {
+        let (width, height, occupied_tiles) = self.habitat_footprint(x, y, orientation);
+        let in_bounds = x
+            .checked_add(width)
+            .is_some_and(|right| right <= self.width)
+            && y.checked_add(height)
+                .is_some_and(|bottom| bottom <= self.height);
+        if !in_bounds {
+            return PlacementEvaluation::invalid(
+                "The habitat would extend outside the park",
+                x,
+                y,
+                width,
+                height,
+                orientation,
+                occupied_tiles,
+            );
+        }
+
+        if occupied_tiles
+            .iter()
+            .any(|tile| self.tile(tile.x, tile.y) != Some(TileKind::Grass))
+        {
+            return PlacementEvaluation::invalid(
+                "The habitat footprint must be clear grass",
+                x,
+                y,
+                width,
+                height,
+                orientation,
+                occupied_tiles,
+            );
+        }
+
+        let touches_path = occupied_tiles.iter().any(|tile| {
+            self.neighbors(*tile).into_iter().any(|neighbor| {
+                matches!(
+                    self.tile(neighbor.x, neighbor.y),
+                    Some(TileKind::Path | TileKind::Entrance)
+                )
+            })
+        });
+        if !touches_path {
+            return PlacementEvaluation::invalid(
+                "Habitats need at least one path along their edge",
+                x,
+                y,
+                width,
+                height,
+                orientation,
+                occupied_tiles,
+            );
+        }
+
+        if self.cash_cents < HABITAT_COST {
+            return PlacementEvaluation::invalid(
+                "Not enough cash",
+                x,
+                y,
+                width,
+                height,
+                orientation,
+                occupied_tiles,
+            );
+        }
+
+        PlacementEvaluation::valid(x, y, width, height, orientation, occupied_tiles)
+    }
+
+    fn place_habitat(&mut self, x: u32, y: u32, orientation: HabitatOrientation) -> ActionResult {
         if let Some(existing) = self
             .habitats
             .iter()
-            .find(|habitat| habitat.x == x && habitat.y == y)
+            .find(|habitat| habitat.x == x && habitat.y == y && habitat.orientation == orientation)
         {
             return ActionResult::ok(format!("Habitat #{} already exists here", existing.id));
         }
 
-        if let Err(message) = self.can_place_habitat(x, y) {
-            return ActionResult::error(message);
+        let evaluation = self.evaluate_habitat(x, y, orientation);
+        if !evaluation.ok {
+            return ActionResult::error(evaluation.message);
         }
         if let Err(message) = self.spend(HABITAT_COST) {
             return ActionResult::error(message);
@@ -253,17 +393,16 @@ impl GameState {
 
         let id = self.next_habitat_id;
         self.next_habitat_id += 1;
-        for tile_y in y..y + HABITAT_HEIGHT {
-            for tile_x in x..x + HABITAT_WIDTH {
-                self.set_tile(tile_x, tile_y, TileKind::Habitat(id));
-            }
+        for tile in &evaluation.occupied_tiles {
+            self.set_tile(tile.x, tile.y, TileKind::Habitat(id));
         }
         self.habitats.push(Habitat {
             id,
             x,
             y,
-            width: HABITAT_WIDTH,
-            height: HABITAT_HEIGHT,
+            width: evaluation.width,
+            height: evaluation.height,
+            orientation,
             species: None,
             animals: 0,
             welfare: 100,
@@ -616,6 +755,7 @@ impl GameState {
                 y: habitat.y,
                 width: habitat.width,
                 height: habitat.height,
+                orientation: habitat.orientation,
                 species: habitat.species.map(|species| match species {
                     Species::Capybara => "capybara".to_owned(),
                     Species::Flamingo => "flamingo".to_owned(),
@@ -676,6 +816,7 @@ struct HabitatView {
     y: u32,
     width: u32,
     height: u32,
+    orientation: HabitatOrientation,
     species: Option<String>,
     animals: u32,
     capacity: u32,
@@ -768,8 +909,19 @@ impl ZooGame {
         self.state.place_path(x, y).json()
     }
 
-    pub fn place_habitat(&mut self, x: u32, y: u32) -> String {
-        self.state.place_habitat(x, y).json()
+    pub fn evaluate_habitat(&self, x: u32, y: u32, orientation: u8) -> String {
+        serde_json::to_string(&self.state.evaluate_habitat(
+            x,
+            y,
+            HabitatOrientation::from_code(orientation),
+        ))
+        .expect("placement evaluation serialization is infallible")
+    }
+
+    pub fn place_habitat(&mut self, x: u32, y: u32, orientation: u8) -> String {
+        self.state
+            .place_habitat(x, y, HabitatOrientation::from_code(orientation))
+            .json()
     }
 
     pub fn bulldoze(&mut self, x: u32, y: u32) -> String {
@@ -808,18 +960,69 @@ mod tests {
     }
 
     #[test]
-    fn habitat_needs_a_path_and_clear_footprint() {
+    fn habitat_evaluation_and_placement_share_rules() {
         let mut state = GameState::default();
+        let orientation = HabitatOrientation::Horizontal;
 
-        assert!(!state.place_habitat(10, 1).ok);
-        assert!(state.place_habitat(3, 8).ok);
-        assert_eq!(state.habitats.len(), 1);
+        let disconnected = state.evaluate_habitat(10, 1, orientation);
+        assert!(!disconnected.ok);
+        assert_eq!(
+            disconnected.message,
+            "Habitats need at least one path along their edge"
+        );
+
+        let valid = state.evaluate_habitat(3, 8, orientation);
+        assert!(valid.ok);
+        assert_eq!(valid.width, 4);
+        assert_eq!(valid.height, 3);
+        assert_eq!(valid.occupied_tiles.len(), 12);
+        assert!(state.place_habitat(3, 8, orientation).ok);
+
+        let overlap = state.evaluate_habitat(3, 8, orientation);
+        assert!(!overlap.ok);
+        assert_eq!(overlap.message, "The habitat footprint must be clear grass");
+    }
+
+    #[test]
+    fn habitat_rotation_changes_footprint() {
+        let state = GameState::default();
+        let horizontal = state.evaluate_habitat(3, 8, HabitatOrientation::Horizontal);
+        let vertical = state.evaluate_habitat(3, 8, HabitatOrientation::Vertical);
+
+        assert!(horizontal.ok);
+        assert!(vertical.ok);
+        assert_eq!((horizontal.width, horizontal.height), (4, 3));
+        assert_eq!((vertical.width, vertical.height), (3, 4));
+        assert_eq!(
+            horizontal.occupied_tiles.last(),
+            Some(&Position { x: 6, y: 10 })
+        );
+        assert_eq!(
+            vertical.occupied_tiles.last(),
+            Some(&Position { x: 5, y: 11 })
+        );
+    }
+
+    #[test]
+    fn habitat_evaluation_reports_bounds_and_cash() {
+        let mut state = GameState::default();
+        let out_of_bounds = state.evaluate_habitat(18, 12, HabitatOrientation::Horizontal);
+        assert!(!out_of_bounds.ok);
+        assert_eq!(
+            out_of_bounds.message,
+            "The habitat would extend outside the park"
+        );
+
+        state.cash_cents = HABITAT_COST - 1;
+        let unaffordable = state.evaluate_habitat(3, 8, HabitatOrientation::Vertical);
+        assert!(!unaffordable.ok);
+        assert_eq!(unaffordable.message, "Not enough cash");
     }
 
     #[test]
     fn animal_adoption_drives_appeal_and_guest_revenue() {
         let mut state = GameState::default();
-        assert!(state.place_habitat(3, 8).ok);
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
         let habitat_id = state.habitats[0].id;
         assert!(state.adopt(habitat_id, "capybara").ok);
 
@@ -836,8 +1039,12 @@ mod tests {
         let mut first = GameState::default();
         let mut second = GameState::default();
 
-        assert!(first.place_habitat(3, 8).ok);
-        assert!(second.place_habitat(3, 8).ok);
+        assert!(first.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        assert!(
+            second
+                .place_habitat(3, 8, HabitatOrientation::Horizontal)
+                .ok
+        );
         let first_id = first.habitats[0].id;
         let second_id = second.habitats[0].id;
         assert!(first.adopt(first_id, "flamingo").ok);
