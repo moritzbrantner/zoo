@@ -28,6 +28,11 @@ type Habitat = {
   social_score: number
   space_score: number
   welfare_status: string
+  food: number
+  water: number
+  cleanliness: number
+  has_shelter: boolean
+  care_status: string
   appeal: number
 }
 
@@ -323,6 +328,15 @@ export default function App() {
     perform(() => game.adopt(selectedHabitatId, species))
   }
 
+  const careForHabitat = (action: "feed" | "water" | "clean" | "shelter") => {
+    const game = gameRef.current
+    if (!game || selectedHabitatId === null) return
+    if (action === "feed") perform(() => game.feed_habitat(selectedHabitatId))
+    if (action === "water") perform(() => game.refill_water(selectedHabitatId))
+    if (action === "clean") perform(() => game.clean_habitat(selectedHabitatId))
+    if (action === "shelter") perform(() => game.add_shelter(selectedHabitatId))
+  }
+
   const rotateHabitat = () => {
     setOrientation((current) => (current === 0 ? 1 : 0))
   }
@@ -560,6 +574,26 @@ export default function App() {
                   <div><dt>Appeal</dt><dd>{selectedHabitat.appeal}</dd></div>
                 </dl>
                 <div className="meter"><span style={{width: `${selectedHabitat.welfare}%`}} /></div>
+                <h3>Care</h3>
+                <div className="guest-thought">{selectedHabitat.care_status}</div>
+                <NeedBar label="Food" value={selectedHabitat.food} />
+                <NeedBar label="Water" value={selectedHabitat.water} />
+                <NeedBar label="Cleanliness" value={selectedHabitat.cleanliness} />
+                <dl>
+                  <div><dt>Shelter</dt><dd>{selectedHabitat.has_shelter ? "Installed" : "Missing"}</dd></div>
+                </dl>
+                <button className="shop-row" onClick={() => careForHabitat("feed")}>
+                  <span><b>Restock food</b><small>Fill habitat food stores</small></span>
+                </button>
+                <button className="shop-row" onClick={() => careForHabitat("water")}>
+                  <span><b>Refill water</b><small>Fill habitat water stores</small></span>
+                </button>
+                <button className="shop-row" onClick={() => careForHabitat("clean")}>
+                  <span><b>Clean habitat</b><small>Restore habitat cleanliness</small></span>
+                </button>
+                <button className="shop-row" onClick={() => careForHabitat("shelter")}>
+                  <span><b>Add basic shelter</b><small>Give animals a protected resting area</small></span>
+                </button>
                 <h3>Adopt animal</h3>
                 <button className="shop-row" onClick={() => adopt("capybara")}>
                   <span><b>Capybara</b><small>High appeal, social</small></span>
