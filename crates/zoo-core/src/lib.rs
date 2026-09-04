@@ -127,11 +127,36 @@ struct Guest {
     x: u32,
     y: u32,
     happiness: u32,
+    energy: u32,
+    hunger: u32,
+    thirst: u32,
+    value_perception: u32,
+    minutes_in_park: u32,
     target_habitat: u32,
     state: GuestState,
     route: Vec<Position>,
     route_index: usize,
     viewing_minutes: u32,
+}
+
+impl Guest {
+    fn thought(&self) -> &'static str {
+        if self.thirst >= 60 {
+            "I'm getting thirsty."
+        } else if self.hunger >= 60 {
+            "I could use something to eat."
+        } else if self.energy <= 35 {
+            "My feet are getting tired."
+        } else if self.value_perception <= 40 {
+            "I expected a little more for the price."
+        } else {
+            match self.state {
+                GuestState::WalkingToHabitat => "I want to see the animals.",
+                GuestState::Viewing => "The animals are wonderful.",
+                GuestState::WalkingToExit => "I'm ready to head home.",
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -493,6 +518,9 @@ impl GameState {
                 self.upkeep_accumulator = 0;
                 self.charge_upkeep();
             }
+
+            self.advance_guest_needs();
+
             if self.movement_accumulator >= 3 {
                 self.movement_accumulator = 0;
                 self.advance_guest_movement();
@@ -531,6 +559,11 @@ impl GameState {
             x: start.x,
             y: start.y,
             happiness: 78,
+            energy: 90,
+            hunger: 10,
+            thirst: 8,
+            value_perception: 68,
+            minutes_in_park: 0,
             target_habitat,
             state: GuestState::WalkingToHabitat,
             route,
@@ -538,6 +571,38 @@ impl GameState {
             viewing_minutes: 0,
         });
         self.next_guest_id += 1;
+    }
+
+    fn advance_guest_needs(&mut self) {
+        for guest in &mut self.guests {
+            guest.minutes_in_park += 1;
+            if guest.minutes_in_park % 4 == 0 {
+                guest.energy = guest.energy.saturating_sub(1);
+            }
+            if guest.minutes_in_park % 3 == 0 {
+                guest.hunger = guest.hunger.saturating_add(1).min(100);
+            }
+            if guest.minutes_in_park % 2 == 0 {
+                guest.thirst = guest.thirst.saturating_add(1).min(100);
+            }
+            if guest.minutes_in_park % 10 == 0 {
+                guest.value_perception = guest.value_perception.saturating_sub(1);
+            }
+            if guest.minutes_in_park % 5 == 0
+                && (guest.hunger >= 60 || guest.thirst >= 60 || guest.energy <= 35)
+            {
+                guest.happiness = guest.happiness.saturating_sub(1);
+            }
+        }
+    }
+
+    fn habitat_experience_bonus(&self, habitat_id: u32) -> u32 {
+        self.habitats
+            .iter()
+            .find(|habitat| habitat.id == habitat_id)
+            .map_or(0, |habitat| {
+                4 + habitat.welfare / 20 + habitat.appeal().min(240) / 30
+            })
     }
 
     fn advance_guest_movement(&mut self) {
@@ -560,9 +625,16 @@ impl GameState {
 
             match state {
                 GuestState::WalkingToHabitat => {
-                    self.guests[index].state = GuestState::Viewing;
-                    self.guests[index].viewing_minutes = 24;
-                    self.guests[index].happiness = 92;
+                    let target_habitat = self.guests[index].target_habitat;
+                    let experience_bonus = self.habitat_experience_bonus(target_habitat);
+                    let guest = &mut self.guests[index];
+                    guest.state = GuestState::Viewing;
+                    guest.viewing_minutes = 24;
+                    guest.happiness = guest.happiness.saturating_add(experience_bonus).min(100);
+                    guest.value_perception = guest
+                        .value_perception
+                        .saturating_add(experience_bonus / 2)
+                        .min(100);
                 }
                 GuestState::WalkingToExit => leave_ids.push(self.guests[index].id),
                 GuestState::Viewing => {}
@@ -723,6 +795,31 @@ impl GameState {
         None
     }
 
+    fn complaint_summary(&self) -> ComplaintSummary {
+        ComplaintSummary {
+            hungry: self
+                .guests
+                .iter()
+                .filter(|guest| guest.hunger >= 60)
+                .count() as u32,
+            thirsty: self
+                .guests
+                .iter()
+                .filter(|guest| guest.thirst >= 60)
+                .count() as u32,
+            tired: self
+                .guests
+                .iter()
+                .filter(|guest| guest.energy <= 35)
+                .count() as u32,
+            poor_value: self
+                .guests
+                .iter()
+                .filter(|guest| guest.value_perception <= 40)
+                .count() as u32,
+        }
+    }
+
     fn snapshot(&self) -> Snapshot {
         let mut tiles = Vec::with_capacity(self.tiles.len());
         for y in 0..self.height {
@@ -775,8 +872,13 @@ impl GameState {
                 x: guest.x,
                 y: guest.y,
                 happiness: guest.happiness,
+                energy: guest.energy,
+                hunger: guest.hunger,
+                thirst: guest.thirst,
+                value_perception: guest.value_perception,
                 target_habitat: guest.target_habitat,
                 state: guest.state.clone(),
+                thought: guest.thought().to_owned(),
             })
             .collect();
 
@@ -791,6 +893,7 @@ impl GameState {
             tiles,
             habitats,
             guests,
+            complaints: self.complaint_summary(),
             finance: FinanceView {
                 income_today_cents: self.income_today_cents,
                 expenses_today_cents: self.expenses_today_cents,
@@ -830,8 +933,21 @@ struct GuestView {
     x: u32,
     y: u32,
     happiness: u32,
+    energy: u32,
+    hunger: u32,
+    thirst: u32,
+    value_perception: u32,
     target_habitat: u32,
     state: GuestState,
+    thought: String,
+}
+
+#[derive(Serialize)]
+struct ComplaintSummary {
+    hungry: u32,
+    thirsty: u32,
+    tired: u32,
+    poor_value: u32,
 }
 
 #[derive(Serialize)]
@@ -854,6 +970,7 @@ struct Snapshot {
     tiles: Vec<TileView>,
     habitats: Vec<HabitatView>,
     guests: Vec<GuestView>,
+    complaints: ComplaintSummary,
     finance: FinanceView,
 }
 
@@ -1056,5 +1173,84 @@ mod tests {
         assert_eq!(first.cash_cents, second.cash_cents);
         assert_eq!(first.rating, second.rating);
         assert_eq!(first.guests.len(), second.guests.len());
+    }
+
+    #[test]
+    fn guest_needs_decay_deterministically() {
+        let mut first = GameState::default();
+        let mut second = GameState::default();
+        assert!(first.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        assert!(
+            second
+                .place_habitat(3, 8, HabitatOrientation::Horizontal)
+                .ok
+        );
+        let first_id = first.habitats[0].id;
+        let second_id = second.habitats[0].id;
+        assert!(first.adopt(first_id, "capybara").ok);
+        assert!(second.adopt(second_id, "capybara").ok);
+
+        first.tick(30);
+        second.tick(30);
+
+        let first_guest = &first.guests[0];
+        let second_guest = &second.guests[0];
+        assert_eq!(
+            (
+                first_guest.happiness,
+                first_guest.energy,
+                first_guest.hunger,
+                first_guest.thirst,
+                first_guest.value_perception,
+            ),
+            (
+                second_guest.happiness,
+                second_guest.energy,
+                second_guest.hunger,
+                second_guest.thirst,
+                second_guest.value_perception,
+            )
+        );
+        assert!(first_guest.energy < 90);
+        assert!(first_guest.hunger > 10);
+        assert!(first_guest.thirst > 8);
+    }
+
+    #[test]
+    fn healthy_habitat_viewing_improves_guest_experience() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        assert!(state.adopt(habitat_id, "capybara").ok);
+
+        state.tick(24);
+        assert_eq!(state.guests[0].happiness, 78);
+        assert_eq!(state.guests[0].value_perception, 68);
+
+        state.tick(9);
+        let guest = &state.guests[0];
+        assert!(matches!(guest.state, GuestState::Viewing));
+        assert!(guest.happiness > 78);
+        assert!(guest.value_perception > 68);
+        assert_eq!(guest.thought(), "The animals are wonderful.");
+    }
+
+    #[test]
+    fn unreachable_habitat_does_not_charge_admission_or_spawn_guest() {
+        let mut state = GameState::default();
+        assert!(state.place_path(10, 7).ok);
+        assert!(
+            state
+                .place_habitat(10, 8, HabitatOrientation::Horizontal)
+                .ok
+        );
+        let habitat_id = state.habitats[0].id;
+        assert!(state.adopt(habitat_id, "flamingo").ok);
+        let cash_before_tick = state.cash_cents;
+
+        state.tick(24);
+
+        assert!(state.guests.is_empty());
+        assert_eq!(state.cash_cents, cash_before_tick);
     }
 }
