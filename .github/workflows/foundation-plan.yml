@@ -1,0 +1,31 @@
+name: Foundation Plan
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Plan repository foundation
+        uses: moritzbrantner/coding-tooling@030afdb6ecd51dd238f9a246f04cabd6a1896152
+        with:
+          operation: bootstrap-plan
+          install-mode: none
+          report-path: .artifacts/coding-tooling/bootstrap-plan.json
+
+      - name: Upload foundation plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: foundation-plan
+          path: .artifacts/coding-tooling/bootstrap-plan.json
+          if-no-files-found: error
+          retention-days: 1
