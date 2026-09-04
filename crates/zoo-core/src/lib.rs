@@ -11,6 +11,11 @@ const HABITAT_COST: i64 = 70_000;
 const ADMISSION_PRICE: i64 = 1_200;
 const HABITAT_WIDTH: u32 = 4;
 const HABITAT_HEIGHT: u32 = 3;
+const FOOD_RESTOCK_COST: i64 = 1_500;
+const WATER_REFILL_COST: i64 = 800;
+const CLEAN_HABITAT_COST: i64 = 2_000;
+const SHELTER_COST: i64 = 12_000;
+const CARE_DECAY_INTERVAL_MINUTES: u32 = 15;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -118,6 +123,10 @@ struct Habitat {
     species: Option<Species>,
     animals: u32,
     welfare: u32,
+    food: u32,
+    water: u32,
+    cleanliness: u32,
+    has_shelter: bool,
 }
 
 impl Habitat {
@@ -170,10 +179,44 @@ impl Habitat {
         }
     }
 
+    fn food_score(&self) -> u32 {
+        if self.animals == 0 { 100 } else { self.food }
+    }
+
+    fn water_score(&self) -> u32 {
+        if self.animals == 0 { 100 } else { self.water }
+    }
+
+    fn cleanliness_score(&self) -> u32 {
+        if self.animals == 0 {
+            100
+        } else {
+            self.cleanliness
+        }
+    }
+
+    fn shelter_score(&self) -> u32 {
+        if self.animals == 0 || self.has_shelter {
+            100
+        } else {
+            40
+        }
+    }
+
     fn welfare_target(&self) -> u32 {
         let social = self.social_score();
         let space = self.space_score();
-        (social.saturating_mul(3) + space.saturating_mul(2)) / 5
+        let food = self.food_score();
+        let water = self.water_score();
+        let cleanliness = self.cleanliness_score();
+        let shelter = self.shelter_score();
+        (social.saturating_mul(2)
+            + space.saturating_mul(2)
+            + food
+            + water
+            + cleanliness
+            + shelter)
+            / 8
     }
 
     fn welfare_status(&self) -> String {
@@ -188,8 +231,27 @@ impl Habitat {
             (true, true) => "Social group is too small and habitat space is crowded".to_owned(),
             (true, false) => format!("Social group needs at least {minimum_group} animals"),
             (false, true) => "Habitat space is crowded for this group".to_owned(),
-            (false, false) => "Social group and space needs are met".to_owned(),
+            (false, false) => self.care_status(),
         }
+    }
+
+    fn care_status(&self) -> String {
+        if self.animals == 0 {
+            return "Care supplies are ready".to_owned();
+        }
+        if self.food < 40 {
+            return "Food is running low".to_owned();
+        }
+        if self.water < 40 {
+            return "Water is running low".to_owned();
+        }
+        if self.cleanliness < 50 {
+            return "Habitat needs cleaning".to_owned();
+        }
+        if !self.has_shelter {
+            return "Animals need basic shelter".to_owned();
+        }
+        "Food, water, shelter, and cleanliness are healthy".to_owned()
     }
 }
 
@@ -511,6 +573,10 @@ impl GameState {
             species: None,
             animals: 0,
             welfare: 100,
+            food: 100,
+            water: 100,
+            cleanliness: 100,
+            has_shelter: false,
         });
 
         ActionResult::ok(format!("Habitat #{id} built"))
@@ -575,6 +641,78 @@ impl GameState {
         ))
     }
 
+    fn feed_habitat(&mut self, habitat_id: u32) -> ActionResult {
+        let Some(index) = self
+            .habitats
+            .iter()
+            .position(|habitat| habitat.id == habitat_id)
+        else {
+            return ActionResult::error("Select a habitat first");
+        };
+        if self.habitats[index].food >= 100 {
+            return ActionResult::ok("Food is already fully stocked");
+        }
+        if let Err(message) = self.spend(FOOD_RESTOCK_COST) {
+            return ActionResult::error(message);
+        }
+        self.habitats[index].food = 100;
+        ActionResult::ok(format!("Habitat #{habitat_id} food restocked"))
+    }
+
+    fn refill_water(&mut self, habitat_id: u32) -> ActionResult {
+        let Some(index) = self
+            .habitats
+            .iter()
+            .position(|habitat| habitat.id == habitat_id)
+        else {
+            return ActionResult::error("Select a habitat first");
+        };
+        if self.habitats[index].water >= 100 {
+            return ActionResult::ok("Water is already full");
+        }
+        if let Err(message) = self.spend(WATER_REFILL_COST) {
+            return ActionResult::error(message);
+        }
+        self.habitats[index].water = 100;
+        ActionResult::ok(format!("Habitat #{habitat_id} water refilled"))
+    }
+
+    fn clean_habitat(&mut self, habitat_id: u32) -> ActionResult {
+        let Some(index) = self
+            .habitats
+            .iter()
+            .position(|habitat| habitat.id == habitat_id)
+        else {
+            return ActionResult::error("Select a habitat first");
+        };
+        if self.habitats[index].cleanliness >= 100 {
+            return ActionResult::ok("Habitat is already clean");
+        }
+        if let Err(message) = self.spend(CLEAN_HABITAT_COST) {
+            return ActionResult::error(message);
+        }
+        self.habitats[index].cleanliness = 100;
+        ActionResult::ok(format!("Habitat #{habitat_id} cleaned"))
+    }
+
+    fn add_shelter(&mut self, habitat_id: u32) -> ActionResult {
+        let Some(index) = self
+            .habitats
+            .iter()
+            .position(|habitat| habitat.id == habitat_id)
+        else {
+            return ActionResult::error("Select a habitat first");
+        };
+        if self.habitats[index].has_shelter {
+            return ActionResult::ok("Basic shelter is already installed");
+        }
+        if let Err(message) = self.spend(SHELTER_COST) {
+            return ActionResult::error(message);
+        }
+        self.habitats[index].has_shelter = true;
+        ActionResult::ok(format!("Basic shelter added to habitat #{habitat_id}"))
+    }
+
     fn tick(&mut self, minutes: u32) {
         for _ in 0..minutes {
             self.minute_of_day += 1;
@@ -597,6 +735,9 @@ impl GameState {
                 self.upkeep_accumulator = 0;
                 self.charge_upkeep();
             }
+            if self.minute_of_day % CARE_DECAY_INTERVAL_MINUTES == 0 {
+                self.advance_habitat_care();
+            }
 
             self.advance_animal_welfare();
             self.advance_guest_needs();
@@ -608,6 +749,18 @@ impl GameState {
 
             self.advance_viewing();
             self.recalculate_rating();
+        }
+    }
+
+    fn advance_habitat_care(&mut self) {
+        for habitat in &mut self.habitats {
+            if habitat.animals == 0 {
+                continue;
+            }
+            habitat.food = habitat.food.saturating_sub(habitat.animals);
+            habitat.water = habitat.water.saturating_sub(habitat.animals);
+            let waste = habitat.animals.saturating_add(1) / 2;
+            habitat.cleanliness = habitat.cleanliness.saturating_sub(waste.max(1));
         }
     }
 
@@ -958,6 +1111,11 @@ impl GameState {
                 social_score: habitat.social_score(),
                 space_score: habitat.space_score(),
                 welfare_status: habitat.welfare_status(),
+                food: habitat.food,
+                water: habitat.water,
+                cleanliness: habitat.cleanliness,
+                has_shelter: habitat.has_shelter,
+                care_status: habitat.care_status(),
                 appeal: habitat.appeal(),
             })
             .collect();
@@ -1026,6 +1184,11 @@ struct HabitatView {
     social_score: u32,
     space_score: u32,
     welfare_status: String,
+    food: u32,
+    water: u32,
+    cleanliness: u32,
+    has_shelter: bool,
+    care_status: String,
     appeal: u32,
 }
 
@@ -1149,6 +1312,22 @@ impl ZooGame {
 
     pub fn adopt(&mut self, habitat_id: u32, species: String) -> String {
         self.state.adopt(habitat_id, &species).json()
+    }
+
+    pub fn feed_habitat(&mut self, habitat_id: u32) -> String {
+        self.state.feed_habitat(habitat_id).json()
+    }
+
+    pub fn refill_water(&mut self, habitat_id: u32) -> String {
+        self.state.refill_water(habitat_id).json()
+    }
+
+    pub fn clean_habitat(&mut self, habitat_id: u32) -> String {
+        self.state.clean_habitat(habitat_id).json()
+    }
+
+    pub fn add_shelter(&mut self, habitat_id: u32) -> String {
+        self.state.add_shelter(habitat_id).json()
     }
 
     pub fn tick(&mut self, minutes: u32) {
@@ -1282,7 +1461,7 @@ mod tests {
         assert!(state.adopt(habitat_id, "capybara").ok);
         assert_eq!(state.habitats[0].social_score(), 100);
         assert_eq!(state.habitats[0].space_score(), 75);
-        assert_eq!(state.habitats[0].welfare_target(), 90);
+        assert_eq!(state.habitats[0].welfare_target(), 86);
     }
 
     #[test]
@@ -1292,16 +1471,101 @@ mod tests {
         let habitat_id = state.habitats[0].id;
         assert!(state.adopt(habitat_id, "flamingo").ok);
 
-        let target = state.habitats[0].welfare_target();
+        let initial_target = state.habitats[0].welfare_target();
         assert_eq!(state.habitats[0].welfare, 100);
-        assert!(target < 100);
+        assert!(initial_target < 100);
 
         state.tick(1);
         assert_eq!(state.habitats[0].welfare, 99);
-        assert!(state.habitats[0].welfare > target);
+        assert!(state.habitats[0].welfare > state.habitats[0].welfare_target());
 
         state.tick(60);
-        assert_eq!(state.habitats[0].welfare, target);
+        assert_eq!(state.habitats[0].welfare, state.habitats[0].welfare_target());
+    }
+
+    #[test]
+    fn habitat_care_decay_is_deterministic_and_scales_with_animals() {
+        let mut first = GameState::default();
+        let mut second = GameState::default();
+        let mut crowded = GameState::default();
+        for state in [&mut first, &mut second, &mut crowded] {
+            assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        }
+        let first_id = first.habitats[0].id;
+        let second_id = second.habitats[0].id;
+        let crowded_id = crowded.habitats[0].id;
+        assert!(first.adopt(first_id, "capybara").ok);
+        assert!(second.adopt(second_id, "capybara").ok);
+        for _ in 0..4 {
+            assert!(crowded.adopt(crowded_id, "capybara").ok);
+        }
+
+        first.tick(60);
+        second.tick(60);
+        crowded.tick(60);
+
+        assert_eq!(
+            (first.habitats[0].food, first.habitats[0].water, first.habitats[0].cleanliness),
+            (second.habitats[0].food, second.habitats[0].water, second.habitats[0].cleanliness)
+        );
+        assert!(crowded.habitats[0].food < first.habitats[0].food);
+        assert!(crowded.habitats[0].water < first.habitats[0].water);
+        assert!(crowded.habitats[0].cleanliness < first.habitats[0].cleanliness);
+    }
+
+    #[test]
+    fn care_actions_recover_welfare_target() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        assert!(state.adopt(habitat_id, "capybara").ok);
+
+        state.tick(600);
+        let degraded_target = state.habitats[0].welfare_target();
+        assert!(degraded_target < 100);
+        assert!(state.habitats[0].food < 40);
+        assert!(state.habitats[0].water < 40);
+
+        assert!(state.feed_habitat(habitat_id).ok);
+        assert!(state.refill_water(habitat_id).ok);
+        assert!(state.clean_habitat(habitat_id).ok);
+        assert!(state.add_shelter(habitat_id).ok);
+
+        assert_eq!(state.habitats[0].food, 100);
+        assert_eq!(state.habitats[0].water, 100);
+        assert_eq!(state.habitats[0].cleanliness, 100);
+        assert!(state.habitats[0].has_shelter);
+        assert_eq!(state.habitats[0].welfare_target(), 100);
+        assert!(state.habitats[0].welfare < state.habitats[0].welfare_target());
+
+        state.tick(100);
+        assert!(state.habitats[0].welfare > degraded_target);
+    }
+
+    #[test]
+    fn care_actions_are_idempotent_and_charge_once() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        assert!(state.adopt(habitat_id, "flamingo").ok);
+
+        let cash_before_noop = state.cash_cents;
+        assert!(state.feed_habitat(habitat_id).ok);
+        assert_eq!(state.cash_cents, cash_before_noop);
+
+        state.tick(15);
+        let cash_before_feed = state.cash_cents;
+        assert!(state.feed_habitat(habitat_id).ok);
+        assert_eq!(state.cash_cents, cash_before_feed - FOOD_RESTOCK_COST);
+        assert!(state.feed_habitat(habitat_id).ok);
+        assert_eq!(state.cash_cents, cash_before_feed - FOOD_RESTOCK_COST);
+
+        let cash_before_shelter = state.cash_cents;
+        assert!(state.add_shelter(habitat_id).ok);
+        assert_eq!(state.cash_cents, cash_before_shelter - SHELTER_COST);
+        assert!(state.add_shelter(habitat_id).ok);
+        assert_eq!(state.cash_cents, cash_before_shelter - SHELTER_COST);
     }
 
     #[test]
@@ -1342,6 +1606,9 @@ mod tests {
         assert_eq!(first.rating, second.rating);
         assert_eq!(first.guests.len(), second.guests.len());
         assert_eq!(first.habitats[0].welfare, second.habitats[0].welfare);
+        assert_eq!(first.habitats[0].food, second.habitats[0].food);
+        assert_eq!(first.habitats[0].water, second.habitats[0].water);
+        assert_eq!(first.habitats[0].cleanliness, second.habitats[0].cleanliness);
     }
 
     #[test]
@@ -1391,6 +1658,7 @@ mod tests {
         assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
         let habitat_id = state.habitats[0].id;
         assert!(state.adopt(habitat_id, "capybara").ok);
+        assert!(state.add_shelter(habitat_id).ok);
 
         state.tick(24);
         assert_eq!(state.guests[0].happiness, 78);
