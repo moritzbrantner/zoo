@@ -374,15 +374,12 @@ impl GameState {
         PlacementEvaluation::valid(x, y, width, height, orientation, occupied_tiles)
     }
 
-    fn place_habitat(
-        &mut self,
-        x: u32,
-        y: u32,
-        orientation: HabitatOrientation,
-    ) -> ActionResult {
-        if let Some(existing) = self.habitats.iter().find(|habitat| {
-            habitat.x == x && habitat.y == y && habitat.orientation == orientation
-        }) {
+    fn place_habitat(&mut self, x: u32, y: u32, orientation: HabitatOrientation) -> ActionResult {
+        if let Some(existing) = self
+            .habitats
+            .iter()
+            .find(|habitat| habitat.x == x && habitat.y == y && habitat.orientation == orientation)
+        {
             return ActionResult::ok(format!("Habitat #{} already exists here", existing.id));
         }
 
@@ -969,7 +966,10 @@ mod tests {
 
         let disconnected = state.evaluate_habitat(10, 1, orientation);
         assert!(!disconnected.ok);
-        assert_eq!(disconnected.message, "Habitats need at least one path along their edge");
+        assert_eq!(
+            disconnected.message,
+            "Habitats need at least one path along their edge"
+        );
 
         let valid = state.evaluate_habitat(3, 8, orientation);
         assert!(valid.ok);
@@ -993,8 +993,14 @@ mod tests {
         assert!(vertical.ok);
         assert_eq!((horizontal.width, horizontal.height), (4, 3));
         assert_eq!((vertical.width, vertical.height), (3, 4));
-        assert_eq!(horizontal.occupied_tiles.last(), Some(&Position { x: 6, y: 10 }));
-        assert_eq!(vertical.occupied_tiles.last(), Some(&Position { x: 5, y: 11 }));
+        assert_eq!(
+            horizontal.occupied_tiles.last(),
+            Some(&Position { x: 6, y: 10 })
+        );
+        assert_eq!(
+            vertical.occupied_tiles.last(),
+            Some(&Position { x: 5, y: 11 })
+        );
     }
 
     #[test]
@@ -1002,7 +1008,10 @@ mod tests {
         let mut state = GameState::default();
         let out_of_bounds = state.evaluate_habitat(18, 12, HabitatOrientation::Horizontal);
         assert!(!out_of_bounds.ok);
-        assert_eq!(out_of_bounds.message, "The habitat would extend outside the park");
+        assert_eq!(
+            out_of_bounds.message,
+            "The habitat would extend outside the park"
+        );
 
         state.cash_cents = HABITAT_COST - 1;
         let unaffordable = state.evaluate_habitat(3, 8, HabitatOrientation::Vertical);
@@ -1013,9 +1022,7 @@ mod tests {
     #[test]
     fn animal_adoption_drives_appeal_and_guest_revenue() {
         let mut state = GameState::default();
-        assert!(state
-            .place_habitat(3, 8, HabitatOrientation::Horizontal)
-            .ok);
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
         let habitat_id = state.habitats[0].id;
         assert!(state.adopt(habitat_id, "capybara").ok);
 
@@ -1032,12 +1039,12 @@ mod tests {
         let mut first = GameState::default();
         let mut second = GameState::default();
 
-        assert!(first
-            .place_habitat(3, 8, HabitatOrientation::Horizontal)
-            .ok);
-        assert!(second
-            .place_habitat(3, 8, HabitatOrientation::Horizontal)
-            .ok);
+        assert!(first.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        assert!(
+            second
+                .place_habitat(3, 8, HabitatOrientation::Horizontal)
+                .ok
+        );
         let first_id = first.habitats[0].id;
         let second_id = second.habitats[0].id;
         assert!(first.adopt(first_id, "flamingo").ok);
