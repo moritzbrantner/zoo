@@ -32,8 +32,13 @@ type Guest = {
   x: number
   y: number
   happiness: number
+  energy: number
+  hunger: number
+  thirst: number
+  value_perception: number
   target_habitat: number
   state: "walking_to_habitat" | "viewing" | "walking_to_exit"
+  thought: string
 }
 
 type Snapshot = {
@@ -47,6 +52,12 @@ type Snapshot = {
   tiles: Tile[]
   habitats: Habitat[]
   guests: Guest[]
+  complaints: {
+    hungry: number
+    thirsty: number
+    tired: number
+    poor_value: number
+  }
   finance: {
     income_today_cents: number
     expenses_today_cents: number
@@ -106,6 +117,12 @@ function speciesLabel(species: Habitat["species"]) {
   return "Empty habitat"
 }
 
+function guestStateLabel(state: Guest["state"]) {
+  if (state === "walking_to_habitat") return "Walking to habitat"
+  if (state === "viewing") return "Viewing animals"
+  return "Walking to exit"
+}
+
 function toolHint(tool: Tool) {
   switch (tool) {
     case "pan":
@@ -117,7 +134,7 @@ function toolHint(tool: Tool) {
     case "bulldoze":
       return "Click a path or habitat to remove it."
     default:
-      return "Click a habitat, animal marker, or ground tile to inspect it."
+      return "Click a habitat, guest, animal marker, or ground tile to inspect it."
   }
 }
 
@@ -138,6 +155,7 @@ export default function App() {
   const [message, setMessage] = useState("Build a path, place a habitat beside it, then adopt animals.")
   const [messageKind, setMessageKind] = useState<"info" | "error">("info")
   const [selectedHabitatId, setSelectedHabitatId] = useState<number | null>(null)
+  const [selectedGuestId, setSelectedGuestId] = useState<number | null>(null)
   const [hoveredTile, setHoveredTile] = useState<Point | null>(null)
   const [orientation, setOrientation] = useState<OrientationCode>(0)
   const [zoom, setZoom] = useState(1)
@@ -208,6 +226,11 @@ export default function App() {
     [selectedHabitatId, snapshot],
   )
 
+  const selectedGuest = useMemo(
+    () => snapshot?.guests.find((guest) => guest.id === selectedGuestId) ?? null,
+    [selectedGuestId, snapshot],
+  )
+
   const placement = useMemo(() => {
     const game = gameRef.current
     if (!game || !snapshot || tool !== "habitat" || !hoveredTile) return null
@@ -247,6 +270,7 @@ export default function App() {
     if (!game || tool === "path" || tool === "pan") return
 
     if (tool === "select") {
+      setSelectedGuestId(null)
       setSelectedHabitatId(tile.habitat_id)
       setMessage(tile.habitat_id ? `Habitat #${tile.habitat_id} selected` : "Ground selected")
       setMessageKind("info")
@@ -303,6 +327,7 @@ export default function App() {
     gameRef.current?.reset()
     setTool("select")
     setSelectedHabitatId(null)
+    setSelectedGuestId(null)
     setHoveredTile(null)
     setOrientation(0)
     setZoom(1)
@@ -449,6 +474,7 @@ export default function App() {
                   }}
                   onClick={() => {
                     if (tool === "pan") return
+                    setSelectedGuestId(null)
                     setSelectedHabitatId(habitat.id)
                     setTool("select")
                   }}
@@ -465,26 +491,53 @@ export default function App() {
             {snapshot.guests.map((guest) => {
               const position = isoPosition(guest.x, guest.y)
               return (
-                <div
-                  className={`guest guest-${guest.state}`}
+                <button
+                  type="button"
+                  className={`guest guest-${guest.state} ${selectedGuestId === guest.id ? "selected" : ""}`}
                   key={guest.id}
                   style={{
                     left: position.left + 24,
                     top: position.top - 4,
                     zIndex: 800 + guest.x + guest.y,
                   }}
-                  title={`Guest #${guest.id} · happiness ${guest.happiness}%`}
+                  title={`Guest #${guest.id} · ${guest.thought}`}
+                  onClick={() => {
+                    if (tool === "pan") return
+                    setSelectedGuestId(guest.id)
+                    setSelectedHabitatId(null)
+                    setTool("select")
+                  }}
                 >
                   <i />
                   <b />
-                </div>
+                </button>
               )
             })}
           </div>
         </div>
 
         <aside className="side-panel bevel">
-          {selectedHabitat ? (
+          {selectedGuest ? (
+            <>
+              <div className="window-title">
+                <span>Guest #{selectedGuest.id}</span>
+                <button onClick={() => setSelectedGuestId(null)}>×</button>
+              </div>
+              <div className="guest-card">
+                <div className="guest-thought">“{selectedGuest.thought}”</div>
+                <dl>
+                  <div><dt>Status</dt><dd>{guestStateLabel(selectedGuest.state)}</dd></div>
+                  <div><dt>Destination</dt><dd>Habitat #{selectedGuest.target_habitat}</dd></div>
+                  <div><dt>Happiness</dt><dd>{selectedGuest.happiness}%</dd></div>
+                </dl>
+                <h3>Needs</h3>
+                <NeedBar label="Energy" value={selectedGuest.energy} />
+                <NeedBar label="Hunger" value={selectedGuest.hunger} badWhenHigh />
+                <NeedBar label="Thirst" value={selectedGuest.thirst} badWhenHigh />
+                <NeedBar label="Value" value={selectedGuest.value_perception} />
+              </div>
+            </>
+          ) : selectedHabitat ? (
             <>
               <div className="window-title">
                 <span>Habitat #{selectedHabitat.id}</span>
@@ -525,6 +578,13 @@ export default function App() {
                   <span>Income today</span><strong>{money(snapshot.finance.income_today_cents)}</strong>
                   <span>Expenses today</span><strong>{money(snapshot.finance.expenses_today_cents)}</strong>
                   <span>Profit today</span><strong>{money(snapshot.finance.profit_today_cents)}</strong>
+                </div>
+                <h3>Guest complaints</h3>
+                <div className="complaint-grid">
+                  <span>Hungry</span><strong>{snapshot.complaints.hungry}</strong>
+                  <span>Thirsty</span><strong>{snapshot.complaints.thirsty}</strong>
+                  <span>Tired</span><strong>{snapshot.complaints.tired}</strong>
+                  <span>Poor value</span><strong>{snapshot.complaints.poor_value}</strong>
                 </div>
                 <button className="secondary" onClick={reset}>Start new park</button>
               </div>
@@ -575,5 +635,16 @@ function ToolButton({
       <span>{icon}</span>
       <small>{label}</small>
     </button>
+  )
+}
+
+
+function NeedBar({label, value, badWhenHigh = false}: {label: string; value: number; badWhenHigh?: boolean}) {
+  const warning = badWhenHigh ? value >= 60 : value <= 35
+  return (
+    <div className={`need-row ${warning ? "warning" : ""}`}>
+      <div><span>{label}</span><strong>{value}%</strong></div>
+      <div className="need-track"><span style={{width: `${value}%`}} /></div>
+    </div>
   )
 }
