@@ -75,23 +75,52 @@
   height: 30px;
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
   pointer-events: none;
-  background: rgb(246 211 111 / 42%);
-  outline: 2px solid rgb(255 244 184 / 75%);
+  outline: 2px solid rgb(255 255 255 / 70%);
   outline-offset: -5px;
   filter: brightness(1.08);
 }
 
+.placement-ghost.valid {
+  background: rgb(119 211 118 / 48%);
+}
+
+.placement-ghost.invalid {
+  background:
+    repeating-linear-gradient(45deg, rgb(150 42 42 / 48%) 0 5px, rgb(244 176 132 / 55%) 5px 9px);
+}
+
 .placement-price {
   position: absolute;
-  min-width: 128px;
-  padding: 5px 8px;
+  min-width: 176px;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
   border-radius: 4px;
   pointer-events: none;
   color: #25352d;
-  background: #f4e7a3;
   font-size: 11px;
-  font-weight: 900;
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.placement-price.valid {
+  background: #dcebb5;
+}
+
+.placement-price.invalid {
+  color: #5f261e;
+  background: #efb09d;
+}
+
+.placement-price b {
+  font-weight: 1000;
+}
+
+.placement-price small {
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.2;
 }
 
 .message-stack {
@@ -115,6 +144,16 @@
 
 .tool {
   min-width: 82px;
+}
+
+.tool:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.tool:disabled:hover {
+  color: #eaf4ef;
+  background: linear-gradient(#367f6b, #245e50);
 }
 
 @media (max-width: 1100px) {
