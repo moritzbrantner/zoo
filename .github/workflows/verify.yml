@@ -31,6 +31,32 @@ jobs:
       - name: Build web
         working-directory: apps/web
         run: bun run build
+      - name: Browser fence dogfood
+        if: github.event_name == 'pull_request'
+        working-directory: apps/web
+        run: |
+          bun run preview -- --host 127.0.0.1 --port 4173 > /tmp/zoo-preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              cat /tmp/zoo-preview.log
+              exit 1
+            fi
+            sleep 1
+          done
+          bun scripts/capture-fence-proof.mjs
+      - name: Upload fence visual proof
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: zoo-fence-visual-proof
+          path: apps/web/test-results/fence-rendering.png
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload playable web preview
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4

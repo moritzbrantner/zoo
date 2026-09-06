@@ -1,0 +1,34 @@
+/*
+ * Fence segments are anchored to the four edges of a 58×30 isometric tile.
+ * Rust owns which tile edge exists; this file only projects that edge into pixels.
+ */
+.fence-segment {
+  width: 33px;
+  transform-origin: 50% 50%;
+}
+
+.fence-segment::before,
+.fence-segment::after {
+  transform: rotate(var(--fence-post-angle, 0deg));
+  transform-origin: 50% 50%;
+}
+
+.fence-north {
+  --fence-post-angle: -27.35deg;
+  transform: translate(27px, 5px) rotate(27.35deg);
+}
+
+.fence-east {
+  --fence-post-angle: 27.35deg;
+  transform: translate(27px, 20px) rotate(-27.35deg);
+}
+
+.fence-south {
+  --fence-post-angle: -27.35deg;
+  transform: translate(-2px, 20px) rotate(27.35deg);
+}
+
+.fence-west {
+  --fence-post-angle: 27.35deg;
+  transform: translate(-2px, 5px) rotate(-27.35deg);
+}
