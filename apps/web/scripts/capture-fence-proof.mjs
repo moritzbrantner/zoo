@@ -111,7 +111,7 @@ try {
 
   let ready = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    ready = await evaluate(`Boolean(document.querySelector('[aria-label="grass tile 12, 3"]'))`)
+    ready = await evaluate(`Boolean(document.querySelector('[aria-label="grass tile 1, 8"]'))`)
     if (ready) break
     await sleep(250)
   }
@@ -128,6 +128,8 @@ try {
   })()`)
   if (!toolsReady) throw new Error("Could not activate the habitat drawing tool")
 
+  // The starter path occupies x=1..4 at y=7. This clear 4×3 rectangle sits
+  // immediately below it, so Rust's path-adjacency rule makes it a valid enclosure.
   const points = await evaluate(`(() => {
     const center = (label) => {
       const element = document.querySelector('[aria-label="' + label + '"]')
@@ -136,8 +138,8 @@ try {
       return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}
     }
     return {
-      start: center('grass tile 12, 3'),
-      end: center('grass tile 15, 6'),
+      start: center('grass tile 1, 8'),
+      end: center('grass tile 4, 10'),
     }
   })()`)
   if (!points.start || !points.end) throw new Error("Could not resolve fence drag coordinates")
@@ -180,7 +182,10 @@ try {
     if (built) break
     await sleep(100)
   }
-  if (!built) throw new Error("The 4×4 habitat was not created during browser dogfood")
+  if (!built) {
+    const message = await evaluate(`document.querySelector('.message')?.textContent ?? 'No message'`)
+    throw new Error(`The 4×3 habitat was not created during browser dogfood: ${message}`)
+  }
 
   const geometry = await evaluate(`(() => {
     const expectedCenters = {
@@ -207,12 +212,15 @@ try {
     })
   })()`)
 
-  if (geometry.length !== 16) {
-    throw new Error(`Expected 16 fence segments for a 4×4 habitat, found ${geometry.length}`)
+  if (geometry.length !== 14) {
+    throw new Error(`Expected 14 fence segments for a 4×3 habitat, found ${geometry.length}`)
   }
-  for (const side of ["north", "east", "south", "west"]) {
+  const expectedSideCounts = {north: 4, east: 3, south: 4, west: 3}
+  for (const [side, expectedCount] of Object.entries(expectedSideCounts)) {
     const count = geometry.filter((segment) => segment.side === side).length
-    if (count !== 4) throw new Error(`Expected 4 ${side} fence segments, found ${count}`)
+    if (count !== expectedCount) {
+      throw new Error(`Expected ${expectedCount} ${side} fence segments, found ${count}`)
+    }
   }
   const misplaced = geometry.filter(
     (segment) => Math.abs(segment.dx) > 1.5 || Math.abs(segment.dy) > 1.5,
@@ -241,7 +249,7 @@ try {
   mkdirSync("test-results", {recursive: true})
   writeFileSync("test-results/fence-rendering.png", Buffer.from(screenshot.data, "base64"))
 
-  console.log("Fence browser dogfood passed: 4×4 enclosure, 16 aligned perimeter rails, screenshot captured.")
+  console.log("Fence browser dogfood passed: 4×3 enclosure, 14 aligned perimeter rails, screenshot captured.")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")
