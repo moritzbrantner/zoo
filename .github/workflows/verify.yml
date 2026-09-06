@@ -31,3 +31,11 @@ jobs:
       - name: Build web
         working-directory: apps/web
         run: bun run build
+      - name: Upload playable web preview
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: zoo-playable-preview
+          path: apps/web/dist
+          if-no-files-found: error
+          retention-days: 7
