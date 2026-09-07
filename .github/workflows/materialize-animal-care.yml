@@ -1,0 +1,48 @@
+name: Materialize animal-care slice
+
+on:
+  push:
+    branches: [gameplay/animal-care-depot]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gameplay/animal-care-depot
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - name: Apply animal-care slice
+        run: python .github/scripts/materialize_animal_care.py
+      - name: Format Rust
+        run: cargo fmt --all
+      - name: Lint Rust
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test Rust
+        run: cargo test --workspace
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: bun install
+      - name: Build web
+        working-directory: apps/web
+        run: bun run build
+      - name: Commit materialized implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/scripts/materialize_animal_care.py .github/workflows/materialize-animal-care.yml
+          git add crates/zoo-core/src/lib.rs apps/web/src/App.tsx apps/web/src/concessions.css apps/web/scripts/capture-concessions-proof.mjs apps/web/scripts/capture-animal-care-proof.mjs .github/workflows/verify.yml
+          git commit -m "gameplay: add animal-care depot and scheduled feeding"
+          git push origin HEAD:gameplay/animal-care-depot
