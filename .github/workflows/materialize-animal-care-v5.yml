@@ -51,11 +51,10 @@ jobs:
           PY
       - name: Format Rust
         run: cargo fmt --all
-      - name: Commit materialized implementation
+      - name: Persist product implementation
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f .github/scripts/materialize_animal_care.py .github/workflows/materialize-animal-care.yml .github/workflows/materialize-animal-care-v2.yml .github/workflows/materialize-animal-care-v3.yml .github/workflows/materialize-animal-care-v4.yml .github/workflows/materialize-animal-care-v5.yml
-          git add crates/zoo-core/src/lib.rs apps/web/src/App.tsx apps/web/src/concessions.css apps/web/scripts/capture-concessions-proof.mjs apps/web/scripts/capture-animal-care-proof.mjs .github/workflows/verify.yml
+          git add crates/zoo-core/src/lib.rs apps/web/src/App.tsx apps/web/src/concessions.css apps/web/scripts/capture-concessions-proof.mjs apps/web/scripts/capture-animal-care-proof.mjs
           git commit -m "gameplay: add animal-care depot and scheduled feeding"
           git push origin HEAD:gameplay/animal-care-depot
