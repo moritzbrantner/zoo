@@ -8,9 +8,10 @@ import {
 } from "react"
 import init, {ZooGame} from "./wasm/zoo_core"
 
-type Tool = "select" | "pan" | "path" | "habitat" | "bulldoze"
+type Tool = "select" | "pan" | "path" | "habitat" | "food" | "drink" | "bulldoze"
 type Speed = 0 | 1 | 2 | 4
 type SpeciesKey = "capybara" | "flamingo" | "zebra" | "giraffe" | "elephant" | "penguin"
+type ConcessionKind = "food" | "drink"
 type FenceSide = "north" | "east" | "south" | "west"
 
 type Point = {
@@ -23,8 +24,9 @@ type FenceSegment = Point & {
 }
 
 type Tile = Point & {
-  kind: "grass" | "path" | "entrance" | "habitat"
+  kind: "grass" | "path" | "entrance" | "habitat" | "concession"
   habitat_id: number | null
+  concession_id: number | null
 }
 
 type Habitat = Point & {
@@ -57,6 +59,16 @@ type Animal = Point & {
   species: SpeciesKey
   slot: number
   animation_phase: number
+}
+
+type Concession = Point & {
+  id: number
+  kind: ConcessionKind
+  build_cost_cents: number
+  price_cents: number
+  sales_today: number
+  total_sales: number
+  total_revenue_cents: number
 }
 
 type Guest = Point & {
@@ -95,6 +107,7 @@ type Snapshot = {
   }
   tiles: Tile[]
   habitats: Habitat[]
+  concessions: Concession[]
   animals: Animal[]
   guests: Guest[]
   species_catalog: SpeciesOffer[]
@@ -109,6 +122,7 @@ type Snapshot = {
     expenses_today_cents: number
     profit_today_cents: number
     admission_price_cents: number
+    concession_revenue_today_cents: number
   }
 }
 
@@ -199,6 +213,10 @@ function toolHint(tool: Tool) {
       return "Drag across tiles to paint paths · $10 per new tile."
     case "habitat":
       return "Press on one corner, drag to the opposite corner, and release to close the fence."
+    case "food":
+      return "Click clear grass beside a path to build a food stand · $180."
+    case "drink":
+      return "Click clear grass beside a path to build a drink stand · $140."
     case "bulldoze":
       return "Click a path or any tile inside a habitat to remove it."
     default:
@@ -397,8 +415,20 @@ export default function App() {
     if (tool === "select") {
       setSelectedGuestId(null)
       setSelectedHabitatId(tile.habitat_id)
-      setMessage(tile.habitat_id ? `Habitat #${tile.habitat_id} selected` : "Ground selected")
+      const stand = snapshot?.concessions.find((candidate) => candidate.id === tile.concession_id)
+      setMessage(
+        tile.habitat_id
+          ? `Habitat #${tile.habitat_id} selected`
+          : stand
+            ? `${stand.kind === "food" ? "Food" : "Drink"} stand #${stand.id} · ${stand.sales_today} sales today`
+            : "Ground selected",
+      )
       setMessageKind("info")
+      return
+    }
+
+    if (tool === "food" || tool === "drink") {
+      perform(() => game.place_concession(tile.x, tile.y, tool))
       return
     }
 
@@ -665,6 +695,44 @@ export default function App() {
               <span className="turnstile" />
             </div>
 
+            {snapshot.concessions.map((stand) => {
+              const position = isoPosition(stand.x, stand.y)
+              const label = stand.kind === "food" ? "Food" : "Drink"
+              return (
+                <button
+                  type="button"
+                  className={`concession concession-${stand.kind}`}
+                  key={`concession:${stand.id}`}
+                  style={{
+                    left: position.left + 8,
+                    top: position.top - 42,
+                    zIndex: 610 + stand.x + stand.y,
+                  }}
+                  title={`${label} stand · ${money(stand.price_cents)} · ${stand.sales_today} sales today`}
+                  aria-label={`${label} stand ${stand.id}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    const game = gameRef.current
+                    if (tool === "bulldoze" && game) {
+                      perform(() => game.bulldoze(stand.x, stand.y))
+                      return
+                    }
+                    if (tool === "pan") return
+                    setSelectedGuestId(null)
+                    setSelectedHabitatId(null)
+                    setTool("select")
+                    setMessage(`${label} stand #${stand.id} · ${stand.sales_today} sales today`)
+                    setMessageKind("info")
+                  }}
+                >
+                  <span className="concession-awning" />
+                  <strong>{label}</strong>
+                  <small>{stand.kind === "food" ? "FOOD" : "DRINK"}</small>
+                  <span className="concession-counter" />
+                </button>
+              )
+            })}
+
             {snapshot.animals.map((animal) => {
               const position = isoPosition(animal.x, animal.y)
               const offset = (animal.slot % 3) - 1
@@ -910,7 +978,8 @@ export default function App() {
                   <li>Drag the path tool to extend the entrance route.</li>
                   <li>Choose Habitat and drag a closed rectangular fence around clear grass.</li>
                   <li>Select the enclosure and adopt one of the available species.</li>
-                  <li>Watch individual animals roam while guests arrive and pay admission.</li>
+                  <li>Place food and drink stands on clear grass beside busy paths.</li>
+                  <li>Watch guests buy refreshments while they move through the zoo.</li>
                 </ol>
                 <div className="finance-grid">
                   <span>Income today</span>
@@ -921,6 +990,8 @@ export default function App() {
                   <strong>{money(snapshot.finance.profit_today_cents)}</strong>
                   <span>Admission</span>
                   <strong>{money(snapshot.finance.admission_price_cents)}</strong>
+                  <span>Stand sales</span>
+                  <strong>{money(snapshot.finance.concession_revenue_today_cents)}</strong>
                 </div>
                 <h3>Guest complaints</h3>
                 <div className="complaint-grid">
@@ -973,6 +1044,18 @@ export default function App() {
             icon="⌗"
             label="Draw habitat"
             onClick={() => setTool("habitat")}
+          />
+          <ToolButton
+            active={tool === "food"}
+            icon="▰"
+            label="Food stand · $180"
+            onClick={() => setTool("food")}
+          />
+          <ToolButton
+            active={tool === "drink"}
+            icon="▥"
+            label="Drink stand · $140"
+            onClick={() => setTool("drink")}
           />
           <ToolButton
             active={tool === "bulldoze"}
