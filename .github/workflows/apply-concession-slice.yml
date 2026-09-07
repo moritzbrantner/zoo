@@ -24,7 +24,9 @@ jobs:
       - name: Apply source patch
         run: python scripts/apply-concession-slice.py
       - name: Rust format
-        run: cargo fmt --all --check
+        run: |
+          cargo fmt --all
+          cargo fmt --all --check
       - name: Rust lint
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Rust tests
