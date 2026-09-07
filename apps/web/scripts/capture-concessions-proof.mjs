@@ -106,42 +106,70 @@ try {
   }
 
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (await evaluate("Boolean(document.querySelector('.toolbar') && document.querySelector('[aria-label=\"grass tile 1, 6\"]'))")) break
+    if (
+      await evaluate(
+        "Boolean(document.querySelector('.toolbar') && document.querySelector('[aria-label=\"grass tile 1, 6\"]'))",
+      )
+    ) {
+      break
+    }
     if (attempt === 79) throw new Error("Zoo UI did not become ready")
     await sleep(250)
   }
 
-  const placed = await evaluate(`(() => {
-    const clickTool = (label) => {
+  const clickTool = async (label) => {
+    await evaluate(`(() => {
       const button = [...document.querySelectorAll('.tool')].find((candidate) =>
-        candidate.textContent.includes(label),
+        candidate.textContent.includes(${JSON.stringify(label)}),
       )
-      if (!button) throw new Error('Missing tool: ' + label)
+      if (!button) throw new Error('Missing tool: ' + ${JSON.stringify(label)})
       button.click()
+      return true
+    })()`)
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const active = await evaluate(
+        `Boolean(document.querySelector('.tool.active')?.textContent.includes(${JSON.stringify(label)}))`,
+      )
+      if (active) return
+      await sleep(50)
     }
-    const clickTile = (x, y) => {
-      const tile = document.querySelector('[aria-label="grass tile ' + x + ', ' + y + '"]')
-      if (!tile) throw new Error('Missing grass tile ' + x + ', ' + y)
-      tile.click()
-    }
-    clickTool('Drink stand')
-    clickTile(1, 6)
-    clickTool('Food stand')
-    clickTile(2, 6)
-    return true
-  })()`)
-  if (!placed) throw new Error("Concession placement script did not run")
+    throw new Error(`Tool did not become active: ${label}`)
+  }
 
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const result = await evaluate(`JSON.stringify({
+  const clickGrassTile = async (x, y) => {
+    const clicked = await evaluate(`(() => {
+      const tile = document.querySelector('[aria-label="grass tile ${x}, ${y}"]')
+      if (!tile) return false
+      tile.click()
+      return true
+    })()`)
+    if (!clicked) throw new Error(`Missing grass tile ${x}, ${y}`)
+  }
+
+  const waitForStand = async (kind) => {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (await evaluate(`Boolean(document.querySelector('.concession-${kind}'))`)) return
+      await sleep(100)
+    }
+    throw new Error(`${kind} stand did not render after placement`)
+  }
+
+  await clickTool("Drink stand")
+  await clickGrassTile(1, 6)
+  await waitForStand("drink")
+  await clickTool("Food stand")
+  await clickGrassTile(2, 6)
+  await waitForStand("food")
+
+  const finalState = JSON.parse(
+    await evaluate(`JSON.stringify({
       count: document.querySelectorAll('.concession').length,
       food: Boolean(document.querySelector('.concession-food')),
       drink: Boolean(document.querySelector('.concession-drink')),
-    })`)
-    const state = JSON.parse(result)
-    if (state.count === 2 && state.food && state.drink) break
-    if (attempt === 39) throw new Error(`Expected two rendered stands, got ${result}`)
-    await sleep(100)
+    })`),
+  )
+  if (finalState.count !== 2 || !finalState.food || !finalState.drink) {
+    throw new Error(`Expected two rendered stands, got ${JSON.stringify(finalState)}`)
   }
 
   mkdirSync("test-results", {recursive: true})
