@@ -5,17 +5,15 @@ on:
     branches: [feature/guest-concessions]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/guest-concessions
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -23,11 +21,18 @@ jobs:
         run: python scripts/apply-concession-slice.py
       - name: Format Rust
         run: cargo fmt --all
-      - name: Commit implementation
+      - name: Export generated source
         run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add crates/zoo-core/src/lib.rs apps/web/src/App.tsx apps/web/src/main.tsx apps/web/src/concessions.css apps/web/scripts/capture-concessions-proof.mjs .github/workflows/verify.yml
-          git diff --cached --quiet && exit 0
-          git commit -m 'gameplay: add guest food and drink stands'
-          git push origin HEAD:feature/guest-concessions
+          mkdir -p generated/crates/zoo-core/src generated/apps/web/src generated/apps/web/scripts generated/.github/workflows
+          cp crates/zoo-core/src/lib.rs generated/crates/zoo-core/src/lib.rs
+          cp apps/web/src/App.tsx generated/apps/web/src/App.tsx
+          cp apps/web/src/main.tsx generated/apps/web/src/main.tsx
+          cp apps/web/src/concessions.css generated/apps/web/src/concessions.css
+          cp apps/web/scripts/capture-concessions-proof.mjs generated/apps/web/scripts/capture-concessions-proof.mjs
+          cp .github/workflows/verify.yml generated/.github/workflows/verify.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: generated-concession-slice
+          path: generated
+          if-no-files-found: error
+          retention-days: 1
