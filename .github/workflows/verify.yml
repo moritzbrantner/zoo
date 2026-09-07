@@ -31,7 +31,7 @@ jobs:
       - name: Build web
         working-directory: apps/web
         run: bun run build
-      - name: Browser fence dogfood
+      - name: Browser visual dogfood
         if: github.event_name == 'pull_request'
         working-directory: apps/web
         run: |
@@ -49,12 +49,21 @@ jobs:
             sleep 1
           done
           bun scripts/capture-fence-proof.mjs
+          bun scripts/capture-park-frame-proof.mjs
       - name: Upload fence visual proof
         if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: zoo-fence-visual-proof
           path: apps/web/test-results/fence-rendering.png
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload park-frame visual proof
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: zoo-park-frame-visual-proof
+          path: apps/web/test-results/park-frame.png
           if-no-files-found: error
           retention-days: 7
       - name: Upload playable web preview

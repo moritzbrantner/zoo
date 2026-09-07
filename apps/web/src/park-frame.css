@@ -1,0 +1,246 @@
+.viewport {
+  background:
+    radial-gradient(circle at 32% 28%, rgb(255 255 255 / 5%), transparent 28%),
+    radial-gradient(circle at 72% 66%, rgb(26 58 38 / 28%), transparent 35%),
+    #355d42;
+}
+
+.park {
+  top: 60px;
+  background: none;
+}
+
+.park-outside-terrain {
+  display: none;
+}
+
+.park-border-tile {
+  position: absolute;
+  width: 58px;
+  height: 30px;
+  border: 0;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 35% 38%, rgb(255 255 255 / 8%) 0 5%, transparent 6%),
+    radial-gradient(circle at 68% 62%, rgb(41 76 40 / 18%) 0 8%, transparent 9%),
+    #5f8b4c;
+  box-shadow: inset 0 0 0 1px rgb(35 72 40 / 16%);
+}
+
+.park-border-tile[data-ring="2"] {
+  filter: saturate(0.88) brightness(0.94);
+}
+
+.park-border-tile[data-ring="3"] {
+  filter: saturate(0.76) brightness(0.88);
+}
+
+.park-border-tile[data-ring="4"] {
+  filter: saturate(0.65) brightness(0.82);
+}
+
+.park-border-approach {
+  background:
+    repeating-linear-gradient(28deg, transparent 0 6px, rgb(82 65 44 / 12%) 7px 8px),
+    #c7ad7c;
+  filter: none !important;
+}
+
+.park-boundary-fence {
+  position: absolute;
+  width: 33px;
+  height: 6px;
+  border-radius: 2px;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, #334b43 0 8px, #53675f 8px 10px);
+  box-shadow:
+    0 2px 0 #1f312b,
+    0 4px 5px rgb(0 0 0 / 22%);
+  transform-origin: 50% 50%;
+}
+
+.park-boundary-fence::before,
+.park-boundary-fence::after {
+  content: "";
+  position: absolute;
+  top: -8px;
+  width: 4px;
+  height: 17px;
+  border-radius: 2px 2px 0 0;
+  background: #2d443c;
+  box-shadow: 0 1px 0 #172620;
+  transform: rotate(var(--park-fence-post-angle, 0deg));
+  transform-origin: 50% 50%;
+}
+
+.park-boundary-fence::before {
+  left: 1px;
+}
+
+.park-boundary-fence::after {
+  right: 1px;
+}
+
+.park-boundary-fence-north {
+  --park-fence-post-angle: -27.35deg;
+  transform: translate(27px, 5px) rotate(27.35deg);
+}
+
+.park-boundary-fence-east {
+  --park-fence-post-angle: 27.35deg;
+  transform: translate(27px, 20px) rotate(-27.35deg);
+}
+
+.park-boundary-fence-south {
+  --park-fence-post-angle: -27.35deg;
+  transform: translate(-2px, 20px) rotate(27.35deg);
+}
+
+.park-boundary-fence-west {
+  --park-fence-post-angle: 27.35deg;
+  transform: translate(-2px, 5px) rotate(-27.35deg);
+}
+
+/* The previous floating arch is superseded by a gatehouse whose base is the entrance tile. */
+.entrance-gate {
+  display: none;
+}
+
+.tile-entrance {
+  background:
+    repeating-linear-gradient(28deg, transparent 0 6px, rgb(95 74 45 / 10%) 7px 8px),
+    #cbb180;
+  box-shadow: none;
+}
+
+.park-entrance-building {
+  position: absolute;
+  width: 58px;
+  height: 94px;
+  border: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 7px 4px rgb(18 32 25 / 32%));
+  transform-origin: 50% 100%;
+}
+
+.park-entrance-base {
+  position: absolute;
+  left: 0;
+  top: 64px;
+  width: 58px;
+  height: 30px;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  background:
+    repeating-linear-gradient(28deg, transparent 0 6px, rgb(94 72 45 / 14%) 7px 8px),
+    #c9b17f;
+  box-shadow: inset 0 0 0 2px rgb(103 76 43 / 24%);
+}
+
+.park-entrance-wing {
+  position: absolute;
+  top: 39px;
+  width: 17px;
+  height: 32px;
+  border: 2px solid #59432f;
+  background: linear-gradient(90deg, #b98b59, #d2ad77 58%, #9b7047);
+  box-shadow: inset 0 2px 0 rgb(255 255 255 / 22%);
+}
+
+.park-entrance-wing::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -10px;
+  width: 21px;
+  height: 12px;
+  border: 2px solid #5f3329;
+  clip-path: polygon(50% 0, 100% 42%, 88% 100%, 12% 100%, 0 42%);
+  background: #a9493d;
+}
+
+.park-entrance-wing-left {
+  left: 5px;
+  transform: skewY(10deg);
+}
+
+.park-entrance-wing-right {
+  right: 5px;
+  transform: skewY(-10deg);
+}
+
+.park-entrance-center {
+  position: absolute;
+  left: 18px;
+  top: 31px;
+  width: 22px;
+  height: 42px;
+  border: 2px solid #5a4330;
+  border-bottom-width: 3px;
+  background: linear-gradient(90deg, #c79b66, #e0bd86 54%, #a97a4e);
+  box-shadow: inset 0 2px 0 rgb(255 255 255 / 28%);
+}
+
+.park-entrance-roof {
+  position: absolute;
+  left: 13px;
+  top: 19px;
+  width: 32px;
+  height: 18px;
+  border: 2px solid #61372b;
+  clip-path: polygon(50% 0, 100% 52%, 84% 100%, 16% 100%, 0 52%);
+  background: linear-gradient(#c55a48, #9e3e35);
+  box-shadow: inset 0 3px 0 rgb(255 255 255 / 18%);
+}
+
+.park-entrance-sign {
+  position: absolute;
+  left: 13px;
+  top: 34px;
+  z-index: 3;
+  width: 32px;
+  height: 13px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #684a2c;
+  border-radius: 2px;
+  color: #4b3523;
+  background: #f2d675;
+  font-size: 8px;
+  font-weight: 1000;
+  letter-spacing: 0.13em;
+  text-indent: 0.13em;
+  box-shadow: 0 2px 0 rgb(58 39 23 / 20%);
+}
+
+.park-entrance-door {
+  position: absolute;
+  left: 23px;
+  top: 51px;
+  z-index: 4;
+  width: 12px;
+  height: 23px;
+  border: 2px solid #4d382a;
+  border-bottom: 0;
+  border-radius: 7px 7px 0 0;
+  background: #27443b;
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 7%);
+}
+
+.park-entrance-door::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 9px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #e3c66e;
+}
+
+@media (max-width: 900px) {
+  .park {
+    top: 48px;
+  }
+}
