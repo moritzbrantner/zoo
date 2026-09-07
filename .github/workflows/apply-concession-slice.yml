@@ -16,23 +16,57 @@ jobs:
           ref: feature/guest-concessions
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
       - name: Apply source patch
         run: python scripts/apply-concession-slice.py
-      - name: Format Rust
-        run: cargo fmt --all
+      - name: Rust format
+        run: cargo fmt --all --check
+      - name: Rust lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Rust tests
+        run: cargo test --workspace
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: bun install
+      - name: Build web
+        working-directory: apps/web
+        run: bun run build
+      - name: Browser concession dogfood
+        working-directory: apps/web
+        run: |
+          bun run preview -- --host 127.0.0.1 --port 4173 > /tmp/zoo-preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              cat /tmp/zoo-preview.log
+              exit 1
+            fi
+            sleep 1
+          done
+          bun scripts/capture-concessions-proof.mjs
       - name: Export generated source
         run: |
-          mkdir -p generated/crates/zoo-core/src generated/apps/web/src generated/apps/web/scripts generated/.github/workflows
+          mkdir -p generated/crates/zoo-core/src generated/apps/web/src generated/apps/web/scripts
           cp crates/zoo-core/src/lib.rs generated/crates/zoo-core/src/lib.rs
           cp apps/web/src/App.tsx generated/apps/web/src/App.tsx
           cp apps/web/src/main.tsx generated/apps/web/src/main.tsx
           cp apps/web/src/concessions.css generated/apps/web/src/concessions.css
           cp apps/web/scripts/capture-concessions-proof.mjs generated/apps/web/scripts/capture-concessions-proof.mjs
-          cp .github/workflows/verify.yml generated/.github/workflows/verify.yml
       - uses: actions/upload-artifact@v4
         with:
-          name: generated-concession-slice
-          path: generated
+          name: validated-concession-slice
+          path: |
+            generated
+            apps/web/test-results/concessions.png
           if-no-files-found: error
           retention-days: 1
