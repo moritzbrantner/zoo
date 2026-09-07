@@ -50,6 +50,7 @@ jobs:
           done
           bun scripts/capture-fence-proof.mjs
           bun scripts/capture-park-frame-proof.mjs
+          bun scripts/capture-concessions-proof.mjs
       - name: Upload fence visual proof
         if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
@@ -64,6 +65,14 @@ jobs:
         with:
           name: zoo-park-frame-visual-proof
           path: apps/web/test-results/park-frame.png
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload concession visual proof
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: zoo-concession-visual-proof
+          path: apps/web/test-results/concessions.png
           if-no-files-found: error
           retention-days: 7
       - name: Upload playable web preview

@@ -20,6 +20,12 @@ const WATER_REFILL_COST: i64 = 800;
 const CLEAN_HABITAT_COST: i64 = 2_000;
 const SHELTER_COST: i64 = 12_000;
 const CARE_DECAY_INTERVAL_MINUTES: u32 = 15;
+const FOOD_STAND_BUILD_COST: i64 = 18_000;
+const DRINK_STAND_BUILD_COST: i64 = 14_000;
+const FOOD_PRICE: i64 = 500;
+const DRINK_PRICE: i64 = 350;
+const FOOD_BUY_THRESHOLD: u32 = 20;
+const DRINK_BUY_THRESHOLD: u32 = 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -28,12 +34,69 @@ enum TileKind {
     Path,
     Entrance,
     Habitat(u32),
+    Concession(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 struct Position {
     x: u32,
     y: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ConcessionKind {
+    Food,
+    Drink,
+}
+
+impl ConcessionKind {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "food" => Some(Self::Food),
+            "drink" => Some(Self::Drink),
+            _ => None,
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Food => "food",
+            Self::Drink => "drink",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Food => "Food stand",
+            Self::Drink => "Drink stand",
+        }
+    }
+
+    fn build_cost(self) -> i64 {
+        match self {
+            Self::Food => FOOD_STAND_BUILD_COST,
+            Self::Drink => DRINK_STAND_BUILD_COST,
+        }
+    }
+
+    fn price_cents(self) -> i64 {
+        match self {
+            Self::Food => FOOD_PRICE,
+            Self::Drink => DRINK_PRICE,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Concession {
+    id: u32,
+    x: u32,
+    y: u32,
+    kind: ConcessionKind,
+    sales_today: u32,
+    total_sales: u32,
+    total_revenue_cents: i64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -372,6 +435,8 @@ struct Guest {
     route_index: usize,
     viewing_minutes: u32,
     arrival_steps: u8,
+    bought_food: bool,
+    bought_drink: bool,
 }
 
 impl Guest {
@@ -504,18 +569,21 @@ struct GameState {
     height: u32,
     tiles: Vec<TileKind>,
     habitats: Vec<Habitat>,
+    concessions: Vec<Concession>,
     guests: Vec<Guest>,
     cash_cents: i64,
     day: u32,
     minute_of_day: u32,
     rating: u32,
     next_habitat_id: u32,
+    next_concession_id: u32,
     next_guest_id: u32,
     spawn_accumulator: u32,
     upkeep_accumulator: u32,
     movement_accumulator: u32,
     income_today_cents: i64,
     expenses_today_cents: i64,
+    concession_revenue_today_cents: i64,
 }
 
 impl Default for GameState {
@@ -525,18 +593,21 @@ impl Default for GameState {
             height: HEIGHT,
             tiles: vec![TileKind::Grass; (WIDTH * HEIGHT) as usize],
             habitats: Vec::new(),
+            concessions: Vec::new(),
             guests: Vec::new(),
             cash_cents: 5_000_000,
             day: 1,
             minute_of_day: 9 * 60,
             rating: 400,
             next_habitat_id: 1,
+            next_concession_id: 1,
             next_guest_id: 1,
             spawn_accumulator: 0,
             upkeep_accumulator: 0,
             movement_accumulator: 0,
             income_today_cents: 0,
             expenses_today_cents: 0,
+            concession_revenue_today_cents: 0,
         };
 
         state.set_tile(ENTRANCE_X, ENTRANCE_Y, TileKind::Entrance);
@@ -577,6 +648,9 @@ impl GameState {
             Some(TileKind::Path) => ActionResult::ok("Path already exists"),
             Some(TileKind::Entrance) => ActionResult::ok("The entrance already acts as a path"),
             Some(TileKind::Habitat(_)) => ActionResult::error("A habitat occupies that tile"),
+            Some(TileKind::Concession(_)) => {
+                ActionResult::error("A concession stand occupies that tile")
+            }
             Some(TileKind::Grass) => match self.spend(PATH_COST) {
                 Ok(()) => {
                     self.set_tile(x, y, TileKind::Path);
@@ -585,6 +659,62 @@ impl GameState {
                 Err(message) => ActionResult::error(message),
             },
         }
+    }
+
+    fn place_concession(&mut self, x: u32, y: u32, kind_name: &str) -> ActionResult {
+        let Some(kind) = ConcessionKind::parse(kind_name) else {
+            return ActionResult::error("Unknown concession type");
+        };
+
+        match self.tile(x, y) {
+            None => return ActionResult::error("That tile is outside the park"),
+            Some(TileKind::Concession(id)) => {
+                let Some(existing) = self.concessions.iter().find(|stand| stand.id == id) else {
+                    return ActionResult::error("The concession tile is inconsistent");
+                };
+                if existing.kind == kind {
+                    return ActionResult::ok(format!("{} already stands here", kind.label()));
+                }
+                return ActionResult::error(
+                    "A different concession stand already occupies that tile",
+                );
+            }
+            Some(TileKind::Path) | Some(TileKind::Entrance) => {
+                return ActionResult::error("Build the stand on grass beside the path");
+            }
+            Some(TileKind::Habitat(_)) => {
+                return ActionResult::error("A habitat occupies that tile");
+            }
+            Some(TileKind::Grass) => {}
+        }
+
+        let position = Position { x, y };
+        let touches_path = self
+            .neighbors(position)
+            .into_iter()
+            .any(|neighbor| self.is_walkable(neighbor));
+        if !touches_path {
+            return ActionResult::error("Concession stands must touch a guest path");
+        }
+
+        if let Err(message) = self.spend(kind.build_cost()) {
+            return ActionResult::error(message);
+        }
+
+        let id = self.next_concession_id;
+        self.next_concession_id += 1;
+        self.set_tile(x, y, TileKind::Concession(id));
+        self.concessions.push(Concession {
+            id,
+            x,
+            y,
+            kind,
+            sales_today: 0,
+            total_sales: 0,
+            total_revenue_cents: 0,
+        });
+
+        ActionResult::ok(format!("{} #{id} built beside the path", kind.label()))
     }
 
     fn evaluate_habitat_rect(&self, ax: u32, ay: u32, bx: u32, by: u32) -> PlacementEvaluation {
@@ -766,6 +896,11 @@ impl GameState {
                 self.set_tile(x, y, TileKind::Grass);
                 ActionResult::ok("Path removed")
             }
+            Some(TileKind::Concession(id)) => {
+                self.set_tile(x, y, TileKind::Grass);
+                self.concessions.retain(|stand| stand.id != id);
+                ActionResult::ok(format!("Concession stand #{id} removed"))
+            }
             Some(TileKind::Habitat(id)) => {
                 for tile_y in 0..self.height {
                     for tile_x in 0..self.width {
@@ -894,6 +1029,10 @@ impl GameState {
                 self.day += 1;
                 self.income_today_cents = 0;
                 self.expenses_today_cents = 0;
+                self.concession_revenue_today_cents = 0;
+                for stand in &mut self.concessions {
+                    stand.sales_today = 0;
+                }
             }
 
             self.spawn_accumulator += 1;
@@ -983,8 +1122,8 @@ impl GameState {
             y: start.y,
             happiness: 78,
             energy: 90,
-            hunger: 10,
-            thirst: 8,
+            hunger: 18,
+            thirst: 16,
             value_perception: 68,
             minutes_in_park: 0,
             target_habitat,
@@ -993,6 +1132,8 @@ impl GameState {
             route_index: 0,
             viewing_minutes: 0,
             arrival_steps: 2,
+            bought_food: false,
+            bought_drink: false,
         });
         self.next_guest_id += 1;
     }
@@ -1076,6 +1217,94 @@ impl GameState {
         if !leave_ids.is_empty() {
             self.guests.retain(|guest| !leave_ids.contains(&guest.id));
         }
+        self.serve_concessions();
+    }
+
+    fn serve_concessions(&mut self) {
+        for guest_index in 0..self.guests.len() {
+            let (position, state, hunger, thirst, bought_food, bought_drink) = {
+                let guest = &self.guests[guest_index];
+                (
+                    Position {
+                        x: guest.x,
+                        y: guest.y,
+                    },
+                    guest.state,
+                    guest.hunger,
+                    guest.thirst,
+                    guest.bought_food,
+                    guest.bought_drink,
+                )
+            };
+
+            if !matches!(
+                state,
+                GuestState::WalkingToHabitat | GuestState::WalkingToExit
+            ) {
+                continue;
+            }
+
+            let adjacent_ids: Vec<u32> = self
+                .neighbors(position)
+                .into_iter()
+                .filter_map(|neighbor| match self.tile(neighbor.x, neighbor.y) {
+                    Some(TileKind::Concession(id)) => Some(id),
+                    _ => None,
+                })
+                .collect();
+            if adjacent_ids.is_empty() {
+                continue;
+            }
+
+            let drink_choice = (!bought_drink && thirst >= DRINK_BUY_THRESHOLD)
+                .then(|| {
+                    adjacent_ids.iter().find_map(|id| {
+                        self.concessions.iter().position(|stand| {
+                            stand.id == *id && stand.kind == ConcessionKind::Drink
+                        })
+                    })
+                })
+                .flatten();
+            let food_choice = (!bought_food && hunger >= FOOD_BUY_THRESHOLD)
+                .then(|| {
+                    adjacent_ids.iter().find_map(|id| {
+                        self.concessions
+                            .iter()
+                            .position(|stand| stand.id == *id && stand.kind == ConcessionKind::Food)
+                    })
+                })
+                .flatten();
+            let Some(concession_index) = drink_choice.or(food_choice) else {
+                continue;
+            };
+
+            let kind = self.concessions[concession_index].kind;
+            let price = kind.price_cents();
+            self.cash_cents += price;
+            self.income_today_cents += price;
+            self.concession_revenue_today_cents += price;
+            {
+                let stand = &mut self.concessions[concession_index];
+                stand.sales_today += 1;
+                stand.total_sales += 1;
+                stand.total_revenue_cents += price;
+            }
+            {
+                let guest = &mut self.guests[guest_index];
+                match kind {
+                    ConcessionKind::Food => {
+                        guest.hunger = guest.hunger.saturating_sub(55);
+                        guest.bought_food = true;
+                    }
+                    ConcessionKind::Drink => {
+                        guest.thirst = guest.thirst.saturating_sub(55);
+                        guest.bought_drink = true;
+                    }
+                }
+                guest.happiness = guest.happiness.saturating_add(3).min(100);
+                guest.value_perception = guest.value_perception.saturating_add(2).min(100);
+            }
+        }
     }
 
     fn advance_viewing(&mut self) {
@@ -1120,7 +1349,10 @@ impl GameState {
             .iter()
             .map(|habitat| i64::from(habitat.fence_length()))
             .sum();
-        let upkeep = self.habitats.len() as i64 * 250 + animal_count * 125 + fence_count * 8;
+        let upkeep = self.habitats.len() as i64 * 250
+            + animal_count * 125
+            + fence_count * 8
+            + self.concessions.len() as i64 * 50;
         self.cash_cents -= upkeep;
         self.expenses_today_cents += upkeep;
     }
@@ -1319,9 +1551,14 @@ impl GameState {
                     TileKind::Path => "path",
                     TileKind::Entrance => "entrance",
                     TileKind::Habitat(_) => "habitat",
+                    TileKind::Concession(_) => "concession",
                 };
                 let habitat_id = match self.tile(x, y) {
                     Some(TileKind::Habitat(id)) => Some(id),
+                    _ => None,
+                };
+                let concession_id = match self.tile(x, y) {
+                    Some(TileKind::Concession(id)) => Some(id),
                     _ => None,
                 };
                 tiles.push(TileView {
@@ -1329,6 +1566,7 @@ impl GameState {
                     y,
                     kind: kind.to_owned(),
                     habitat_id,
+                    concession_id,
                 });
             }
         }
@@ -1360,6 +1598,22 @@ impl GameState {
                 has_shelter: habitat.has_shelter,
                 care_status: habitat.care_status(),
                 appeal: habitat.appeal(),
+            })
+            .collect();
+
+        let concessions = self
+            .concessions
+            .iter()
+            .map(|stand| ConcessionView {
+                id: stand.id,
+                x: stand.x,
+                y: stand.y,
+                kind: stand.kind.key().to_owned(),
+                build_cost_cents: stand.kind.build_cost(),
+                price_cents: stand.kind.price_cents(),
+                sales_today: stand.sales_today,
+                total_sales: stand.total_sales,
+                total_revenue_cents: stand.total_revenue_cents,
             })
             .collect();
 
@@ -1396,6 +1650,7 @@ impl GameState {
             },
             tiles,
             habitats,
+            concessions,
             animals: self.animal_views(),
             guests,
             species_catalog: self.species_catalog(),
@@ -1405,6 +1660,7 @@ impl GameState {
                 expenses_today_cents: self.expenses_today_cents,
                 profit_today_cents: self.income_today_cents - self.expenses_today_cents,
                 admission_price_cents: ADMISSION_PRICE,
+                concession_revenue_today_cents: self.concession_revenue_today_cents,
             },
         }
     }
@@ -1416,6 +1672,20 @@ struct TileView {
     y: u32,
     kind: String,
     habitat_id: Option<u32>,
+    concession_id: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct ConcessionView {
+    id: u32,
+    x: u32,
+    y: u32,
+    kind: String,
+    build_cost_cents: i64,
+    price_cents: i64,
+    sales_today: u32,
+    total_sales: u32,
+    total_revenue_cents: i64,
 }
 
 #[derive(Serialize)]
@@ -1502,6 +1772,7 @@ struct FinanceView {
     expenses_today_cents: i64,
     profit_today_cents: i64,
     admission_price_cents: i64,
+    concession_revenue_today_cents: i64,
 }
 
 #[derive(Serialize)]
@@ -1516,6 +1787,7 @@ struct Snapshot {
     entrance: EntranceView,
     tiles: Vec<TileView>,
     habitats: Vec<HabitatView>,
+    concessions: Vec<ConcessionView>,
     animals: Vec<AnimalView>,
     guests: Vec<GuestView>,
     species_catalog: Vec<SpeciesOfferView>,
@@ -1573,6 +1845,10 @@ impl ZooGame {
 
     pub fn place_path(&mut self, x: u32, y: u32) -> String {
         self.state.place_path(x, y).json()
+    }
+
+    pub fn place_concession(&mut self, x: u32, y: u32, kind: String) -> String {
+        self.state.place_concession(x, y, &kind).json()
     }
 
     pub fn evaluate_habitat_rect(&self, ax: u32, ay: u32, bx: u32, by: u32) -> String {
@@ -1800,6 +2076,60 @@ mod tests {
         assert_eq!(after_first, before - FOOD_RESTOCK_COST);
         assert!(state.feed_habitat(habitat_id).ok);
         assert_eq!(state.cash_cents, after_first);
+    }
+
+    #[test]
+    fn concession_placement_requires_path_and_is_idempotent() {
+        let mut state = GameState::default();
+        let before = state.cash_cents;
+
+        assert!(state.place_concession(1, ENTRANCE_Y - 1, "food").ok);
+        assert_eq!(state.cash_cents, before - FOOD_STAND_BUILD_COST);
+        assert_eq!(state.concessions.len(), 1);
+
+        assert!(state.place_concession(1, ENTRANCE_Y - 1, "food").ok);
+        assert_eq!(state.cash_cents, before - FOOD_STAND_BUILD_COST);
+        assert_eq!(state.concessions.len(), 1);
+
+        let disconnected = state.place_concession(12, 2, "drink");
+        assert!(!disconnected.ok);
+        assert_eq!(
+            disconnected.message,
+            "Concession stands must touch a guest path"
+        );
+    }
+
+    #[test]
+    fn guests_buy_food_and_drinks_from_pathside_stands() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        assert!(state.place_concession(1, ENTRANCE_Y - 1, "drink").ok);
+        assert!(state.place_concession(2, ENTRANCE_Y - 1, "food").ok);
+
+        state.tick(40);
+
+        let drink = state
+            .concessions
+            .iter()
+            .find(|stand| stand.kind == ConcessionKind::Drink)
+            .unwrap();
+        let food = state
+            .concessions
+            .iter()
+            .find(|stand| stand.kind == ConcessionKind::Food)
+            .unwrap();
+        assert_eq!(drink.total_sales, 1);
+        assert_eq!(food.total_sales, 1);
+        assert_eq!(
+            state.concession_revenue_today_cents,
+            DRINK_PRICE + FOOD_PRICE
+        );
+        assert!(state.guests[0].bought_drink);
+        assert!(state.guests[0].bought_food);
+        assert!(state.guests[0].hunger < FOOD_BUY_THRESHOLD);
+        assert!(state.guests[0].thirst < DRINK_BUY_THRESHOLD);
     }
 
     #[test]

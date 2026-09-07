@@ -1,0 +1,83 @@
+.tile-concession {
+  background:
+    radial-gradient(circle at 42% 40%, rgb(255 255 255 / 9%) 0 7%, transparent 8%),
+    #74ad50;
+}
+
+.concession {
+  position: absolute;
+  width: 46px;
+  min-width: 46px;
+  height: 48px;
+  padding: 0;
+  border: 2px solid #493722;
+  border-radius: 3px 3px 5px 5px;
+  color: #2d2419;
+  cursor: pointer;
+  box-shadow:
+    0 6px 0 rgb(56 48 31 / 28%),
+    inset 0 2px 0 rgb(255 255 255 / 35%);
+  transform: skewY(-3deg);
+}
+
+.concession:hover {
+  filter: brightness(1.08);
+  transform: translateY(-2px) skewY(-3deg);
+}
+
+.concession-food {
+  background: #e7b957;
+}
+
+.concession-drink {
+  background: #87c7d8;
+}
+
+.concession-awning {
+  position: absolute;
+  left: -5px;
+  top: -9px;
+  width: 52px;
+  height: 12px;
+  border: 2px solid #493722;
+  border-radius: 3px 3px 1px 1px;
+  background: repeating-linear-gradient(90deg, #f4efe2 0 8px, #b94f3d 8px 16px);
+  box-shadow: 0 2px 0 rgb(58 43 25 / 22%);
+}
+
+.concession-drink .concession-awning {
+  background: repeating-linear-gradient(90deg, #f4efe2 0 8px, #4c8faf 8px 16px);
+}
+
+.concession strong,
+.concession small {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  text-align: center;
+  line-height: 1;
+}
+
+.concession strong {
+  top: 8px;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.concession small {
+  top: 21px;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.7px;
+}
+
+.concession-counter {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 5px;
+  height: 9px;
+  border: 1px solid #493722;
+  background: #f1e5cc;
+  box-shadow: inset 0 -3px 0 rgb(73 55 34 / 14%);
+}
