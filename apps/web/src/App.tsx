@@ -49,6 +49,9 @@ type Habitat = Point & {
   water: number
   cleanliness: number
   has_shelter: boolean
+  keeper_id: number | null
+  next_feed_delivery_in_minutes: number | null
+  feeding_status: string
   care_status: string
   appeal: number
 }
@@ -69,6 +72,22 @@ type Concession = Point & {
   sales_today: number
   total_sales: number
   total_revenue_cents: number
+}
+
+type Keeper = {
+  id: number
+  assigned_habitat_id: number | null
+  deliveries_completed: number
+  status: string
+}
+
+type AnimalCareDepot = Point & {
+  feed_crates: number
+  feed_batch_crates: number
+  feed_batch_cost_cents: number
+  keeper_hire_cost_cents: number
+  keeper_hourly_wage_cents: number
+  keepers: Keeper[]
 }
 
 type Guest = Point & {
@@ -108,6 +127,7 @@ type Snapshot = {
   tiles: Tile[]
   habitats: Habitat[]
   concessions: Concession[]
+  animal_care_depot: AnimalCareDepot
   animals: Animal[]
   guests: Guest[]
   species_catalog: SpeciesOffer[]
@@ -259,11 +279,12 @@ export default function App() {
   const [tool, setTool] = useState<Tool>("select")
   const [speed, setSpeed] = useState<Speed>(1)
   const [message, setMessage] = useState(
-    "Extend the entrance path, draw a fenced habitat, then adopt animals.",
+    "Extend the entrance path, draw a habitat, then stock and staff it through the care depot.",
   )
   const [messageKind, setMessageKind] = useState<"info" | "error">("info")
   const [selectedHabitatId, setSelectedHabitatId] = useState<number | null>(null)
   const [selectedGuestId, setSelectedGuestId] = useState<number | null>(null)
+  const [selectedDepot, setSelectedDepot] = useState(false)
   const [hoveredTile, setHoveredTile] = useState<Point | null>(null)
   const [fenceStart, setFenceStart] = useState<Point | null>(null)
   const [fenceEnd, setFenceEnd] = useState<Point | null>(null)
@@ -414,6 +435,7 @@ export default function App() {
 
     if (tool === "select") {
       setSelectedGuestId(null)
+      setSelectedDepot(false)
       setSelectedHabitatId(tile.habitat_id)
       const stand = snapshot?.concessions.find((candidate) => candidate.id === tile.concession_id)
       setMessage(
@@ -471,13 +493,30 @@ export default function App() {
     perform(() => game.adopt(selectedHabitatId, species))
   }
 
-  const careForHabitat = (action: "feed" | "water" | "clean" | "shelter") => {
+  const careForHabitat = (action: "water" | "clean" | "shelter") => {
     const game = gameRef.current
     if (!game || selectedHabitatId === null) return
-    if (action === "feed") perform(() => game.feed_habitat(selectedHabitatId))
     if (action === "water") perform(() => game.refill_water(selectedHabitatId))
     if (action === "clean") perform(() => game.clean_habitat(selectedHabitatId))
     if (action === "shelter") perform(() => game.add_shelter(selectedHabitatId))
+  }
+
+  const scheduleKeeper = () => {
+    const game = gameRef.current
+    if (!game || selectedHabitatId === null) return
+    perform(() => game.schedule_keeper(selectedHabitatId))
+  }
+
+  const buyAnimalFeed = () => {
+    const game = gameRef.current
+    if (!game) return
+    perform(() => game.buy_animal_feed())
+  }
+
+  const hireKeeper = () => {
+    const game = gameRef.current
+    if (!game) return
+    perform(() => game.hire_keeper())
   }
 
   const reset = () => {
@@ -485,6 +524,7 @@ export default function App() {
     setTool("select")
     setSelectedHabitatId(null)
     setSelectedGuestId(null)
+    setSelectedDepot(false)
     setHoveredTile(null)
     setFenceStart(null)
     setFenceEnd(null)
@@ -695,6 +735,44 @@ export default function App() {
               <span className="turnstile" />
             </div>
 
+            {(() => {
+              const depot = snapshot.animal_care_depot
+              const position = isoPosition(depot.x, depot.y)
+              return (
+                <button
+                  type="button"
+                  className="care-depot"
+                  style={{
+                    left: position.left + 4,
+                    top: position.top - 54,
+                    zIndex: 640 + depot.x + depot.y,
+                  }}
+                  title={`${depot.feed_crates} animal-feed crates · ${depot.keepers.length} keepers`}
+                  aria-label="Animal care depot"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    if (tool === "pan") return
+                    if (tool === "bulldoze") {
+                      setMessage("The central animal-care depot cannot be demolished.")
+                      setMessageKind("error")
+                      return
+                    }
+                    setSelectedGuestId(null)
+                    setSelectedHabitatId(null)
+                    setSelectedDepot(true)
+                    setTool("select")
+                    setMessage("Animal care depot selected · buy feed and hire keepers here.")
+                    setMessageKind("info")
+                  }}
+                >
+                  <span className="concession-awning" />
+                  <strong>Care</strong>
+                  <small>DEPOT</small>
+                  <span className="concession-counter" />
+                </button>
+              )
+            })()}
+
             {snapshot.concessions.map((stand) => {
               const position = isoPosition(stand.x, stand.y)
               const label = stand.kind === "food" ? "Food" : "Drink"
@@ -720,6 +798,7 @@ export default function App() {
                     if (tool === "pan") return
                     setSelectedGuestId(null)
                     setSelectedHabitatId(null)
+                    setSelectedDepot(false)
                     setTool("select")
                     setMessage(`${label} stand #${stand.id} · ${stand.sales_today} sales today`)
                     setMessageKind("info")
@@ -754,6 +833,7 @@ export default function App() {
                     if (tool === "pan") return
                     setSelectedGuestId(null)
                     setSelectedHabitatId(animal.habitat_id)
+                    setSelectedDepot(false)
                     setTool("select")
                   }}
                 >
@@ -783,6 +863,7 @@ export default function App() {
                       if (tool === "pan") return
                       setSelectedGuestId(null)
                       setSelectedHabitatId(habitat.id)
+                      setSelectedDepot(false)
                       setTool("select")
                     }}
                     title={`Habitat #${habitat.id}: empty`}
@@ -811,6 +892,7 @@ export default function App() {
                     if (tool === "pan") return
                     setSelectedGuestId(guest.id)
                     setSelectedHabitatId(null)
+                    setSelectedDepot(false)
                     setTool("select")
                   }}
                 >
@@ -823,7 +905,64 @@ export default function App() {
         </div>
 
         <aside className="side-panel bevel">
-          {selectedGuest ? (
+          {selectedDepot ? (
+            <>
+              <div className="window-title">
+                <span>Animal care depot</span>
+                <button onClick={() => setSelectedDepot(false)}>×</button>
+              </div>
+              <div className="manager-card">
+                <div className="guest-thought">
+                  Animal feed and keeper staffing are dispatched from this central facility.
+                </div>
+                <dl>
+                  <div>
+                    <dt>Feed stock</dt>
+                    <dd>{snapshot.animal_care_depot.feed_crates} crates</dd>
+                  </div>
+                  <div>
+                    <dt>Keepers</dt>
+                    <dd>{snapshot.animal_care_depot.keepers.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Wage / keeper</dt>
+                    <dd>{money(snapshot.animal_care_depot.keeper_hourly_wage_cents)}/hr</dd>
+                  </div>
+                </dl>
+                <button className="shop-row" onClick={buyAnimalFeed}>
+                  <span>
+                    <b>Buy {snapshot.animal_care_depot.feed_batch_crates} feed crates</b>
+                    <small>Stock used by scheduled habitat food runs</small>
+                  </span>
+                  <strong>{money(snapshot.animal_care_depot.feed_batch_cost_cents)}</strong>
+                </button>
+                <button className="shop-row" onClick={hireKeeper}>
+                  <span>
+                    <b>Hire keeper</b>
+                    <small>One keeper can currently serve one habitat</small>
+                  </span>
+                  <strong>{money(snapshot.animal_care_depot.keeper_hire_cost_cents)}</strong>
+                </button>
+                <h3>Keeper schedule</h3>
+                {snapshot.animal_care_depot.keepers.length === 0 ? (
+                  <div className="guest-thought">No keepers hired yet.</div>
+                ) : (
+                  snapshot.animal_care_depot.keepers.map((keeper) => (
+                    <dl key={keeper.id}>
+                      <div>
+                        <dt>Keeper #{keeper.id}</dt>
+                        <dd>{keeper.status}</dd>
+                      </div>
+                      <div>
+                        <dt>Food deliveries</dt>
+                        <dd>{keeper.deliveries_completed}</dd>
+                      </div>
+                    </dl>
+                  ))
+                )}
+              </div>
+            </>
+          ) : selectedGuest ? (
             <>
               <div className="window-title">
                 <span>Guest #{selectedGuest.id}</span>
@@ -905,6 +1044,33 @@ export default function App() {
 
                 <h3>Care</h3>
                 <div className="guest-thought">{selectedHabitat.care_status}</div>
+                <dl>
+                  <div>
+                    <dt>Food keeper</dt>
+                    <dd>
+                      {selectedHabitat.keeper_id === null
+                        ? "Not scheduled"
+                        : `Keeper #${selectedHabitat.keeper_id}`}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Next food run</dt>
+                    <dd>
+                      {selectedHabitat.next_feed_delivery_in_minutes === null
+                        ? "Not scheduled"
+                        : `${selectedHabitat.next_feed_delivery_in_minutes} min`}
+                    </dd>
+                  </div>
+                </dl>
+                <div className="guest-thought">{selectedHabitat.feeding_status}</div>
+                {selectedHabitat.keeper_id === null && (
+                  <button className="shop-row" onClick={scheduleKeeper}>
+                    <span>
+                      <b>Schedule available keeper</b>
+                      <small>Hire keepers at the central care depot first</small>
+                    </span>
+                  </button>
+                )}
                 <NeedBar label="Food" value={selectedHabitat.food} />
                 <NeedBar label="Water" value={selectedHabitat.water} />
                 <NeedBar label="Cleanliness" value={selectedHabitat.cleanliness} />
@@ -914,12 +1080,6 @@ export default function App() {
                     <dd>{selectedHabitat.has_shelter ? "Installed" : "Missing"}</dd>
                   </div>
                 </dl>
-                <button className="shop-row" onClick={() => careForHabitat("feed")}>
-                  <span>
-                    <b>Restock food</b>
-                    <small>Fill habitat food stores</small>
-                  </span>
-                </button>
                 <button className="shop-row" onClick={() => careForHabitat("water")}>
                   <span>
                     <b>Refill water</b>
@@ -940,15 +1100,21 @@ export default function App() {
                 </button>
 
                 <h3>Adopt animal</h3>
+                {selectedHabitat.keeper_id === null && (
+                  <div className="guest-thought">
+                    Schedule a keeper before animals can move into this habitat.
+                  </div>
+                )}
                 {snapshot.species_catalog.map((offer) => {
                   const wrongSpecies =
                     selectedHabitat.species !== null && selectedHabitat.species !== offer.key
                   const full = selectedHabitat.animals >= selectedHabitat.capacity
+                  const unstaffed = selectedHabitat.keeper_id === null
                   return (
                     <button
                       className="shop-row species-row"
                       key={offer.key}
-                      disabled={wrongSpecies || full}
+                      disabled={wrongSpecies || full || unstaffed}
                       onClick={() => adopt(offer.key)}
                     >
                       <span className="species-offer">
@@ -977,9 +1143,11 @@ export default function App() {
                   <li>Guests enter through the gate on the west edge.</li>
                   <li>Drag the path tool to extend the entrance route.</li>
                   <li>Choose Habitat and drag a closed rectangular fence around clear grass.</li>
-                  <li>Select the enclosure and adopt one of the available species.</li>
-                  <li>Place food and drink stands on clear grass beside busy paths.</li>
-                  <li>Watch guests buy refreshments while they move through the zoo.</li>
+                  <li>Open the care depot, buy animal feed, and hire a keeper.</li>
+                  <li>Select the enclosure and schedule an available keeper.</li>
+                  <li>Adopt animals after the habitat has a food-delivery schedule.</li>
+                  <li>Place guest food and drink stands on clear grass beside busy paths.</li>
+                  <li>Watch keepers maintain feed stock while guests buy refreshments.</li>
                 </ol>
                 <div className="finance-grid">
                   <span>Income today</span>

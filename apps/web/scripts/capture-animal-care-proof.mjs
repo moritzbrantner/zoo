@@ -2,7 +2,7 @@ import {spawn} from "node:child_process"
 import {existsSync, mkdirSync, rmSync, writeFileSync} from "node:fs"
 
 const previewUrl = "http://127.0.0.1:4173/"
-const debuggingPort = 9224
+const debuggingPort = 9225
 const chromeCandidates = [
   process.env.CHROME_PATH,
   "/usr/bin/google-chrome",
@@ -16,7 +16,7 @@ if (!chromePath) {
   throw new Error(`No Chrome/Chromium binary found. Checked: ${chromeCandidates.join(", ")}`)
 }
 
-const profileDir = `/tmp/zoo-concession-proof-${process.pid}`
+const profileDir = `/tmp/zoo-animal-care-proof-${process.pid}`
 rmSync(profileDir, {recursive: true, force: true})
 const chrome = spawn(
   chromePath,
@@ -106,76 +106,50 @@ try {
   }
 
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (
-      await evaluate(
-        "Boolean(document.querySelector('.toolbar') && document.querySelector('[aria-label=\"grass tile 1, 6\"]'))",
-      )
-    ) {
-      break
-    }
-    if (attempt === 79) throw new Error("Zoo UI did not become ready")
+    if (await evaluate("Boolean(document.querySelector('.care-depot'))")) break
+    if (attempt === 79) throw new Error("Animal care depot did not render")
     await sleep(250)
   }
 
-  const clickTool = async (label) => {
-    await evaluate(`(() => {
-      const button = [...document.querySelectorAll('.tool')].find((candidate) =>
+  await evaluate("document.querySelector('.care-depot').click(); true")
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (await evaluate("document.body.textContent.includes('Animal care depot')")) break
+    if (attempt === 39) throw new Error("Animal care depot panel did not open")
+    await sleep(100)
+  }
+
+  const clickPanelButton = async (label) => {
+    const clicked = await evaluate(`(() => {
+      const button = [...document.querySelectorAll('.side-panel button')].find((candidate) =>
         candidate.textContent.includes(${JSON.stringify(label)}),
       )
-      if (!button) throw new Error('Missing tool: ' + ${JSON.stringify(label)})
+      if (!button) return false
       button.click()
       return true
     })()`)
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const active = await evaluate(
-        `Boolean(document.querySelector('.tool.active')?.textContent.includes(${JSON.stringify(label)}))`,
-      )
-      if (active) return
-      await sleep(50)
-    }
-    throw new Error(`Tool did not become active: ${label}`)
+    if (!clicked) throw new Error(`Missing animal-care action: ${label}`)
+    await sleep(100)
   }
 
-  const clickGrassTile = async (x, y) => {
-    const clicked = await evaluate(`(() => {
-      const tile = document.querySelector('[aria-label="grass tile ${x}, ${y}"]')
-      if (!tile) return false
-      tile.click()
-      return true
-    })()`)
-    if (!clicked) throw new Error(`Missing grass tile ${x}, ${y}`)
-  }
-
-  const waitForStand = async (kind) => {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      if (await evaluate(`Boolean(document.querySelector('.concession-${kind}'))`)) return
-      await sleep(100)
-    }
-    throw new Error(`${kind} stand did not render after placement`)
-  }
-
-  await clickTool("Drink stand")
-  await clickGrassTile(1, 6)
-  await waitForStand("drink")
-  await clickTool("Food stand")
-  await clickGrassTile(3, 6)
-  await waitForStand("food")
+  await clickPanelButton("Buy 10 feed crates")
+  await clickPanelButton("Hire keeper")
 
   const finalState = JSON.parse(
     await evaluate(`JSON.stringify({
-      count: document.querySelectorAll('.concession').length,
-      food: Boolean(document.querySelector('.concession-food')),
-      drink: Boolean(document.querySelector('.concession-drink')),
+      hasDepot: Boolean(document.querySelector('.care-depot')),
+      hasFeed: document.body.textContent.includes('10 crates'),
+      hasKeeper: document.body.textContent.includes('Keeper #1'),
+      hasAvailable: document.body.textContent.includes('Available for assignment'),
     })`),
   )
-  if (finalState.count !== 2 || !finalState.food || !finalState.drink) {
-    throw new Error(`Expected two rendered stands, got ${JSON.stringify(finalState)}`)
+  if (!finalState.hasDepot || !finalState.hasFeed || !finalState.hasKeeper || !finalState.hasAvailable) {
+    throw new Error(`Animal-care depot did not reach expected state: ${JSON.stringify(finalState)}`)
   }
 
   mkdirSync("test-results", {recursive: true})
   const screenshot = await cdp.send("Page.captureScreenshot", {format: "png", fromSurface: true})
-  writeFileSync("test-results/concessions.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Concession dogfood passed: food + drink stands placed beside the starter path")
+  writeFileSync("test-results/animal-care-depot.png", Buffer.from(screenshot.data, "base64"))
+  console.log("Animal-care dogfood passed: feed purchased and keeper hired from the central depot")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")

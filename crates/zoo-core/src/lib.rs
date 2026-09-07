@@ -15,7 +15,6 @@ const FENCE_SEGMENT_COST: i64 = 1_500;
 const MIN_HABITAT_DIMENSION: u32 = 3;
 const MAX_HABITAT_AREA: u64 = 100;
 const ADMISSION_PRICE: i64 = 1_200;
-const FOOD_RESTOCK_COST: i64 = 1_500;
 const WATER_REFILL_COST: i64 = 800;
 const CLEAN_HABITAT_COST: i64 = 2_000;
 const SHELTER_COST: i64 = 12_000;
@@ -26,6 +25,15 @@ const FOOD_PRICE: i64 = 500;
 const DRINK_PRICE: i64 = 350;
 const FOOD_BUY_THRESHOLD: u32 = 20;
 const DRINK_BUY_THRESHOLD: u32 = 20;
+const ANIMAL_CARE_DEPOT_X: u32 = 2;
+const ANIMAL_CARE_DEPOT_Y: u32 = ENTRANCE_Y - 1;
+const FEED_BATCH_COST: i64 = 6_000;
+const FEED_BATCH_CRATES: u32 = 10;
+const KEEPER_HIRE_COST: i64 = 25_000;
+const KEEPER_HOURLY_WAGE: i64 = 1_200;
+const FEED_DELIVERY_INTERVAL_MINUTES: u32 = 60;
+const FEED_DELIVERY_RETRY_MINUTES: u32 = 15;
+const FEED_DELIVERY_THRESHOLD: u32 = 90;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -35,6 +43,7 @@ enum TileKind {
     Entrance,
     Habitat(u32),
     Concession(u32),
+    AnimalCareDepot,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -97,6 +106,13 @@ struct Concession {
     sales_today: u32,
     total_sales: u32,
     total_revenue_cents: i64,
+}
+
+#[derive(Clone, Debug)]
+struct Keeper {
+    id: u32,
+    assigned_habitat_id: Option<u32>,
+    deliveries_completed: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -274,6 +290,8 @@ struct Habitat {
     water: u32,
     cleanliness: u32,
     has_shelter: bool,
+    keeper_id: Option<u32>,
+    next_feed_delivery_minute: Option<u64>,
 }
 
 impl Habitat {
@@ -390,8 +408,11 @@ impl Habitat {
     }
 
     fn care_status(&self) -> String {
+        if self.keeper_id.is_none() {
+            return "No keeper is scheduled for food deliveries".to_owned();
+        }
         if self.animals == 0 {
-            return "Care supplies are ready".to_owned();
+            return "Keeper scheduled; care supplies are ready".to_owned();
         }
         if self.food < 40 {
             return "Food is running low".to_owned();
@@ -570,13 +591,16 @@ struct GameState {
     tiles: Vec<TileKind>,
     habitats: Vec<Habitat>,
     concessions: Vec<Concession>,
+    keepers: Vec<Keeper>,
     guests: Vec<Guest>,
     cash_cents: i64,
+    feed_crates: u32,
     day: u32,
     minute_of_day: u32,
     rating: u32,
     next_habitat_id: u32,
     next_concession_id: u32,
+    next_keeper_id: u32,
     next_guest_id: u32,
     spawn_accumulator: u32,
     upkeep_accumulator: u32,
@@ -594,13 +618,16 @@ impl Default for GameState {
             tiles: vec![TileKind::Grass; (WIDTH * HEIGHT) as usize],
             habitats: Vec::new(),
             concessions: Vec::new(),
+            keepers: Vec::new(),
             guests: Vec::new(),
             cash_cents: 5_000_000,
+            feed_crates: 0,
             day: 1,
             minute_of_day: 9 * 60,
             rating: 400,
             next_habitat_id: 1,
             next_concession_id: 1,
+            next_keeper_id: 1,
             next_guest_id: 1,
             spawn_accumulator: 0,
             upkeep_accumulator: 0,
@@ -614,6 +641,11 @@ impl Default for GameState {
         for x in 1..=4 {
             state.set_tile(x, ENTRANCE_Y, TileKind::Path);
         }
+        state.set_tile(
+            ANIMAL_CARE_DEPOT_X,
+            ANIMAL_CARE_DEPOT_Y,
+            TileKind::AnimalCareDepot,
+        );
         state
     }
 }
@@ -651,6 +683,9 @@ impl GameState {
             Some(TileKind::Concession(_)) => {
                 ActionResult::error("A concession stand occupies that tile")
             }
+            Some(TileKind::AnimalCareDepot) => {
+                ActionResult::error("The central animal-care depot occupies that tile")
+            }
             Some(TileKind::Grass) => match self.spend(PATH_COST) {
                 Ok(()) => {
                     self.set_tile(x, y, TileKind::Path);
@@ -684,6 +719,9 @@ impl GameState {
             }
             Some(TileKind::Habitat(_)) => {
                 return ActionResult::error("A habitat occupies that tile");
+            }
+            Some(TileKind::AnimalCareDepot) => {
+                return ActionResult::error("The central animal-care depot occupies that tile");
             }
             Some(TileKind::Grass) => {}
         }
@@ -865,6 +903,8 @@ impl GameState {
             water: 100,
             cleanliness: 100,
             has_shelter: false,
+            keeper_id: None,
+            next_feed_delivery_minute: None,
         });
 
         ActionResult::ok(format!(
@@ -901,6 +941,9 @@ impl GameState {
                 self.concessions.retain(|stand| stand.id != id);
                 ActionResult::ok(format!("Concession stand #{id} removed"))
             }
+            Some(TileKind::AnimalCareDepot) => {
+                ActionResult::error("The central animal-care depot cannot be demolished")
+            }
             Some(TileKind::Habitat(id)) => {
                 for tile_y in 0..self.height {
                     for tile_x in 0..self.width {
@@ -910,8 +953,13 @@ impl GameState {
                     }
                 }
                 self.habitats.retain(|habitat| habitat.id != id);
+                for keeper in &mut self.keepers {
+                    if keeper.assigned_habitat_id == Some(id) {
+                        keeper.assigned_habitat_id = None;
+                    }
+                }
                 self.guests.retain(|guest| guest.target_habitat != id);
-                ActionResult::ok(format!("Habitat #{id} removed"))
+                ActionResult::ok(format!("Habitat #{id} removed and its keeper released"))
             }
         }
     }
@@ -935,6 +983,9 @@ impl GameState {
         if habitat.species.is_some_and(|current| current != species) {
             return ActionResult::error("Each habitat currently keeps one species");
         }
+        if habitat.keeper_id.is_none() {
+            return ActionResult::error("Schedule a keeper before adopting animals");
+        }
 
         if let Err(message) = self.spend(species.purchase_cost()) {
             return ActionResult::error(message);
@@ -949,6 +1000,71 @@ impl GameState {
         ))
     }
 
+    fn absolute_minute(&self) -> u64 {
+        u64::from(self.day.saturating_sub(1))
+            .saturating_mul(24 * 60)
+            .saturating_add(u64::from(self.minute_of_day))
+    }
+
+    fn buy_animal_feed(&mut self) -> ActionResult {
+        if let Err(message) = self.spend(FEED_BATCH_COST) {
+            return ActionResult::error(message);
+        }
+        self.feed_crates = self.feed_crates.saturating_add(FEED_BATCH_CRATES);
+        ActionResult::ok(format!(
+            "Bought {FEED_BATCH_CRATES} feed crates for the animal-care depot"
+        ))
+    }
+
+    fn hire_keeper(&mut self) -> ActionResult {
+        if let Err(message) = self.spend(KEEPER_HIRE_COST) {
+            return ActionResult::error(message);
+        }
+        let id = self.next_keeper_id;
+        self.next_keeper_id = self.next_keeper_id.saturating_add(1);
+        self.keepers.push(Keeper {
+            id,
+            assigned_habitat_id: None,
+            deliveries_completed: 0,
+        });
+        ActionResult::ok(format!("Keeper #{id} hired at the animal-care depot"))
+    }
+
+    fn schedule_keeper(&mut self, habitat_id: u32) -> ActionResult {
+        let Some(habitat_index) = self
+            .habitats
+            .iter()
+            .position(|habitat| habitat.id == habitat_id)
+        else {
+            return ActionResult::error("Select a habitat first");
+        };
+        if let Some(keeper_id) = self.habitats[habitat_index].keeper_id {
+            return ActionResult::ok(format!(
+                "Keeper #{keeper_id} is already scheduled for habitat #{habitat_id}"
+            ));
+        }
+        let Some(keeper_index) = self
+            .keepers
+            .iter()
+            .position(|keeper| keeper.assigned_habitat_id.is_none())
+        else {
+            return ActionResult::error(
+                "No keeper is available; hire another at the animal-care depot",
+            );
+        };
+
+        let keeper_id = self.keepers[keeper_index].id;
+        let next_delivery = self
+            .absolute_minute()
+            .saturating_add(u64::from(FEED_DELIVERY_INTERVAL_MINUTES));
+        self.keepers[keeper_index].assigned_habitat_id = Some(habitat_id);
+        self.habitats[habitat_index].keeper_id = Some(keeper_id);
+        self.habitats[habitat_index].next_feed_delivery_minute = Some(next_delivery);
+        ActionResult::ok(format!(
+            "Keeper #{keeper_id} scheduled for habitat #{habitat_id}"
+        ))
+    }
+
     fn feed_habitat(&mut self, habitat_id: u32) -> ActionResult {
         let Some(index) = self
             .habitats
@@ -960,11 +1076,29 @@ impl GameState {
         if self.habitats[index].food >= 100 {
             return ActionResult::ok("Food is already fully stocked");
         }
-        if let Err(message) = self.spend(FOOD_RESTOCK_COST) {
-            return ActionResult::error(message);
+        let Some(keeper_id) = self.habitats[index].keeper_id else {
+            return ActionResult::error("Schedule a keeper before delivering food");
+        };
+        if self.feed_crates == 0 {
+            return ActionResult::error("The animal-care depot is out of feed crates");
         }
+
+        self.feed_crates -= 1;
         self.habitats[index].food = 100;
-        ActionResult::ok(format!("Habitat #{habitat_id} food restocked"))
+        self.habitats[index].next_feed_delivery_minute = Some(
+            self.absolute_minute()
+                .saturating_add(u64::from(FEED_DELIVERY_INTERVAL_MINUTES)),
+        );
+        if let Some(keeper) = self
+            .keepers
+            .iter_mut()
+            .find(|keeper| keeper.id == keeper_id)
+        {
+            keeper.deliveries_completed = keeper.deliveries_completed.saturating_add(1);
+        }
+        ActionResult::ok(format!(
+            "Keeper #{keeper_id} delivered feed to habitat #{habitat_id}"
+        ))
     }
 
     fn refill_water(&mut self, habitat_id: u32) -> ActionResult {
@@ -1053,6 +1187,7 @@ impl GameState {
             {
                 self.advance_habitat_care();
             }
+            self.advance_keeper_deliveries();
 
             self.advance_animal_welfare();
             self.advance_guest_needs();
@@ -1076,6 +1211,45 @@ impl GameState {
             habitat.water = habitat.water.saturating_sub(habitat.animals);
             let waste = habitat.animals.saturating_add(1) / 2;
             habitat.cleanliness = habitat.cleanliness.saturating_sub(waste.max(1));
+        }
+    }
+
+    fn advance_keeper_deliveries(&mut self) {
+        let now = self.absolute_minute();
+        let due: Vec<(usize, u32)> = self
+            .habitats
+            .iter()
+            .enumerate()
+            .filter_map(|(index, habitat)| {
+                let keeper_id = habitat.keeper_id?;
+                let delivery_minute = habitat.next_feed_delivery_minute?;
+                (delivery_minute <= now).then_some((index, keeper_id))
+            })
+            .collect();
+
+        for (habitat_index, keeper_id) in due {
+            let needs_feed = self.habitats[habitat_index].animals > 0
+                && self.habitats[habitat_index].food < FEED_DELIVERY_THRESHOLD;
+            let retry_minutes = if needs_feed && self.feed_crates == 0 {
+                FEED_DELIVERY_RETRY_MINUTES
+            } else {
+                FEED_DELIVERY_INTERVAL_MINUTES
+            };
+
+            if needs_feed && self.feed_crates > 0 {
+                self.feed_crates -= 1;
+                self.habitats[habitat_index].food = 100;
+                if let Some(keeper) = self
+                    .keepers
+                    .iter_mut()
+                    .find(|keeper| keeper.id == keeper_id)
+                {
+                    keeper.deliveries_completed = keeper.deliveries_completed.saturating_add(1);
+                }
+            }
+
+            self.habitats[habitat_index].next_feed_delivery_minute =
+                Some(now.saturating_add(u64::from(retry_minutes)));
         }
     }
 
@@ -1352,7 +1526,8 @@ impl GameState {
         let upkeep = self.habitats.len() as i64 * 250
             + animal_count * 125
             + fence_count * 8
-            + self.concessions.len() as i64 * 50;
+            + self.concessions.len() as i64 * 50
+            + self.keepers.len() as i64 * KEEPER_HOURLY_WAGE;
         self.cash_cents -= upkeep;
         self.expenses_today_cents += upkeep;
     }
@@ -1542,6 +1717,45 @@ impl GameState {
         animals
     }
 
+    fn feeding_status(&self, habitat: &Habitat) -> String {
+        let Some(keeper_id) = habitat.keeper_id else {
+            return "No keeper scheduled; hire staff at the animal-care depot".to_owned();
+        };
+        if self.feed_crates == 0 {
+            return format!("Keeper #{keeper_id} is waiting for depot feed stock");
+        }
+        let minutes = habitat
+            .next_feed_delivery_minute
+            .map(|due| due.saturating_sub(self.absolute_minute()))
+            .unwrap_or(0);
+        format!("Keeper #{keeper_id} scheduled · next food run in {minutes} min")
+    }
+
+    fn animal_care_depot_view(&self) -> AnimalCareDepotView {
+        AnimalCareDepotView {
+            x: ANIMAL_CARE_DEPOT_X,
+            y: ANIMAL_CARE_DEPOT_Y,
+            feed_crates: self.feed_crates,
+            feed_batch_crates: FEED_BATCH_CRATES,
+            feed_batch_cost_cents: FEED_BATCH_COST,
+            keeper_hire_cost_cents: KEEPER_HIRE_COST,
+            keeper_hourly_wage_cents: KEEPER_HOURLY_WAGE,
+            keepers: self
+                .keepers
+                .iter()
+                .map(|keeper| KeeperView {
+                    id: keeper.id,
+                    assigned_habitat_id: keeper.assigned_habitat_id,
+                    deliveries_completed: keeper.deliveries_completed,
+                    status: keeper.assigned_habitat_id.map_or_else(
+                        || "Available for assignment".to_owned(),
+                        |habitat_id| format!("Scheduled for habitat #{habitat_id}"),
+                    ),
+                })
+                .collect(),
+        }
+    }
+
     fn snapshot(&self) -> Snapshot {
         let mut tiles = Vec::with_capacity(self.tiles.len());
         for y in 0..self.height {
@@ -1552,6 +1766,7 @@ impl GameState {
                     TileKind::Entrance => "entrance",
                     TileKind::Habitat(_) => "habitat",
                     TileKind::Concession(_) => "concession",
+                    TileKind::AnimalCareDepot => "grass",
                 };
                 let habitat_id = match self.tile(x, y) {
                     Some(TileKind::Habitat(id)) => Some(id),
@@ -1596,6 +1811,11 @@ impl GameState {
                 water: habitat.water,
                 cleanliness: habitat.cleanliness,
                 has_shelter: habitat.has_shelter,
+                keeper_id: habitat.keeper_id,
+                next_feed_delivery_in_minutes: habitat
+                    .next_feed_delivery_minute
+                    .map(|due| due.saturating_sub(self.absolute_minute())),
+                feeding_status: self.feeding_status(habitat),
                 care_status: habitat.care_status(),
                 appeal: habitat.appeal(),
             })
@@ -1651,6 +1871,7 @@ impl GameState {
             tiles,
             habitats,
             concessions,
+            animal_care_depot: self.animal_care_depot_view(),
             animals: self.animal_views(),
             guests,
             species_catalog: self.species_catalog(),
@@ -1689,6 +1910,26 @@ struct ConcessionView {
 }
 
 #[derive(Serialize)]
+struct KeeperView {
+    id: u32,
+    assigned_habitat_id: Option<u32>,
+    deliveries_completed: u32,
+    status: String,
+}
+
+#[derive(Serialize)]
+struct AnimalCareDepotView {
+    x: u32,
+    y: u32,
+    feed_crates: u32,
+    feed_batch_crates: u32,
+    feed_batch_cost_cents: i64,
+    keeper_hire_cost_cents: i64,
+    keeper_hourly_wage_cents: i64,
+    keepers: Vec<KeeperView>,
+}
+
+#[derive(Serialize)]
 struct HabitatView {
     id: u32,
     x: u32,
@@ -1711,6 +1952,9 @@ struct HabitatView {
     water: u32,
     cleanliness: u32,
     has_shelter: bool,
+    keeper_id: Option<u32>,
+    next_feed_delivery_in_minutes: Option<u64>,
+    feeding_status: String,
     care_status: String,
     appeal: u32,
 }
@@ -1788,6 +2032,7 @@ struct Snapshot {
     tiles: Vec<TileView>,
     habitats: Vec<HabitatView>,
     concessions: Vec<ConcessionView>,
+    animal_care_depot: AnimalCareDepotView,
     animals: Vec<AnimalView>,
     guests: Vec<GuestView>,
     species_catalog: Vec<SpeciesOfferView>,
@@ -1883,6 +2128,18 @@ impl ZooGame {
         self.state.adopt(habitat_id, &species).json()
     }
 
+    pub fn buy_animal_feed(&mut self) -> String {
+        self.state.buy_animal_feed().json()
+    }
+
+    pub fn hire_keeper(&mut self) -> String {
+        self.state.hire_keeper().json()
+    }
+
+    pub fn schedule_keeper(&mut self, habitat_id: u32) -> String {
+        self.state.schedule_keeper(habitat_id).json()
+    }
+
     pub fn feed_habitat(&mut self, habitat_id: u32) -> String {
         self.state.feed_habitat(habitat_id).json()
     }
@@ -1913,6 +2170,12 @@ impl Default for ZooGame {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn staff_habitat(state: &mut GameState, habitat_id: u32) {
+        assert!(state.buy_animal_feed().ok);
+        assert!(state.hire_keeper().ok);
+        assert!(state.schedule_keeper(habitat_id).ok);
+    }
 
     #[test]
     fn path_placement_is_idempotent_and_charges_once() {
@@ -2004,6 +2267,7 @@ mod tests {
         }
         assert!(state.place_habitat_rect(5, 8, 9, 12).ok);
         let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
         assert_eq!(state.habitats[0].capacity(), 8);
 
         for _ in 0..6 {
@@ -2020,6 +2284,7 @@ mod tests {
         for state in [&mut first, &mut second] {
             assert!(state.place_habitat_rect(3, 8, 6, 11).ok);
             let id = state.habitats[0].id;
+            staff_habitat(state, id);
             assert!(state.adopt(id, "capybara").ok);
             assert!(state.adopt(id, "capybara").ok);
         }
@@ -2044,6 +2309,7 @@ mod tests {
         let mut state = GameState::default();
         assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
         let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
         assert!(state.adopt(habitat_id, "flamingo").ok);
 
         state.tick(24);
@@ -2066,16 +2332,17 @@ mod tests {
         let mut state = GameState::default();
         assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
         let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
         assert!(state.adopt(habitat_id, "capybara").ok);
         state.tick(CARE_DECAY_INTERVAL_MINUTES);
         assert!(state.habitats[0].food < 100);
 
-        let before = state.cash_cents;
+        let before = state.feed_crates;
         assert!(state.feed_habitat(habitat_id).ok);
-        let after_first = state.cash_cents;
-        assert_eq!(after_first, before - FOOD_RESTOCK_COST);
+        let after_first = state.feed_crates;
+        assert_eq!(after_first, before - 1);
         assert!(state.feed_habitat(habitat_id).ok);
-        assert_eq!(state.cash_cents, after_first);
+        assert_eq!(state.feed_crates, after_first);
     }
 
     #[test]
@@ -2104,9 +2371,10 @@ mod tests {
         let mut state = GameState::default();
         assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
         let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
         assert!(state.adopt(habitat_id, "capybara").ok);
         assert!(state.place_concession(1, ENTRANCE_Y - 1, "drink").ok);
-        assert!(state.place_concession(2, ENTRANCE_Y - 1, "food").ok);
+        assert!(state.place_concession(3, ENTRANCE_Y - 1, "food").ok);
 
         state.tick(40);
 
@@ -2133,6 +2401,113 @@ mod tests {
     }
 
     #[test]
+    fn adoption_requires_a_scheduled_keeper() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+
+        let unstaffed = state.adopt(habitat_id, "capybara");
+        assert!(!unstaffed.ok);
+        assert_eq!(
+            unstaffed.message,
+            "Schedule a keeper before adopting animals"
+        );
+
+        assert!(state.hire_keeper().ok);
+        assert!(state.schedule_keeper(habitat_id).ok);
+        assert!(state.adopt(habitat_id, "capybara").ok);
+    }
+
+    #[test]
+    fn keeper_assignment_is_idempotent_and_one_keeper_cannot_cover_two_habitats() {
+        let mut state = GameState::default();
+        for x in 5..=11 {
+            assert!(state.place_path(x, ENTRANCE_Y).ok);
+        }
+        assert!(state.place_habitat_rect(3, 8, 5, 10).ok);
+        assert!(state.place_habitat_rect(7, 8, 9, 10).ok);
+        let first_id = state.habitats[0].id;
+        let second_id = state.habitats[1].id;
+
+        assert!(state.hire_keeper().ok);
+        assert!(state.schedule_keeper(first_id).ok);
+        assert!(state.schedule_keeper(first_id).ok);
+        assert_eq!(state.keepers.len(), 1);
+        assert_eq!(state.keepers[0].assigned_habitat_id, Some(first_id));
+
+        let unavailable = state.schedule_keeper(second_id);
+        assert!(!unavailable.ok);
+        assert!(unavailable.message.contains("hire another"));
+
+        assert!(state.hire_keeper().ok);
+        assert!(state.schedule_keeper(second_id).ok);
+        assert_eq!(state.habitats[1].keeper_id, Some(2));
+    }
+
+    #[test]
+    fn scheduled_delivery_consumes_depot_stock_and_refills_food() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        state.habitats[0].food = 40;
+        state.habitats[0].next_feed_delivery_minute = Some(state.absolute_minute() + 1);
+        let before = state.feed_crates;
+
+        state.tick(1);
+
+        assert_eq!(state.habitats[0].food, 100);
+        assert_eq!(state.feed_crates, before - 1);
+        assert_eq!(state.keepers[0].deliveries_completed, 1);
+    }
+
+    #[test]
+    fn empty_depot_retries_without_creating_free_feed() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        assert!(state.hire_keeper().ok);
+        assert!(state.schedule_keeper(habitat_id).ok);
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        state.habitats[0].food = 40;
+        state.habitats[0].next_feed_delivery_minute = Some(state.absolute_minute() + 1);
+
+        state.tick(1);
+
+        assert_eq!(state.feed_crates, 0);
+        assert!(state.habitats[0].food < 100);
+        assert_eq!(
+            state.habitats[0].next_feed_delivery_minute,
+            Some(state.absolute_minute() + u64::from(FEED_DELIVERY_RETRY_MINUTES))
+        );
+    }
+
+    #[test]
+    fn bulldozing_habitat_releases_its_keeper() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        assert!(state.hire_keeper().ok);
+        assert!(state.schedule_keeper(habitat_id).ok);
+
+        assert!(state.bulldoze(3, 8).ok);
+        assert!(state.habitats.is_empty());
+        assert_eq!(state.keepers[0].assigned_habitat_id, None);
+    }
+
+    #[test]
+    fn keeper_wages_are_charged_by_hourly_upkeep() {
+        let mut state = GameState::default();
+        assert!(state.hire_keeper().ok);
+        let before = state.cash_cents;
+
+        state.charge_upkeep();
+
+        assert_eq!(state.cash_cents, before - KEEPER_HOURLY_WAGE);
+    }
+
+    #[test]
     fn simulation_remains_deterministic() {
         let mut first = GameState::default();
         let mut second = GameState::default();
@@ -2140,6 +2515,7 @@ mod tests {
         for state in [&mut first, &mut second] {
             assert!(state.place_habitat_rect(3, 8, 7, 11).ok);
             let habitat_id = state.habitats[0].id;
+            staff_habitat(state, habitat_id);
             assert!(state.adopt(habitat_id, "penguin").ok);
             assert!(state.adopt(habitat_id, "penguin").ok);
             state.tick(120);
