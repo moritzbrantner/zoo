@@ -96,6 +96,7 @@ try {
   await cdp.opened
   await cdp.send("Page.enable")
   await cdp.send("Runtime.enable")
+  await cdp.send("Emulation.setTouchEmulationEnabled", {enabled: true, maxTouchPoints: 1})
 
   const evaluate = async (expression) => {
     const response = await cdp.send("Runtime.evaluate", {
@@ -144,47 +145,76 @@ try {
   })()`)
   if (!points.start || !points.end) throw new Error("Could not resolve fence drag coordinates")
 
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mouseMoved",
-    x: points.start.x,
-    y: points.start.y,
+  const touchPoint = (point) => [
+    {
+      x: point.x,
+      y: point.y,
+      radiusX: 2,
+      radiusY: 2,
+      force: 1,
+      id: 1,
+    },
+  ]
+
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: touchPoint(points.start),
   })
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mousePressed",
-    x: points.start.x,
-    y: points.start.y,
-    button: "left",
-    buttons: 1,
-    clickCount: 1,
-  })
+  await sleep(50)
+
+  const builtOnPress = await evaluate(
+    `document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`,
+  )
+  if (builtOnPress) {
+    throw new Error("Touch press committed the habitat before the finger was released")
+  }
+
   for (let step = 1; step <= 12; step += 1) {
     const progress = step / 12
-    await cdp.send("Input.dispatchMouseEvent", {
-      type: "mouseMoved",
-      x: points.start.x + (points.end.x - points.start.x) * progress,
-      y: points.start.y + (points.end.y - points.start.y) * progress,
-      button: "left",
-      buttons: 1,
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: touchPoint({
+        x: points.start.x + (points.end.x - points.start.x) * progress,
+        y: points.start.y + (points.end.y - points.start.y) * progress,
+      }),
     })
   }
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mouseReleased",
-    x: points.end.x,
-    y: points.end.y,
-    button: "left",
-    buttons: 0,
-    clickCount: 1,
+
+  let previewSegments = 0
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    previewSegments = await evaluate(`document.querySelectorAll('.fence-preview').length`)
+    if (previewSegments === 14) break
+    await sleep(50)
+  }
+  if (previewSegments !== 14) {
+    throw new Error(
+      `Touch drag did not extend the live 4×3 fence preview; expected 14 rails, found ${previewSegments}`,
+    )
+  }
+
+  const builtBeforeRelease = await evaluate(
+    `document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`,
+  )
+  if (builtBeforeRelease) {
+    throw new Error("Touch drag committed the habitat before touchEnd")
+  }
+
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
   })
 
   let built = false
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    built = await evaluate(`document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`)
+    built = await evaluate(
+      `document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`,
+    )
     if (built) break
     await sleep(100)
   }
   if (!built) {
     const message = await evaluate(`document.querySelector('.message')?.textContent ?? 'No message'`)
-    throw new Error(`The 4×3 habitat was not created during browser dogfood: ${message}`)
+    throw new Error(`The 4×3 habitat was not created on touch release during browser dogfood: ${message}`)
   }
 
   const geometry = await evaluate(`(() => {
@@ -249,7 +279,9 @@ try {
   mkdirSync("test-results", {recursive: true})
   writeFileSync("test-results/fence-rendering.png", Buffer.from(screenshot.data, "base64"))
 
-  console.log("Fence browser dogfood passed: 4×3 enclosure, 14 aligned perimeter rails, screenshot captured.")
+  console.log(
+    "Fence browser dogfood passed: touch drag previews a 4×3 enclosure, commits only on release, and renders 14 aligned perimeter rails.",
+  )
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")
