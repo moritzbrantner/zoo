@@ -13,15 +13,18 @@ export function installTouchTileDragSupport() {
       if (!(tile instanceof HTMLElement)) return
 
       const releaseImplicitCapture = () => {
+        // The tile handlers deliberately prevent the default pointer action only
+        // for direct-manipulation drag tools. Preserve implicit capture for the
+        // click-based tools so small finger drift does not cancel their click.
+        if (!event.defaultPrevented) return
         if (tile.hasPointerCapture(event.pointerId)) {
           tile.releasePointerCapture(event.pointerId)
         }
       }
 
-      // Direct-manipulation touch pointers implicitly capture the pressed tile,
-      // which suppresses pointerenter while the finger moves across neighboring
-      // tiles. The path and habitat tools intentionally use those transitions.
-      releaseImplicitCapture()
+      // Touch pointer capture is established as part of pointerdown dispatch.
+      // Defer until React's tile handler has classified the gesture and marked
+      // Path/Habitat drags with preventDefault().
       window.setTimeout(releaseImplicitCapture, 0)
     },
     {capture: true},
