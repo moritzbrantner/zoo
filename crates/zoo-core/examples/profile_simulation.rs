@@ -30,10 +30,12 @@ fn main() {
         }
 
         let snapshot = game.snapshot_json();
-        checksum = snapshot.as_bytes().iter().fold(
-            checksum.wrapping_add(run),
-            |accumulator, byte| accumulator.wrapping_mul(131).wrapping_add(u64::from(*byte)),
-        );
+        checksum = snapshot
+            .as_bytes()
+            .iter()
+            .fold(checksum.wrapping_add(run), |accumulator, byte| {
+                accumulator.wrapping_mul(131).wrapping_add(u64::from(*byte))
+            });
     }
 
     println!("zoo-simulation-checksum={checksum}");
