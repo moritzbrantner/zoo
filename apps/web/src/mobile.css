@@ -1,0 +1,183 @@
+@media (max-width: 900px) {
+  .game-shell {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+
+  .topbar {
+    min-height: 54px;
+    flex-wrap: nowrap;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 5px 6px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    touch-action: pan-x;
+  }
+
+  .topbar::-webkit-scrollbar,
+  .toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .brand {
+    min-width: 86px;
+    flex: 0 0 auto;
+    padding: 0 6px;
+  }
+
+  .brand strong {
+    font-size: 19px;
+  }
+
+  .brand span {
+    display: none;
+  }
+
+  .stat {
+    min-width: 72px;
+    flex: 0 0 auto;
+    padding: 4px 7px;
+  }
+
+  .stat span {
+    font-size: 8px;
+  }
+
+  .stat strong {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .camera-controls,
+  .speed-controls {
+    flex: 0 0 auto;
+    margin-left: 0;
+  }
+
+  .camera-controls button,
+  .speed-controls button {
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .workspace,
+  .viewport {
+    min-height: 0;
+  }
+
+  .viewport {
+    overscroll-behavior: none;
+  }
+
+  /* The desktop park-manager walkthrough is intentionally absent on mobile.
+     The map is the starting screen; inspectors appear only after a selection. */
+  .side-panel:has(.manager-card > h2) {
+    display: none;
+  }
+
+  .side-panel {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 8px;
+    width: auto;
+    max-height: min(56dvh, 430px);
+    border: 1px solid #174439;
+    border-radius: 12px 12px 7px 7px;
+    box-shadow: 0 -8px 28px rgb(0 0 0 / 28%);
+  }
+
+  .window-title {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    min-height: 46px;
+    padding: 7px 10px;
+  }
+
+  .window-title button {
+    width: 44px;
+    height: 44px;
+    font-size: 24px;
+    line-height: 1;
+  }
+
+  .habitat-card,
+  .guest-card,
+  .manager-card {
+    padding: 12px;
+  }
+
+  .shop-row,
+  .secondary {
+    min-height: 48px;
+  }
+
+  .bottom-dock {
+    gap: 4px;
+    padding: 5px 6px max(6px, env(safe-area-inset-bottom));
+  }
+
+  .message-stack .message {
+    display: none;
+  }
+
+  .tool-hint {
+    padding: 2px 4px 1px;
+    font-size: 9px;
+  }
+
+  .toolbar {
+    gap: 4px;
+    overflow-x: auto;
+    padding: 4px;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    touch-action: pan-x;
+  }
+
+  .tool {
+    min-width: 72px;
+    height: 56px;
+    flex: 0 0 auto;
+    scroll-snap-align: center;
+  }
+
+  .tool span {
+    font-size: 21px;
+  }
+
+  .tool small {
+    max-width: 66px;
+    overflow: hidden;
+    font-size: 9px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 520px) {
+  .camera-controls strong {
+    display: none;
+  }
+
+  .side-panel {
+    left: 5px;
+    right: 5px;
+    bottom: 5px;
+    max-height: 60dvh;
+  }
+}
+
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 600px) {
+  .side-panel {
+    max-height: 68dvh;
+  }
+
+  .tool-hint {
+    display: none;
+  }
+}

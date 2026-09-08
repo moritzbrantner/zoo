@@ -7,6 +7,7 @@ import "./interaction.css"
 import "./fence.css"
 import "./park-frame.css"
 import "./concessions.css"
+import "./mobile.css"
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
