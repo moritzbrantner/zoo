@@ -72,6 +72,7 @@ export default function Park3DCamera() {
     if (!targets) return
     const {park} = targets
     park.style.setProperty("--zoo-camera-yaw", `${yaw}deg`)
+    park.style.setProperty("--zoo-camera-yaw-inverse", `${-yaw}deg`)
     park.style.setProperty("--zoo-camera-pitch", `${pitch}deg`)
     park.style.setProperty("--zoo-camera-pitch-inverse", `${-pitch}deg`)
     park.style.setProperty("--zoo-camera-scale", String(cameraScale(yaw, pitch)))
@@ -80,15 +81,25 @@ export default function Park3DCamera() {
   }, [pitch, targets, yaw])
 
   useEffect(() => {
-    if (!targets) return
-    const resetButton = document.querySelector<HTMLButtonElement>(".camera-reset")
-    if (!resetButton) return
-    const reset3dCamera = () => {
+    const resetOrbit = () => {
       setYaw(DEFAULT_YAW)
       setPitch(DEFAULT_PITCH)
     }
-    resetButton.addEventListener("click", reset3dCamera)
-    return () => resetButton.removeEventListener("click", reset3dCamera)
+
+    const resetButton = document.querySelector<HTMLButtonElement>(".camera-reset")
+    resetButton?.addEventListener("click", resetOrbit)
+
+    const resetForNewPark = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return
+      const button = event.target.closest<HTMLButtonElement>("button.secondary")
+      if (button?.textContent?.trim() === "Start new park") resetOrbit()
+    }
+    document.addEventListener("click", resetForNewPark)
+
+    return () => {
+      resetButton?.removeEventListener("click", resetOrbit)
+      document.removeEventListener("click", resetForNewPark)
+    }
   }, [targets])
 
   if (!targets) return null
