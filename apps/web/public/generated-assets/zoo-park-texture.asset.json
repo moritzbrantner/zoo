@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "assetId": "zoo.web.park-texture",
+  "generator": {
+    "id": "builtin.procedural.svg-scatter",
+    "version": "1"
+  },
+  "randomness": {
+    "mode": "seeded",
+    "seed": "20260909"
+  },
+  "inputs": {},
+  "models": {},
+  "parameters": {
+    "width": 64,
+    "height": 64,
+    "count": 14,
+    "minRadius": 3,
+    "maxRadius": 9,
+    "background": "#173f32",
+    "palette": ["#84b96a", "#d4aa55", "#e7ddc5"]
+  },
+  "output": {
+    "path": "zoo-park-texture.svg"
+  },
+  "reproducibility": {
+    "expected": "exact"
+  }
+}
