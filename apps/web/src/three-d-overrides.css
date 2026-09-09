@@ -1,0 +1,4 @@
+.placement-price,
+.park-label {
+  transform: translateZ(58px) rotateZ(var(--zoo-camera-yaw-inverse, 0deg)) rotateX(var(--zoo-camera-pitch-inverse));
+}
