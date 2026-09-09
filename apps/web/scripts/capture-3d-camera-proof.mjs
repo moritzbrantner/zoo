@@ -161,6 +161,18 @@ try {
     throw new Error(`3D camera transform did not move as expected: ${JSON.stringify(moved)}`)
   }
 
+  const overlayFacing = await evaluate(`(() => {
+    const park = document.querySelector('.park')
+    const label = document.querySelector('.park-label')
+    return {
+      inverseYaw: park?.style.getPropertyValue('--zoo-camera-yaw-inverse').trim(),
+      labelTransform: label ? getComputedStyle(label).transform : 'none',
+    }
+  })()`)
+  if (overlayFacing.inverseYaw !== "-45deg" || overlayFacing.labelTransform === "none") {
+    throw new Error(`Viewer-facing overlays did not counter-rotate: ${JSON.stringify(overlayFacing)}`)
+  }
+
   const raisedObjects = await evaluate(`(() => {
     const style = getComputedStyle(document.querySelector('.empty-habitat-marker') ?? document.querySelector('.care-depot'))
     return style.transform
@@ -189,6 +201,43 @@ try {
   })
   writeFileSync("test-results/3d-camera.png", Buffer.from(screenshot.data, "base64"))
 
+  const newParkReset = await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button.secondary')].find(
+      (candidate) => candidate.textContent?.trim() === 'Start new park',
+    )
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!newParkReset) throw new Error("Could not start a new park during 3D camera dogfood")
+
+  let restored = false
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    restored = await evaluate(`(() => {
+      const park = document.querySelector('.park')
+      return park?.dataset.cameraYaw === '0' && park?.dataset.cameraPitch === '0'
+    })()`)
+    if (restored) break
+    await sleep(50)
+  }
+  if (!restored) throw new Error("Starting a new park did not reset the 3D camera")
+
+  const rotatedAgain = await evaluate(`(() => {
+    const button = document.querySelector('.camera-orbit-right')
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!rotatedAgain) throw new Error("Could not rotate the 3D camera after new-park reset")
+
+  let rotated = false
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    rotated = await evaluate(`document.querySelector('.park')?.dataset.cameraYaw === '45'`)
+    if (rotated) break
+    await sleep(50)
+  }
+  if (!rotated) throw new Error("3D camera did not rotate after new-park reset")
+
   const reset = await evaluate(`(() => {
     const button = document.querySelector('.camera-orbit-reset')
     if (!button) return false
@@ -197,7 +246,7 @@ try {
   })()`)
   if (!reset) throw new Error("Could not reset 3D camera")
 
-  let restored = false
+  restored = false
   for (let attempt = 0; attempt < 30; attempt += 1) {
     restored = await evaluate(`(() => {
       const park = document.querySelector('.park')
@@ -209,7 +258,7 @@ try {
   if (!restored) throw new Error("3D camera did not return to the default isometric view")
 
   console.log(
-    "3D camera dogfood passed: the park rotates 45°, tilts 12°, retains raised scene objects, and resets to the default isometric view.",
+    "3D camera dogfood passed: orbit/tilt, viewer-facing overlays, new-park reset, explicit reset, raised objects, and visual proof are all coherent.",
   )
 } finally {
   cdp?.close()
