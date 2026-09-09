@@ -20,6 +20,12 @@ function normalizeYaw(value: number) {
   return normalized < 0 ? normalized + 360 : normalized
 }
 
+function cameraScale(yaw: number, pitch: number) {
+  const diagonalTurn = Math.abs(Math.sin((yaw * Math.PI) / 90))
+  const scale = 1 - diagonalTurn * 0.16 - pitch / 300
+  return Math.max(0.72, Number(scale.toFixed(3)))
+}
+
 export default function Park3DCamera() {
   const [targets, setTargets] = useState<CameraTargets | null>(null)
   const [yaw, setYaw] = useState(DEFAULT_YAW)
@@ -68,6 +74,7 @@ export default function Park3DCamera() {
     park.style.setProperty("--zoo-camera-yaw", `${yaw}deg`)
     park.style.setProperty("--zoo-camera-pitch", `${pitch}deg`)
     park.style.setProperty("--zoo-camera-pitch-inverse", `${-pitch}deg`)
+    park.style.setProperty("--zoo-camera-scale", String(cameraScale(yaw, pitch)))
     park.dataset.cameraYaw = String(yaw)
     park.dataset.cameraPitch = String(pitch)
   }, [pitch, targets, yaw])
