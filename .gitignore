@@ -3,4 +3,6 @@
 /apps/web/node_modules
 /apps/web/dist
 /apps/web/src/wasm
+/apps/web/public/generated-assets/zoo-park-texture.svg
+/apps/web/public/generated-assets/.asset-tooling/
 .DS_Store

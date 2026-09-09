@@ -19,12 +19,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout pinned asset-tooling
+        uses: actions/checkout@v4
+        with:
+          repository: moritzbrantner/asset-tooling
+          ref: a9184128839b9c411103e958703c2d1c03dfc9a8
+          path: .consumer-tools/asset-tooling
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
+      - name: Generate and replay-verify Zoo asset
+        run: |
+          spec="apps/web/public/generated-assets/zoo-park-texture.asset.json"
+          tool=".consumer-tools/asset-tooling/src/entry.js"
+          bun "$tool" validate "$spec"
+          bun "$tool" generate "$spec" --receipt .asset-tooling/zoo-park-texture.receipt.json
+          bun "$tool" verify "$spec" --receipt .asset-tooling/zoo-park-texture.receipt.json
       - name: Install wasm-pack
         run: cargo install wasm-pack --locked
       - name: Install web dependencies
