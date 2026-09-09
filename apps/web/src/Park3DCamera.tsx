@@ -2,7 +2,7 @@ import {useEffect, useState} from "react"
 import {createPortal} from "react-dom"
 
 const DEFAULT_YAW = 0
-const DEFAULT_PITCH = 18
+const DEFAULT_PITCH = 0
 const YAW_STEP = 45
 const PITCH_STEP = 6
 
@@ -12,7 +12,7 @@ type CameraTargets = {
 }
 
 function clampPitch(value: number) {
-  return Math.min(32, Math.max(6, value))
+  return Math.min(32, Math.max(0, value))
 }
 
 function normalizeYaw(value: number) {
