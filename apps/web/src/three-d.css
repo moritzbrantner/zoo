@@ -9,7 +9,8 @@
   --zoo-camera-yaw: 0deg;
   --zoo-camera-pitch: 0deg;
   --zoo-camera-pitch-inverse: 0deg;
-  transform: var(--zoo-base-transform) rotateX(var(--zoo-camera-pitch)) rotateZ(var(--zoo-camera-yaw)) !important;
+  --zoo-camera-scale: 1;
+  transform: var(--zoo-base-transform) scale(var(--zoo-camera-scale)) rotateX(var(--zoo-camera-pitch)) rotateZ(var(--zoo-camera-yaw)) !important;
   transform-origin: 50% 48% !important;
   transform-style: preserve-3d;
   transition: transform 220ms ease-out;
