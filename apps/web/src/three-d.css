@@ -26,6 +26,8 @@
 .care-depot,
 .litter,
 .janitor,
+.maintenance-alert,
+.mechanic,
 .animal,
 .guest,
 .empty-habitat-marker {
@@ -99,10 +101,16 @@
 }
 
 .janitor,
+.mechanic,
 .animal,
 .empty-habitat-marker,
 .guest {
   transform: translateZ(28px) rotateX(var(--zoo-camera-pitch-inverse));
+  transform-origin: 50% 100%;
+}
+
+.maintenance-alert {
+  transform: translateZ(45px) rotateX(var(--zoo-camera-pitch-inverse));
   transform-origin: 50% 100%;
 }
 

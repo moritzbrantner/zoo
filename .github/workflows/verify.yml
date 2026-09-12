@@ -66,6 +66,7 @@ jobs:
           bun scripts/capture-park-frame-proof.mjs
           bun scripts/capture-concessions-proof.mjs
           bun scripts/capture-animal-care-proof.mjs
+          bun scripts/capture-maintenance-proof.mjs
           bun scripts/capture-3d-camera-proof.mjs
       - name: Upload fence visual proof
         if: always() && github.event_name == 'pull_request'
@@ -97,6 +98,14 @@ jobs:
         with:
           name: zoo-animal-care-visual-proof
           path: apps/web/test-results/animal-care-depot.png
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload maintenance visual proof
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: zoo-maintenance-visual-proof
+          path: apps/web/test-results/maintenance.png
           if-no-files-found: error
           retention-days: 7
       - name: Upload 3D camera visual proof

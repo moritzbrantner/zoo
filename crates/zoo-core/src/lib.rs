@@ -33,6 +33,14 @@ const KEEPER_HIRE_COST: i64 = 25_000;
 const KEEPER_HOURLY_WAGE: i64 = 1_200;
 const JANITOR_HIRE_COST: i64 = 18_000;
 const JANITOR_HOURLY_WAGE: i64 = 900;
+const MECHANIC_HIRE_COST: i64 = 22_000;
+const MECHANIC_HOURLY_WAGE: i64 = 1_000;
+const MAINTENANCE_REPAIR_COST: i64 = 2_500;
+const MAINTENANCE_DECAY_INTERVAL_MINUTES: u32 = 30;
+const MAINTENANCE_WEAR_PER_INTERVAL: u32 = 8;
+const MAINTENANCE_WEAR_PER_SALE: u32 = 2;
+const MAINTENANCE_SERVICE_THRESHOLD: u32 = 60;
+const MAINTENANCE_FAILURE_THRESHOLD: u32 = 20;
 const FEED_DELIVERY_INTERVAL_MINUTES: u32 = 60;
 const FEED_DELIVERY_RETRY_MINUTES: u32 = 15;
 const FEED_DELIVERY_THRESHOLD: u32 = 90;
@@ -108,6 +116,7 @@ struct Concession {
     sales_today: u32,
     total_sales: u32,
     total_revenue_cents: i64,
+    condition: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -135,6 +144,23 @@ struct LitterTask {
     assigned_janitor_id: Option<u32>,
 }
 
+#[derive(Clone, Debug)]
+struct Mechanic {
+    id: u32,
+    x: u32,
+    y: u32,
+    target_maintenance_id: Option<u32>,
+    repairs_completed: u32,
+}
+
+#[derive(Clone, Debug)]
+struct MaintenanceTask {
+    id: u32,
+    concession_id: u32,
+    created_minute: u64,
+    assigned_mechanic_id: Option<u32>,
+}
+
 #[derive(Clone, Copy, Debug)]
 enum IncomeCategory {
     Admissions,
@@ -149,9 +175,12 @@ enum ExpenseCategory {
     AnimalFeed,
     KeeperHiring,
     JanitorHiring,
+    MechanicHiring,
+    MaintenanceRepair,
     ParkUpkeep,
     KeeperWages,
     JanitorWages,
+    MechanicWages,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -164,9 +193,12 @@ struct FinanceLedger {
     animal_feed_expense_cents: i64,
     keeper_hiring_expense_cents: i64,
     janitor_hiring_expense_cents: i64,
+    mechanic_hiring_expense_cents: i64,
+    maintenance_repair_expense_cents: i64,
     park_upkeep_expense_cents: i64,
     keeper_wages_expense_cents: i64,
     janitor_wages_expense_cents: i64,
+    mechanic_wages_expense_cents: i64,
 }
 
 impl FinanceLedger {
@@ -185,9 +217,12 @@ impl FinanceLedger {
             ExpenseCategory::AnimalFeed => self.animal_feed_expense_cents += cents,
             ExpenseCategory::KeeperHiring => self.keeper_hiring_expense_cents += cents,
             ExpenseCategory::JanitorHiring => self.janitor_hiring_expense_cents += cents,
+            ExpenseCategory::MechanicHiring => self.mechanic_hiring_expense_cents += cents,
+            ExpenseCategory::MaintenanceRepair => self.maintenance_repair_expense_cents += cents,
             ExpenseCategory::ParkUpkeep => self.park_upkeep_expense_cents += cents,
             ExpenseCategory::KeeperWages => self.keeper_wages_expense_cents += cents,
             ExpenseCategory::JanitorWages => self.janitor_wages_expense_cents += cents,
+            ExpenseCategory::MechanicWages => self.mechanic_wages_expense_cents += cents,
         }
     }
 
@@ -202,9 +237,12 @@ impl FinanceLedger {
             + self.animal_feed_expense_cents
             + self.keeper_hiring_expense_cents
             + self.janitor_hiring_expense_cents
+            + self.mechanic_hiring_expense_cents
+            + self.maintenance_repair_expense_cents
             + self.park_upkeep_expense_cents
             + self.keeper_wages_expense_cents
             + self.janitor_wages_expense_cents
+            + self.mechanic_wages_expense_cents
     }
 
     fn profit_cents(self) -> i64 {
@@ -691,6 +729,8 @@ struct GameState {
     keepers: Vec<Keeper>,
     janitors: Vec<Janitor>,
     litter: Vec<LitterTask>,
+    mechanics: Vec<Mechanic>,
+    maintenance: Vec<MaintenanceTask>,
     guests: Vec<Guest>,
     cash_cents: i64,
     feed_crates: u32,
@@ -702,6 +742,8 @@ struct GameState {
     next_keeper_id: u32,
     next_janitor_id: u32,
     next_litter_id: u32,
+    next_mechanic_id: u32,
+    next_maintenance_id: u32,
     next_guest_id: u32,
     spawn_accumulator: u32,
     upkeep_accumulator: u32,
@@ -721,6 +763,8 @@ impl Default for GameState {
             keepers: Vec::new(),
             janitors: Vec::new(),
             litter: Vec::new(),
+            mechanics: Vec::new(),
+            maintenance: Vec::new(),
             guests: Vec::new(),
             cash_cents: 5_000_000,
             feed_crates: 0,
@@ -732,6 +776,8 @@ impl Default for GameState {
             next_keeper_id: 1,
             next_janitor_id: 1,
             next_litter_id: 1,
+            next_mechanic_id: 1,
+            next_maintenance_id: 1,
             next_guest_id: 1,
             spawn_accumulator: 0,
             upkeep_accumulator: 0,
@@ -858,6 +904,7 @@ impl GameState {
             sales_today: 0,
             total_sales: 0,
             total_revenue_cents: 0,
+            condition: 100,
         });
 
         ActionResult::ok(format!("{} #{id} built beside the path", kind.label()))
@@ -1048,6 +1095,13 @@ impl GameState {
                 {
                     return ActionResult::error("A janitor is standing on that path tile");
                 }
+                if self
+                    .mechanics
+                    .iter()
+                    .any(|mechanic| mechanic.x == x && mechanic.y == y)
+                {
+                    return ActionResult::error("A mechanic is standing on that path tile");
+                }
                 let removed_litter_ids: Vec<u32> = self
                     .litter
                     .iter()
@@ -1064,10 +1118,26 @@ impl GameState {
                     }
                 }
                 self.set_tile(x, y, TileKind::Grass);
+                self.release_unreachable_mechanic_assignments();
                 ActionResult::ok("Path removed")
             }
             Some(TileKind::Concession(id)) => {
                 self.set_tile(x, y, TileKind::Grass);
+                let removed_task_ids: Vec<u32> = self
+                    .maintenance
+                    .iter()
+                    .filter(|task| task.concession_id == id)
+                    .map(|task| task.id)
+                    .collect();
+                self.maintenance.retain(|task| task.concession_id != id);
+                for mechanic in &mut self.mechanics {
+                    if mechanic
+                        .target_maintenance_id
+                        .is_some_and(|task_id| removed_task_ids.contains(&task_id))
+                    {
+                        mechanic.target_maintenance_id = None;
+                    }
+                }
                 self.concessions.retain(|stand| stand.id != id);
                 ActionResult::ok(format!("Concession stand #{id} removed"))
             }
@@ -1189,6 +1259,29 @@ impl GameState {
         });
         ActionResult::ok(format!(
             "Janitor #{id} hired at the central operations depot"
+        ))
+    }
+
+    fn hire_mechanic(&mut self) -> ActionResult {
+        let Some(spawn) = self.depot_staff_spawn() else {
+            return ActionResult::error(
+                "Connect the central operations depot to a path before hiring mechanics",
+            );
+        };
+        if let Err(message) = self.spend(MECHANIC_HIRE_COST, ExpenseCategory::MechanicHiring) {
+            return ActionResult::error(message);
+        }
+        let id = self.next_mechanic_id;
+        self.next_mechanic_id = self.next_mechanic_id.saturating_add(1);
+        self.mechanics.push(Mechanic {
+            id,
+            x: spawn.x,
+            y: spawn.y,
+            target_maintenance_id: None,
+            repairs_completed: 0,
+        });
+        ActionResult::ok(format!(
+            "Mechanic #{id} hired at the central operations depot"
         ))
     }
 
@@ -1348,6 +1441,12 @@ impl GameState {
             {
                 self.advance_habitat_care();
             }
+            if self
+                .minute_of_day
+                .is_multiple_of(MAINTENANCE_DECAY_INTERVAL_MINUTES)
+            {
+                self.advance_concession_maintenance();
+            }
             self.advance_keeper_deliveries();
 
             self.advance_animal_welfare();
@@ -1357,6 +1456,7 @@ impl GameState {
                 self.movement_accumulator = 0;
                 self.advance_guest_movement();
                 self.advance_janitor_work();
+                self.advance_mechanic_work();
             }
 
             self.advance_viewing();
@@ -1595,7 +1695,9 @@ impl GameState {
                 .then(|| {
                     adjacent_ids.iter().find_map(|id| {
                         self.concessions.iter().position(|stand| {
-                            stand.id == *id && stand.kind == ConcessionKind::Drink
+                            stand.id == *id
+                                && stand.kind == ConcessionKind::Drink
+                                && stand.condition > MAINTENANCE_FAILURE_THRESHOLD
                         })
                     })
                 })
@@ -1603,9 +1705,11 @@ impl GameState {
             let food_choice = (!bought_food && hunger >= FOOD_BUY_THRESHOLD)
                 .then(|| {
                     adjacent_ids.iter().find_map(|id| {
-                        self.concessions
-                            .iter()
-                            .position(|stand| stand.id == *id && stand.kind == ConcessionKind::Food)
+                        self.concessions.iter().position(|stand| {
+                            stand.id == *id
+                                && stand.kind == ConcessionKind::Food
+                                && stand.condition > MAINTENANCE_FAILURE_THRESHOLD
+                        })
                     })
                 })
                 .flatten();
@@ -1614,6 +1718,9 @@ impl GameState {
             };
 
             let kind = self.concessions[concession_index].kind;
+            let degraded =
+                self.concessions[concession_index].condition <= MAINTENANCE_SERVICE_THRESHOLD;
+            let stand_id = self.concessions[concession_index].id;
             let price = kind.price_cents();
             self.earn(price, IncomeCategory::Concessions);
             {
@@ -1621,20 +1728,24 @@ impl GameState {
                 stand.sales_today += 1;
                 stand.total_sales += 1;
                 stand.total_revenue_cents += price;
+                stand.condition = stand.condition.saturating_sub(MAINTENANCE_WEAR_PER_SALE);
             }
+            self.ensure_maintenance_task(stand_id);
             {
                 let guest = &mut self.guests[guest_index];
+                let restore = if degraded { 35 } else { 55 };
                 match kind {
                     ConcessionKind::Food => {
-                        guest.hunger = guest.hunger.saturating_sub(55);
+                        guest.hunger = guest.hunger.saturating_sub(restore);
                         guest.bought_food = true;
                     }
                     ConcessionKind::Drink => {
-                        guest.thirst = guest.thirst.saturating_sub(55);
+                        guest.thirst = guest.thirst.saturating_sub(restore);
                         guest.bought_drink = true;
                     }
                 }
-                guest.happiness = guest.happiness.saturating_add(3).min(100);
+                let happiness = if degraded { 1 } else { 3 };
+                guest.happiness = guest.happiness.saturating_add(happiness).min(100);
                 guest.value_perception = guest.value_perception.saturating_add(2).min(100);
             }
             self.add_litter(position);
@@ -1837,6 +1948,250 @@ impl GameState {
         self.assign_janitor_tasks();
     }
 
+    fn concession_service_state(&self, stand: &Concession) -> &'static str {
+        if stand.condition <= MAINTENANCE_FAILURE_THRESHOLD {
+            "failed"
+        } else if stand.condition <= MAINTENANCE_SERVICE_THRESHOLD {
+            "degraded"
+        } else {
+            "healthy"
+        }
+    }
+
+    fn concession_service_tiles(&self, concession_id: u32) -> Vec<Position> {
+        let Some(stand) = self
+            .concessions
+            .iter()
+            .find(|stand| stand.id == concession_id)
+        else {
+            return Vec::new();
+        };
+        self.neighbors(Position {
+            x: stand.x,
+            y: stand.y,
+        })
+        .into_iter()
+        .filter(|position| self.is_walkable(*position))
+        .collect()
+    }
+
+    fn concession_service_tile_from(
+        &self,
+        concession_id: u32,
+        start: Position,
+    ) -> Option<Position> {
+        self.concession_service_tiles(concession_id)
+            .into_iter()
+            .filter_map(|target| {
+                self.path_between(start, target)
+                    .map(|route| (route.len(), target))
+            })
+            .min_by_key(|(route_len, target)| (*route_len, target.y, target.x))
+            .map(|(_, target)| target)
+    }
+
+    fn ensure_maintenance_task(&mut self, concession_id: u32) -> bool {
+        let needs_service = self
+            .concessions
+            .iter()
+            .find(|stand| stand.id == concession_id)
+            .is_some_and(|stand| stand.condition <= MAINTENANCE_SERVICE_THRESHOLD);
+        if !needs_service
+            || self
+                .maintenance
+                .iter()
+                .any(|task| task.concession_id == concession_id)
+        {
+            return false;
+        }
+        let id = self.next_maintenance_id;
+        self.next_maintenance_id = self.next_maintenance_id.saturating_add(1);
+        self.maintenance.push(MaintenanceTask {
+            id,
+            concession_id,
+            created_minute: self.absolute_minute(),
+            assigned_mechanic_id: None,
+        });
+        true
+    }
+
+    fn advance_concession_maintenance(&mut self) {
+        let mut due = Vec::new();
+        for stand in &mut self.concessions {
+            stand.condition = stand
+                .condition
+                .saturating_sub(MAINTENANCE_WEAR_PER_INTERVAL);
+            if stand.condition <= MAINTENANCE_SERVICE_THRESHOLD {
+                due.push(stand.id);
+            }
+        }
+        for concession_id in due {
+            self.ensure_maintenance_task(concession_id);
+        }
+    }
+
+    fn oldest_maintenance_age_minutes(&self) -> u64 {
+        let now = self.absolute_minute();
+        self.maintenance
+            .iter()
+            .map(|task| now.saturating_sub(task.created_minute))
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn release_unreachable_mechanic_assignments(&mut self) {
+        let assignments: Vec<(usize, u32, Position)> = self
+            .mechanics
+            .iter()
+            .enumerate()
+            .filter_map(|(index, mechanic)| {
+                Some((
+                    index,
+                    mechanic.target_maintenance_id?,
+                    Position {
+                        x: mechanic.x,
+                        y: mechanic.y,
+                    },
+                ))
+            })
+            .collect();
+
+        for (mechanic_index, task_id, mechanic_position) in assignments {
+            let target = self
+                .maintenance
+                .iter()
+                .find(|task| task.id == task_id)
+                .and_then(|task| {
+                    self.concession_service_tile_from(task.concession_id, mechanic_position)
+                });
+            let reachable = target.is_some();
+            if reachable {
+                continue;
+            }
+            let mechanic_id = self.mechanics[mechanic_index].id;
+            self.mechanics[mechanic_index].target_maintenance_id = None;
+            if let Some(task) = self.maintenance.iter_mut().find(|task| task.id == task_id)
+                && task.assigned_mechanic_id == Some(mechanic_id)
+            {
+                task.assigned_mechanic_id = None;
+            }
+        }
+    }
+
+    fn assign_mechanic_tasks(&mut self) {
+        for mechanic_index in 0..self.mechanics.len() {
+            if self.mechanics[mechanic_index]
+                .target_maintenance_id
+                .is_some()
+            {
+                continue;
+            }
+            let mechanic_position = Position {
+                x: self.mechanics[mechanic_index].x,
+                y: self.mechanics[mechanic_index].y,
+            };
+            let target_id = self
+                .maintenance
+                .iter()
+                .filter(|task| task.assigned_mechanic_id.is_none())
+                .filter(|task| {
+                    self.concession_service_tile_from(task.concession_id, mechanic_position)
+                        .is_some()
+                })
+                .min_by_key(|task| task.id)
+                .map(|task| task.id);
+            let Some(target_id) = target_id else {
+                continue;
+            };
+            let mechanic_id = self.mechanics[mechanic_index].id;
+            self.mechanics[mechanic_index].target_maintenance_id = Some(target_id);
+            if let Some(task) = self
+                .maintenance
+                .iter_mut()
+                .find(|task| task.id == target_id)
+            {
+                task.assigned_mechanic_id = Some(mechanic_id);
+            }
+        }
+    }
+
+    fn complete_maintenance_task(&mut self, mechanic_index: usize, task_id: u32) -> bool {
+        let Some(concession_id) = self
+            .maintenance
+            .iter()
+            .find(|task| task.id == task_id)
+            .map(|task| task.concession_id)
+        else {
+            self.mechanics[mechanic_index].target_maintenance_id = None;
+            return false;
+        };
+        let Some(concession_index) = self
+            .concessions
+            .iter()
+            .position(|stand| stand.id == concession_id)
+        else {
+            self.maintenance.retain(|task| task.id != task_id);
+            self.mechanics[mechanic_index].target_maintenance_id = None;
+            return false;
+        };
+        if self
+            .spend(MAINTENANCE_REPAIR_COST, ExpenseCategory::MaintenanceRepair)
+            .is_err()
+        {
+            return false;
+        }
+        self.concessions[concession_index].condition = 100;
+        self.maintenance.retain(|task| task.id != task_id);
+        self.mechanics[mechanic_index].target_maintenance_id = None;
+        self.mechanics[mechanic_index].repairs_completed = self.mechanics[mechanic_index]
+            .repairs_completed
+            .saturating_add(1);
+        true
+    }
+
+    fn advance_mechanic_work(&mut self) {
+        self.release_unreachable_mechanic_assignments();
+        self.assign_mechanic_tasks();
+
+        for mechanic_index in 0..self.mechanics.len() {
+            let Some(task_id) = self.mechanics[mechanic_index].target_maintenance_id else {
+                continue;
+            };
+            let current = Position {
+                x: self.mechanics[mechanic_index].x,
+                y: self.mechanics[mechanic_index].y,
+            };
+            let Some(concession_id) = self
+                .maintenance
+                .iter()
+                .find(|task| task.id == task_id)
+                .map(|task| task.concession_id)
+            else {
+                self.mechanics[mechanic_index].target_maintenance_id = None;
+                continue;
+            };
+            let Some(target) = self.concession_service_tile_from(concession_id, current) else {
+                self.mechanics[mechanic_index].target_maintenance_id = None;
+                continue;
+            };
+            let Some(route) = self.path_between(current, target) else {
+                continue;
+            };
+            if route.len() <= 1 {
+                self.complete_maintenance_task(mechanic_index, task_id);
+                continue;
+            }
+            let next = route[1];
+            self.mechanics[mechanic_index].x = next.x;
+            self.mechanics[mechanic_index].y = next.y;
+            if next == target {
+                self.complete_maintenance_task(mechanic_index, task_id);
+            }
+        }
+
+        self.assign_mechanic_tasks();
+    }
+
     fn charge_upkeep(&mut self) {
         let animal_count: i64 = self
             .habitats
@@ -1854,13 +2209,16 @@ impl GameState {
             + self.concessions.len() as i64 * 50;
         let keeper_wages = self.keepers.len() as i64 * KEEPER_HOURLY_WAGE;
         let janitor_wages = self.janitors.len() as i64 * JANITOR_HOURLY_WAGE;
-        self.cash_cents -= park_upkeep + keeper_wages + janitor_wages;
+        let mechanic_wages = self.mechanics.len() as i64 * MECHANIC_HOURLY_WAGE;
+        self.cash_cents -= park_upkeep + keeper_wages + janitor_wages + mechanic_wages;
         self.finance_today
             .record_expense(ExpenseCategory::ParkUpkeep, park_upkeep);
         self.finance_today
             .record_expense(ExpenseCategory::KeeperWages, keeper_wages);
         self.finance_today
             .record_expense(ExpenseCategory::JanitorWages, janitor_wages);
+        self.finance_today
+            .record_expense(ExpenseCategory::MechanicWages, mechanic_wages);
     }
 
     fn recalculate_rating(&mut self) {
@@ -2156,6 +2514,100 @@ impl GameState {
         }
     }
 
+    fn mechanic_status(&self, mechanic: &Mechanic) -> String {
+        if let Some(task_id) = mechanic.target_maintenance_id
+            && let Some(task) = self.maintenance.iter().find(|task| task.id == task_id)
+        {
+            let age = self.absolute_minute().saturating_sub(task.created_minute);
+            let position = Position {
+                x: mechanic.x,
+                y: mechanic.y,
+            };
+            let at_service_tile = self
+                .concession_service_tiles(task.concession_id)
+                .contains(&position);
+            if at_service_tile && self.cash_cents < MAINTENANCE_REPAIR_COST {
+                return format!(
+                    "Waiting for repair parts at stand #{} · ${} needed",
+                    task.concession_id,
+                    MAINTENANCE_REPAIR_COST / 100
+                );
+            }
+            return format!(
+                "Responding to stand #{} · {age} min old",
+                task.concession_id
+            );
+        }
+        if self.maintenance.is_empty() {
+            return "Idle · facilities are maintained".to_owned();
+        }
+        let position = Position {
+            x: mechanic.x,
+            y: mechanic.y,
+        };
+        let reachable = self.maintenance.iter().any(|task| {
+            self.concession_service_tile_from(task.concession_id, position)
+                .is_some()
+        });
+        if reachable {
+            "Available for maintenance".to_owned()
+        } else {
+            "Blocked · no reachable maintenance task".to_owned()
+        }
+    }
+
+    fn maintenance_status(&self, task: &MaintenanceTask) -> String {
+        if self.concession_service_tiles(task.concession_id).is_empty() {
+            return "Blocked · stand has no path service point".to_owned();
+        }
+        if let Some(mechanic_id) = task.assigned_mechanic_id
+            && let Some(mechanic) = self
+                .mechanics
+                .iter()
+                .find(|mechanic| mechanic.id == mechanic_id)
+        {
+            let position = Position {
+                x: mechanic.x,
+                y: mechanic.y,
+            };
+            let reachable = self
+                .concession_service_tile_from(task.concession_id, position)
+                .is_some();
+            return if reachable {
+                format!("Mechanic #{mechanic_id} responding")
+            } else {
+                format!("Blocked · Mechanic #{mechanic_id} route disconnected")
+            };
+        }
+        if self.mechanics.is_empty() {
+            return "Waiting · no mechanic hired".to_owned();
+        }
+        if self.mechanics.iter().any(|mechanic| {
+            self.concession_service_tile_from(
+                task.concession_id,
+                Position {
+                    x: mechanic.x,
+                    y: mechanic.y,
+                },
+            )
+            .is_some()
+        }) {
+            "Waiting for an available mechanic".to_owned()
+        } else {
+            "Blocked · disconnected from mechanics".to_owned()
+        }
+    }
+
+    fn concession_maintenance_status(&self, stand: &Concession) -> String {
+        self.maintenance
+            .iter()
+            .find(|task| task.concession_id == stand.id)
+            .map_or_else(
+                || "No maintenance due".to_owned(),
+                |task| self.maintenance_status(task),
+            )
+    }
+
     fn animal_care_depot_view(&self) -> AnimalCareDepotView {
         AnimalCareDepotView {
             x: ANIMAL_CARE_DEPOT_X,
@@ -2167,6 +2619,9 @@ impl GameState {
             keeper_hourly_wage_cents: KEEPER_HOURLY_WAGE,
             janitor_hire_cost_cents: JANITOR_HIRE_COST,
             janitor_hourly_wage_cents: JANITOR_HOURLY_WAGE,
+            mechanic_hire_cost_cents: MECHANIC_HIRE_COST,
+            mechanic_hourly_wage_cents: MECHANIC_HOURLY_WAGE,
+            maintenance_repair_cost_cents: MAINTENANCE_REPAIR_COST,
             keepers: self
                 .keepers
                 .iter()
@@ -2190,6 +2645,18 @@ impl GameState {
                     target_litter_id: janitor.target_litter_id,
                     tasks_completed: janitor.tasks_completed,
                     status: self.janitor_status(janitor),
+                })
+                .collect(),
+            mechanics: self
+                .mechanics
+                .iter()
+                .map(|mechanic| MechanicView {
+                    id: mechanic.id,
+                    x: mechanic.x,
+                    y: mechanic.y,
+                    target_maintenance_id: mechanic.target_maintenance_id,
+                    repairs_completed: mechanic.repairs_completed,
+                    status: self.mechanic_status(mechanic),
                 })
                 .collect(),
         }
@@ -2273,6 +2740,9 @@ impl GameState {
                 sales_today: stand.sales_today,
                 total_sales: stand.total_sales,
                 total_revenue_cents: stand.total_revenue_cents,
+                condition: stand.condition,
+                service_state: self.concession_service_state(stand).to_owned(),
+                maintenance_status: self.concession_maintenance_status(stand),
             })
             .collect();
 
@@ -2325,10 +2795,41 @@ impl GameState {
                     status: self.litter_status(task),
                 })
                 .collect(),
+            maintenance: self
+                .maintenance
+                .iter()
+                .filter_map(|task| {
+                    let stand = self
+                        .concessions
+                        .iter()
+                        .find(|stand| stand.id == task.concession_id)?;
+                    Some(MaintenanceView {
+                        id: task.id,
+                        concession_id: task.concession_id,
+                        x: stand.x,
+                        y: stand.y,
+                        age_minutes: self.absolute_minute().saturating_sub(task.created_minute),
+                        assigned_mechanic_id: task.assigned_mechanic_id,
+                        status: self.maintenance_status(task),
+                    })
+                })
+                .collect(),
             operations: OperationsView {
                 cleanliness: self.park_cleanliness(),
                 litter_backlog: self.litter.len() as u32,
                 oldest_litter_age_minutes: self.oldest_litter_age_minutes(),
+                maintenance_backlog: self.maintenance.len() as u32,
+                oldest_maintenance_age_minutes: self.oldest_maintenance_age_minutes(),
+                degraded_concessions: self
+                    .concessions
+                    .iter()
+                    .filter(|stand| self.concession_service_state(stand) == "degraded")
+                    .count() as u32,
+                failed_concessions: self
+                    .concessions
+                    .iter()
+                    .filter(|stand| self.concession_service_state(stand) == "failed")
+                    .count() as u32,
             },
             species_catalog: self.species_catalog(),
             complaints: self.complaint_summary(),
@@ -2357,6 +2858,9 @@ struct ConcessionView {
     sales_today: u32,
     total_sales: u32,
     total_revenue_cents: i64,
+    condition: u32,
+    service_state: String,
+    maintenance_status: String,
 }
 
 #[derive(Serialize)]
@@ -2378,6 +2882,16 @@ struct JanitorView {
 }
 
 #[derive(Serialize)]
+struct MechanicView {
+    id: u32,
+    x: u32,
+    y: u32,
+    target_maintenance_id: Option<u32>,
+    repairs_completed: u32,
+    status: String,
+}
+
+#[derive(Serialize)]
 struct AnimalCareDepotView {
     x: u32,
     y: u32,
@@ -2388,8 +2902,12 @@ struct AnimalCareDepotView {
     keeper_hourly_wage_cents: i64,
     janitor_hire_cost_cents: i64,
     janitor_hourly_wage_cents: i64,
+    mechanic_hire_cost_cents: i64,
+    mechanic_hourly_wage_cents: i64,
+    maintenance_repair_cost_cents: i64,
     keepers: Vec<KeeperView>,
     janitors: Vec<JanitorView>,
+    mechanics: Vec<MechanicView>,
 }
 
 #[derive(Serialize)]
@@ -2403,10 +2921,25 @@ struct LitterView {
 }
 
 #[derive(Serialize)]
+struct MaintenanceView {
+    id: u32,
+    concession_id: u32,
+    x: u32,
+    y: u32,
+    age_minutes: u64,
+    assigned_mechanic_id: Option<u32>,
+    status: String,
+}
+
+#[derive(Serialize)]
 struct OperationsView {
     cleanliness: u32,
     litter_backlog: u32,
     oldest_litter_age_minutes: u64,
+    maintenance_backlog: u32,
+    oldest_maintenance_age_minutes: u64,
+    degraded_concessions: u32,
+    failed_concessions: u32,
 }
 
 #[derive(Serialize)]
@@ -2560,6 +3093,7 @@ struct Snapshot {
     animals: Vec<AnimalView>,
     guests: Vec<GuestView>,
     litter: Vec<LitterView>,
+    maintenance: Vec<MaintenanceView>,
     operations: OperationsView,
     species_catalog: Vec<SpeciesOfferView>,
     complaints: ComplaintSummary,
@@ -2664,6 +3198,10 @@ impl ZooGame {
 
     pub fn hire_janitor(&mut self) -> String {
         self.state.hire_janitor().json()
+    }
+
+    pub fn hire_mechanic(&mut self) -> String {
+        self.state.hire_mechanic().json()
     }
 
     pub fn schedule_keeper(&mut self, habitat_id: u32) -> String {
@@ -3059,6 +3597,223 @@ mod tests {
     }
 
     #[test]
+    fn concession_wear_creates_one_maintenance_task_and_service_states() {
+        let mut state = GameState::default();
+        assert!(state.place_concession(1, ENTRANCE_Y - 1, "food").ok);
+        state.concessions[0].condition = MAINTENANCE_SERVICE_THRESHOLD + 1;
+
+        state.advance_concession_maintenance();
+        assert_eq!(state.maintenance.len(), 1);
+        assert_eq!(
+            state.concession_service_state(&state.concessions[0]),
+            "degraded"
+        );
+
+        state.advance_concession_maintenance();
+        assert_eq!(state.maintenance.len(), 1);
+        state.concessions[0].condition = MAINTENANCE_FAILURE_THRESHOLD;
+        assert_eq!(
+            state.concession_service_state(&state.concessions[0]),
+            "failed"
+        );
+    }
+
+    #[test]
+    fn failed_concession_does_not_make_sales() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        assert!(state.place_concession(1, ENTRANCE_Y - 1, "drink").ok);
+        state.concessions[0].condition = MAINTENANCE_FAILURE_THRESHOLD;
+
+        state.tick(40);
+
+        assert_eq!(state.concessions[0].total_sales, 0);
+        assert_eq!(state.finance_today.concession_income_cents, 0);
+    }
+
+    #[test]
+    fn mechanic_claims_oldest_reachable_task_and_repairs_only_on_arrival() {
+        let mut state = GameState::default();
+        for x in 5..=7 {
+            assert!(state.place_path(x, ENTRANCE_Y).ok);
+        }
+        assert!(state.place_concession(6, ENTRANCE_Y - 1, "food").ok);
+        state.concessions[0].condition = 50;
+        assert!(state.ensure_maintenance_task(state.concessions[0].id));
+        let task_id = state.maintenance[0].id;
+        assert!(state.hire_mechanic().ok);
+        let cash_before_repair = state.cash_cents;
+
+        state.advance_mechanic_work();
+
+        assert_eq!(state.mechanics[0].target_maintenance_id, Some(task_id));
+        assert!(state.concessions[0].condition < 100);
+        assert_eq!(state.finance_today.maintenance_repair_expense_cents, 0);
+
+        for _ in 0..8 {
+            state.advance_mechanic_work();
+            if state.maintenance.is_empty() {
+                break;
+            }
+        }
+
+        assert!(state.maintenance.is_empty());
+        assert_eq!(state.concessions[0].condition, 100);
+        assert_eq!(state.mechanics[0].repairs_completed, 1);
+        assert_eq!(
+            state.finance_today.maintenance_repair_expense_cents,
+            MAINTENANCE_REPAIR_COST
+        );
+        assert_eq!(
+            state.cash_cents,
+            cash_before_repair - MAINTENANCE_REPAIR_COST
+        );
+    }
+
+    #[test]
+    fn mechanic_chooses_reachable_service_tile_across_split_path_components() {
+        let mut state = GameState::default();
+        assert!(state.place_path(5, ENTRANCE_Y).ok);
+        assert!(state.place_path(6, ENTRANCE_Y).ok);
+        assert!(state.place_concession(6, ENTRANCE_Y - 1, "food").ok);
+
+        // The north service tile is an isolated path component and appears before the
+        // reachable south tile in neighbor order. Mechanics must consider both.
+        state.set_tile(6, ENTRANCE_Y - 2, TileKind::Path);
+        state.concessions[0].condition = 50;
+        let concession_id = state.concessions[0].id;
+        assert!(state.ensure_maintenance_task(concession_id));
+        let task_id = state.maintenance[0].id;
+        assert!(state.hire_mechanic().ok);
+
+        state.assign_mechanic_tasks();
+
+        assert_eq!(state.mechanics[0].target_maintenance_id, Some(task_id));
+        assert!(
+            !state
+                .maintenance_status(&state.maintenance[0])
+                .contains("Blocked")
+        );
+
+        for _ in 0..8 {
+            state.advance_mechanic_work();
+            if state.maintenance.is_empty() {
+                break;
+            }
+        }
+
+        assert!(state.maintenance.is_empty());
+        assert_eq!(state.concessions[0].condition, 100);
+        assert_eq!(state.mechanics[0].repairs_completed, 1);
+    }
+
+    #[test]
+    fn unreachable_maintenance_remains_backlogged_and_reports_blocked() {
+        let mut state = GameState::default();
+        assert!(state.hire_mechanic().ok);
+        state.set_tile(10, 10, TileKind::Path);
+        assert!(state.place_concession(10, 9, "drink").ok);
+        state.concessions[0].condition = 50;
+        assert!(state.ensure_maintenance_task(state.concessions[0].id));
+
+        state.advance_mechanic_work();
+
+        assert_eq!(state.maintenance.len(), 1);
+        assert_eq!(state.mechanics[0].target_maintenance_id, None);
+        assert!(
+            state
+                .maintenance_status(&state.maintenance[0])
+                .contains("Blocked")
+        );
+        assert!(
+            state
+                .mechanic_status(&state.mechanics[0])
+                .contains("Blocked")
+        );
+    }
+
+    #[test]
+    fn path_and_concession_edits_release_invalid_mechanic_work() {
+        let mut state = GameState::default();
+        for x in 5..=7 {
+            assert!(state.place_path(x, ENTRANCE_Y).ok);
+        }
+        assert!(state.place_concession(6, ENTRANCE_Y - 1, "food").ok);
+        state.concessions[0].condition = 50;
+        assert!(state.ensure_maintenance_task(state.concessions[0].id));
+        assert!(state.hire_mechanic().ok);
+        state.assign_mechanic_tasks();
+        assert!(state.mechanics[0].target_maintenance_id.is_some());
+
+        let occupied = state.bulldoze(state.mechanics[0].x, state.mechanics[0].y);
+        assert!(!occupied.ok);
+
+        assert!(state.bulldoze(5, ENTRANCE_Y).ok);
+        assert_eq!(state.mechanics[0].target_maintenance_id, None);
+        assert_eq!(state.maintenance.len(), 1);
+
+        assert!(state.bulldoze(6, ENTRANCE_Y - 1).ok);
+        assert!(state.maintenance.is_empty());
+    }
+
+    #[test]
+    fn mechanic_hiring_wages_and_repairs_are_categorized() {
+        let mut state = GameState::default();
+        assert!(state.place_concession(1, ENTRANCE_Y - 1, "food").ok);
+        let before_hire = state.cash_cents;
+        assert!(state.hire_mechanic().ok);
+        assert_eq!(
+            state.finance_today.mechanic_hiring_expense_cents,
+            MECHANIC_HIRE_COST
+        );
+        state.charge_upkeep();
+        assert_eq!(
+            state.finance_today.mechanic_wages_expense_cents,
+            MECHANIC_HOURLY_WAGE
+        );
+        assert_eq!(
+            state.cash_cents,
+            before_hire
+                - MECHANIC_HIRE_COST
+                - MECHANIC_HOURLY_WAGE
+                - state.finance_today.park_upkeep_expense_cents
+        );
+
+        state.concessions[0].condition = 50;
+        assert!(state.ensure_maintenance_task(state.concessions[0].id));
+        for _ in 0..4 {
+            state.advance_mechanic_work();
+            if state.maintenance.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(
+            state.finance_today.maintenance_repair_expense_cents,
+            MAINTENANCE_REPAIR_COST
+        );
+    }
+
+    #[test]
+    fn mechanic_maintenance_loop_is_deterministic() {
+        let mut first = GameState::default();
+        let mut second = GameState::default();
+        for state in [&mut first, &mut second] {
+            assert!(state.place_concession(1, ENTRANCE_Y - 1, "food").ok);
+            assert!(state.hire_mechanic().ok);
+            state.concessions[0].condition = 50;
+            assert!(state.ensure_maintenance_task(state.concessions[0].id));
+            state.tick(30);
+        }
+        assert_eq!(
+            serde_json::to_string(&first.snapshot()).unwrap(),
+            serde_json::to_string(&second.snapshot()).unwrap()
+        );
+    }
+
+    #[test]
     fn adoption_requires_a_scheduled_keeper() {
         let mut state = GameState::default();
         assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
@@ -3204,9 +3959,12 @@ mod tests {
         assert_eq!(ledger.animal_feed_expense_cents, FEED_BATCH_COST);
         assert_eq!(ledger.keeper_hiring_expense_cents, KEEPER_HIRE_COST);
         assert_eq!(ledger.janitor_hiring_expense_cents, 0);
+        assert_eq!(ledger.mechanic_hiring_expense_cents, 0);
+        assert_eq!(ledger.maintenance_repair_expense_cents, 0);
         assert!(ledger.park_upkeep_expense_cents > 0);
         assert_eq!(ledger.keeper_wages_expense_cents, KEEPER_HOURLY_WAGE);
         assert_eq!(ledger.janitor_wages_expense_cents, 0);
+        assert_eq!(ledger.mechanic_wages_expense_cents, 0);
         assert_eq!(
             ledger.expense_total_cents(),
             ledger.construction_expense_cents
@@ -3215,9 +3973,12 @@ mod tests {
                 + ledger.animal_feed_expense_cents
                 + ledger.keeper_hiring_expense_cents
                 + ledger.janitor_hiring_expense_cents
+                + ledger.mechanic_hiring_expense_cents
+                + ledger.maintenance_repair_expense_cents
                 + ledger.park_upkeep_expense_cents
                 + ledger.keeper_wages_expense_cents
                 + ledger.janitor_wages_expense_cents
+                + ledger.mechanic_wages_expense_cents
         );
         assert_eq!(
             ledger.profit_cents(),
