@@ -93,7 +93,11 @@
   transform: translateZ(40px) rotateX(var(--zoo-camera-pitch-inverse)) skewY(-3deg);
 }
 
-.litter,
+.litter {
+  transform: translateZ(6px) rotateX(var(--zoo-camera-pitch-inverse));
+  transform-origin: 50% 100%;
+}
+
 .janitor,
 .animal,
 .empty-habitat-marker,
