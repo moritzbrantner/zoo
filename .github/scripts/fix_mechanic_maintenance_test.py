@@ -43,10 +43,8 @@ if assert_end is None:
 
 replacement = """assert_eq!(
             state.cash_cents,
-            before
-                - MECHANIC_HIRE_COST
-                - MECHANIC_HOURLY_WAGE
-                - state.finance_today.park_upkeep_expense_cents
+            5_000_000 + state.finance_today.income_total_cents()
+                - state.finance_today.expense_total_cents()
         );"""
 updated = block[:assert_start] + replacement + block[assert_end:]
 path.write_text(text[:start] + updated + text[end:])
