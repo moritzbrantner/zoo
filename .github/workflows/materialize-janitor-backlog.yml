@@ -24,9 +24,11 @@ jobs:
         with:
           bun-version: 1.4.0
       - name: Apply janitor backlog slice
-        run: |
-          python .github/scripts/materialize_janitor_backlog.py
-          python .github/scripts/fix_janitor_clippy.py
+        run: python .github/scripts/materialize_janitor_backlog.py
+      - name: Format generated Rust
+        run: cargo fmt --all
+      - name: Normalize strict Clippy findings
+        run: python .github/scripts/fix_janitor_clippy.py
       - name: Format Rust
         run: cargo fmt --all
       - name: Lint Rust
