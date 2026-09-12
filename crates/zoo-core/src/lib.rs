@@ -31,6 +31,8 @@ const FEED_BATCH_COST: i64 = 6_000;
 const FEED_BATCH_CRATES: u32 = 10;
 const KEEPER_HIRE_COST: i64 = 25_000;
 const KEEPER_HOURLY_WAGE: i64 = 1_200;
+const JANITOR_HIRE_COST: i64 = 18_000;
+const JANITOR_HOURLY_WAGE: i64 = 900;
 const FEED_DELIVERY_INTERVAL_MINUTES: u32 = 60;
 const FEED_DELIVERY_RETRY_MINUTES: u32 = 15;
 const FEED_DELIVERY_THRESHOLD: u32 = 90;
@@ -115,6 +117,24 @@ struct Keeper {
     deliveries_completed: u32,
 }
 
+#[derive(Clone, Debug)]
+struct Janitor {
+    id: u32,
+    x: u32,
+    y: u32,
+    target_litter_id: Option<u32>,
+    tasks_completed: u32,
+}
+
+#[derive(Clone, Debug)]
+struct LitterTask {
+    id: u32,
+    x: u32,
+    y: u32,
+    created_minute: u64,
+    assigned_janitor_id: Option<u32>,
+}
+
 #[derive(Clone, Copy, Debug)]
 enum IncomeCategory {
     Admissions,
@@ -128,8 +148,10 @@ enum ExpenseCategory {
     HabitatCare,
     AnimalFeed,
     KeeperHiring,
+    JanitorHiring,
     ParkUpkeep,
     KeeperWages,
+    JanitorWages,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -141,8 +163,10 @@ struct FinanceLedger {
     habitat_care_expense_cents: i64,
     animal_feed_expense_cents: i64,
     keeper_hiring_expense_cents: i64,
+    janitor_hiring_expense_cents: i64,
     park_upkeep_expense_cents: i64,
     keeper_wages_expense_cents: i64,
+    janitor_wages_expense_cents: i64,
 }
 
 impl FinanceLedger {
@@ -160,8 +184,10 @@ impl FinanceLedger {
             ExpenseCategory::HabitatCare => self.habitat_care_expense_cents += cents,
             ExpenseCategory::AnimalFeed => self.animal_feed_expense_cents += cents,
             ExpenseCategory::KeeperHiring => self.keeper_hiring_expense_cents += cents,
+            ExpenseCategory::JanitorHiring => self.janitor_hiring_expense_cents += cents,
             ExpenseCategory::ParkUpkeep => self.park_upkeep_expense_cents += cents,
             ExpenseCategory::KeeperWages => self.keeper_wages_expense_cents += cents,
+            ExpenseCategory::JanitorWages => self.janitor_wages_expense_cents += cents,
         }
     }
 
@@ -175,8 +201,10 @@ impl FinanceLedger {
             + self.habitat_care_expense_cents
             + self.animal_feed_expense_cents
             + self.keeper_hiring_expense_cents
+            + self.janitor_hiring_expense_cents
             + self.park_upkeep_expense_cents
             + self.keeper_wages_expense_cents
+            + self.janitor_wages_expense_cents
     }
 
     fn profit_cents(self) -> i64 {
@@ -661,6 +689,8 @@ struct GameState {
     habitats: Vec<Habitat>,
     concessions: Vec<Concession>,
     keepers: Vec<Keeper>,
+    janitors: Vec<Janitor>,
+    litter: Vec<LitterTask>,
     guests: Vec<Guest>,
     cash_cents: i64,
     feed_crates: u32,
@@ -670,6 +700,8 @@ struct GameState {
     next_habitat_id: u32,
     next_concession_id: u32,
     next_keeper_id: u32,
+    next_janitor_id: u32,
+    next_litter_id: u32,
     next_guest_id: u32,
     spawn_accumulator: u32,
     upkeep_accumulator: u32,
@@ -687,6 +719,8 @@ impl Default for GameState {
             habitats: Vec::new(),
             concessions: Vec::new(),
             keepers: Vec::new(),
+            janitors: Vec::new(),
+            litter: Vec::new(),
             guests: Vec::new(),
             cash_cents: 5_000_000,
             feed_crates: 0,
@@ -696,6 +730,8 @@ impl Default for GameState {
             next_habitat_id: 1,
             next_concession_id: 1,
             next_keeper_id: 1,
+            next_janitor_id: 1,
+            next_litter_id: 1,
             next_guest_id: 1,
             spawn_accumulator: 0,
             upkeep_accumulator: 0,
@@ -1005,6 +1041,28 @@ impl GameState {
                 ActionResult::error("The park entrance cannot be demolished")
             }
             Some(TileKind::Path) => {
+                if self
+                    .janitors
+                    .iter()
+                    .any(|janitor| janitor.x == x && janitor.y == y)
+                {
+                    return ActionResult::error("A janitor is standing on that path tile");
+                }
+                let removed_litter_ids: Vec<u32> = self
+                    .litter
+                    .iter()
+                    .filter(|task| task.x == x && task.y == y)
+                    .map(|task| task.id)
+                    .collect();
+                self.litter.retain(|task| task.x != x || task.y != y);
+                for janitor in &mut self.janitors {
+                    if janitor
+                        .target_litter_id
+                        .is_some_and(|id| removed_litter_ids.contains(&id))
+                    {
+                        janitor.target_litter_id = None;
+                    }
+                }
                 self.set_tile(x, y, TileKind::Grass);
                 ActionResult::ok("Path removed")
             }
@@ -1100,6 +1158,38 @@ impl GameState {
             deliveries_completed: 0,
         });
         ActionResult::ok(format!("Keeper #{id} hired at the animal-care depot"))
+    }
+
+    fn depot_staff_spawn(&self) -> Option<Position> {
+        self.neighbors(Position {
+            x: ANIMAL_CARE_DEPOT_X,
+            y: ANIMAL_CARE_DEPOT_Y,
+        })
+        .into_iter()
+        .find(|position| self.is_walkable(*position))
+    }
+
+    fn hire_janitor(&mut self) -> ActionResult {
+        let Some(spawn) = self.depot_staff_spawn() else {
+            return ActionResult::error(
+                "Connect the central operations depot to a path before hiring janitors",
+            );
+        };
+        if let Err(message) = self.spend(JANITOR_HIRE_COST, ExpenseCategory::JanitorHiring) {
+            return ActionResult::error(message);
+        }
+        let id = self.next_janitor_id;
+        self.next_janitor_id = self.next_janitor_id.saturating_add(1);
+        self.janitors.push(Janitor {
+            id,
+            x: spawn.x,
+            y: spawn.y,
+            target_litter_id: None,
+            tasks_completed: 0,
+        });
+        ActionResult::ok(format!(
+            "Janitor #{id} hired at the central operations depot"
+        ))
     }
 
     fn schedule_keeper(&mut self, habitat_id: u32) -> ActionResult {
@@ -1266,6 +1356,7 @@ impl GameState {
             if self.movement_accumulator >= 3 {
                 self.movement_accumulator = 0;
                 self.advance_guest_movement();
+                self.advance_janitor_work();
             }
 
             self.advance_viewing();
@@ -1546,6 +1637,7 @@ impl GameState {
                 guest.happiness = guest.happiness.saturating_add(3).min(100);
                 guest.value_perception = guest.value_perception.saturating_add(2).min(100);
             }
+            self.add_litter(position);
         }
     }
 
@@ -1580,6 +1672,171 @@ impl GameState {
         }
     }
 
+    fn add_litter(&mut self, position: Position) -> bool {
+        if !self.is_walkable(position)
+            || self
+                .litter
+                .iter()
+                .any(|task| task.x == position.x && task.y == position.y)
+        {
+            return false;
+        }
+        let id = self.next_litter_id;
+        self.next_litter_id = self.next_litter_id.saturating_add(1);
+        self.litter.push(LitterTask {
+            id,
+            x: position.x,
+            y: position.y,
+            created_minute: self.absolute_minute(),
+            assigned_janitor_id: None,
+        });
+        true
+    }
+
+    fn oldest_litter_age_minutes(&self) -> u64 {
+        let now = self.absolute_minute();
+        self.litter
+            .iter()
+            .map(|task| now.saturating_sub(task.created_minute))
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn park_cleanliness(&self) -> u32 {
+        let backlog_penalty = (self.litter.len() as u32).saturating_mul(12);
+        let age_penalty = u32::try_from(self.oldest_litter_age_minutes() / 15)
+            .unwrap_or(u32::MAX)
+            .min(30);
+        100_u32.saturating_sub(backlog_penalty.saturating_add(age_penalty).min(90))
+    }
+
+    fn release_unreachable_janitor_assignments(&mut self) {
+        let assignments: Vec<(usize, u32, Position)> = self
+            .janitors
+            .iter()
+            .enumerate()
+            .filter_map(|(index, janitor)| {
+                Some((
+                    index,
+                    janitor.target_litter_id?,
+                    Position {
+                        x: janitor.x,
+                        y: janitor.y,
+                    },
+                ))
+            })
+            .collect();
+
+        for (janitor_index, litter_id, janitor_position) in assignments {
+            let target = self
+                .litter
+                .iter()
+                .find(|task| task.id == litter_id)
+                .map(|task| Position {
+                    x: task.x,
+                    y: task.y,
+                });
+            let reachable =
+                target.is_some_and(|target| self.path_between(janitor_position, target).is_some());
+            if reachable {
+                continue;
+            }
+            let janitor_id = self.janitors[janitor_index].id;
+            self.janitors[janitor_index].target_litter_id = None;
+            if let Some(task) = self.litter.iter_mut().find(|task| task.id == litter_id)
+                && task.assigned_janitor_id == Some(janitor_id)
+            {
+                task.assigned_janitor_id = None;
+            }
+        }
+    }
+
+    fn assign_janitor_tasks(&mut self) {
+        for janitor_index in 0..self.janitors.len() {
+            if self.janitors[janitor_index].target_litter_id.is_some() {
+                continue;
+            }
+            let janitor_position = Position {
+                x: self.janitors[janitor_index].x,
+                y: self.janitors[janitor_index].y,
+            };
+            let target_id = self
+                .litter
+                .iter()
+                .filter(|task| task.assigned_janitor_id.is_none())
+                .filter(|task| {
+                    self.path_between(
+                        janitor_position,
+                        Position {
+                            x: task.x,
+                            y: task.y,
+                        },
+                    )
+                    .is_some()
+                })
+                .min_by_key(|task| task.id)
+                .map(|task| task.id);
+            let Some(target_id) = target_id else {
+                continue;
+            };
+            let janitor_id = self.janitors[janitor_index].id;
+            self.janitors[janitor_index].target_litter_id = Some(target_id);
+            if let Some(task) = self.litter.iter_mut().find(|task| task.id == target_id) {
+                task.assigned_janitor_id = Some(janitor_id);
+            }
+        }
+    }
+
+    fn complete_litter_task(&mut self, janitor_index: usize, litter_id: u32) {
+        self.litter.retain(|task| task.id != litter_id);
+        self.janitors[janitor_index].target_litter_id = None;
+        self.janitors[janitor_index].tasks_completed = self.janitors[janitor_index]
+            .tasks_completed
+            .saturating_add(1);
+    }
+
+    fn advance_janitor_work(&mut self) {
+        self.release_unreachable_janitor_assignments();
+        self.assign_janitor_tasks();
+
+        for janitor_index in 0..self.janitors.len() {
+            let Some(litter_id) = self.janitors[janitor_index].target_litter_id else {
+                continue;
+            };
+            let Some(target) = self
+                .litter
+                .iter()
+                .find(|task| task.id == litter_id)
+                .map(|task| Position {
+                    x: task.x,
+                    y: task.y,
+                })
+            else {
+                self.janitors[janitor_index].target_litter_id = None;
+                continue;
+            };
+            let current = Position {
+                x: self.janitors[janitor_index].x,
+                y: self.janitors[janitor_index].y,
+            };
+            let Some(route) = self.path_between(current, target) else {
+                continue;
+            };
+            if route.len() <= 1 {
+                self.complete_litter_task(janitor_index, litter_id);
+                continue;
+            }
+            let next = route[1];
+            self.janitors[janitor_index].x = next.x;
+            self.janitors[janitor_index].y = next.y;
+            if next == target {
+                self.complete_litter_task(janitor_index, litter_id);
+            }
+        }
+
+        self.assign_janitor_tasks();
+    }
+
     fn charge_upkeep(&mut self) {
         let animal_count: i64 = self
             .habitats
@@ -1596,11 +1853,14 @@ impl GameState {
             + fence_count * 8
             + self.concessions.len() as i64 * 50;
         let keeper_wages = self.keepers.len() as i64 * KEEPER_HOURLY_WAGE;
-        self.cash_cents -= park_upkeep + keeper_wages;
+        let janitor_wages = self.janitors.len() as i64 * JANITOR_HOURLY_WAGE;
+        self.cash_cents -= park_upkeep + keeper_wages + janitor_wages;
         self.finance_today
             .record_expense(ExpenseCategory::ParkUpkeep, park_upkeep);
         self.finance_today
             .record_expense(ExpenseCategory::KeeperWages, keeper_wages);
+        self.finance_today
+            .record_expense(ExpenseCategory::JanitorWages, janitor_wages);
     }
 
     fn recalculate_rating(&mut self) {
@@ -1626,7 +1886,10 @@ impl GameState {
         } else {
             self.guests.iter().map(|guest| guest.happiness).sum::<u32>() / self.guests.len() as u32
         };
-        self.rating = (250 + appeal / 3 + welfare * 2 + guest_happiness).clamp(0, 999);
+        let cleanliness_penalty = (100_u32.saturating_sub(self.park_cleanliness())) * 2;
+        self.rating = (250 + appeal / 3 + welfare * 2 + guest_happiness)
+            .saturating_sub(cleanliness_penalty)
+            .clamp(0, 999);
     }
 
     fn neighbors(&self, position: Position) -> Vec<Position> {
@@ -1802,6 +2065,97 @@ impl GameState {
         format!("Keeper #{keeper_id} scheduled · next food run in {minutes} min")
     }
 
+    fn janitor_status(&self, janitor: &Janitor) -> String {
+        if let Some(litter_id) = janitor.target_litter_id
+            && let Some(task) = self.litter.iter().find(|task| task.id == litter_id)
+        {
+            let age = self.absolute_minute().saturating_sub(task.created_minute);
+            return format!("Cleaning litter #{litter_id} · {age} min old");
+        }
+        if self.litter.is_empty() {
+            return "Idle · park paths are clean".to_owned();
+        }
+        let position = Position {
+            x: janitor.x,
+            y: janitor.y,
+        };
+        let reachable_unassigned = self.litter.iter().any(|task| {
+            task.assigned_janitor_id.is_none()
+                && self
+                    .path_between(
+                        position,
+                        Position {
+                            x: task.x,
+                            y: task.y,
+                        },
+                    )
+                    .is_some()
+        });
+        if reachable_unassigned {
+            return "Available for cleanup".to_owned();
+        }
+        let reachable = self.litter.iter().any(|task| {
+            self.path_between(
+                position,
+                Position {
+                    x: task.x,
+                    y: task.y,
+                },
+            )
+            .is_some()
+        });
+        if reachable {
+            "Idle · cleanup work is already assigned".to_owned()
+        } else {
+            "Blocked · no reachable litter task".to_owned()
+        }
+    }
+
+    fn litter_status(&self, task: &LitterTask) -> String {
+        let target = Position {
+            x: task.x,
+            y: task.y,
+        };
+        if let Some(janitor_id) = task.assigned_janitor_id
+            && let Some(janitor) = self
+                .janitors
+                .iter()
+                .find(|janitor| janitor.id == janitor_id)
+        {
+            let reachable = self
+                .path_between(
+                    Position {
+                        x: janitor.x,
+                        y: janitor.y,
+                    },
+                    target,
+                )
+                .is_some();
+            return if reachable {
+                format!("Janitor #{janitor_id} responding")
+            } else {
+                format!("Blocked · Janitor #{janitor_id} route disconnected")
+            };
+        }
+        if self.janitors.is_empty() {
+            return "Waiting · no janitor hired".to_owned();
+        }
+        if self.janitors.iter().any(|janitor| {
+            self.path_between(
+                Position {
+                    x: janitor.x,
+                    y: janitor.y,
+                },
+                target,
+            )
+            .is_some()
+        }) {
+            "Waiting for an available janitor".to_owned()
+        } else {
+            "Blocked · disconnected from janitors".to_owned()
+        }
+    }
+
     fn animal_care_depot_view(&self) -> AnimalCareDepotView {
         AnimalCareDepotView {
             x: ANIMAL_CARE_DEPOT_X,
@@ -1811,6 +2165,8 @@ impl GameState {
             feed_batch_cost_cents: FEED_BATCH_COST,
             keeper_hire_cost_cents: KEEPER_HIRE_COST,
             keeper_hourly_wage_cents: KEEPER_HOURLY_WAGE,
+            janitor_hire_cost_cents: JANITOR_HIRE_COST,
+            janitor_hourly_wage_cents: JANITOR_HOURLY_WAGE,
             keepers: self
                 .keepers
                 .iter()
@@ -1822,6 +2178,18 @@ impl GameState {
                         || "Available for assignment".to_owned(),
                         |habitat_id| format!("Scheduled for habitat #{habitat_id}"),
                     ),
+                })
+                .collect(),
+            janitors: self
+                .janitors
+                .iter()
+                .map(|janitor| JanitorView {
+                    id: janitor.id,
+                    x: janitor.x,
+                    y: janitor.y,
+                    target_litter_id: janitor.target_litter_id,
+                    tasks_completed: janitor.tasks_completed,
+                    status: self.janitor_status(janitor),
                 })
                 .collect(),
         }
@@ -1945,6 +2313,23 @@ impl GameState {
             animal_care_depot: self.animal_care_depot_view(),
             animals: self.animal_views(),
             guests,
+            litter: self
+                .litter
+                .iter()
+                .map(|task| LitterView {
+                    id: task.id,
+                    x: task.x,
+                    y: task.y,
+                    age_minutes: self.absolute_minute().saturating_sub(task.created_minute),
+                    assigned_janitor_id: task.assigned_janitor_id,
+                    status: self.litter_status(task),
+                })
+                .collect(),
+            operations: OperationsView {
+                cleanliness: self.park_cleanliness(),
+                litter_backlog: self.litter.len() as u32,
+                oldest_litter_age_minutes: self.oldest_litter_age_minutes(),
+            },
             species_catalog: self.species_catalog(),
             complaints: self.complaint_summary(),
             finance: FinanceView::new(self.day, self.finance_today, self.finance_previous),
@@ -1983,6 +2368,16 @@ struct KeeperView {
 }
 
 #[derive(Serialize)]
+struct JanitorView {
+    id: u32,
+    x: u32,
+    y: u32,
+    target_litter_id: Option<u32>,
+    tasks_completed: u32,
+    status: String,
+}
+
+#[derive(Serialize)]
 struct AnimalCareDepotView {
     x: u32,
     y: u32,
@@ -1991,7 +2386,27 @@ struct AnimalCareDepotView {
     feed_batch_cost_cents: i64,
     keeper_hire_cost_cents: i64,
     keeper_hourly_wage_cents: i64,
+    janitor_hire_cost_cents: i64,
+    janitor_hourly_wage_cents: i64,
     keepers: Vec<KeeperView>,
+    janitors: Vec<JanitorView>,
+}
+
+#[derive(Serialize)]
+struct LitterView {
+    id: u32,
+    x: u32,
+    y: u32,
+    age_minutes: u64,
+    assigned_janitor_id: Option<u32>,
+    status: String,
+}
+
+#[derive(Serialize)]
+struct OperationsView {
+    cleanliness: u32,
+    litter_backlog: u32,
+    oldest_litter_age_minutes: u64,
 }
 
 #[derive(Serialize)]
@@ -2144,6 +2559,8 @@ struct Snapshot {
     animal_care_depot: AnimalCareDepotView,
     animals: Vec<AnimalView>,
     guests: Vec<GuestView>,
+    litter: Vec<LitterView>,
+    operations: OperationsView,
     species_catalog: Vec<SpeciesOfferView>,
     complaints: ComplaintSummary,
     finance: FinanceView,
@@ -2243,6 +2660,10 @@ impl ZooGame {
 
     pub fn hire_keeper(&mut self) -> String {
         self.state.hire_keeper().json()
+    }
+
+    pub fn hire_janitor(&mut self) -> String {
+        self.state.hire_janitor().json()
     }
 
     pub fn schedule_keeper(&mut self, habitat_id: u32) -> String {
@@ -2509,6 +2930,132 @@ mod tests {
         assert!(state.guests[0].bought_food);
         assert!(state.guests[0].hunger < FOOD_BUY_THRESHOLD);
         assert!(state.guests[0].thirst < DRINK_BUY_THRESHOLD);
+        assert!(!state.litter.is_empty());
+    }
+
+    #[test]
+    fn litter_generation_is_deduplicated_per_path_tile() {
+        let mut state = GameState::default();
+        let tile = Position {
+            x: 2,
+            y: ENTRANCE_Y,
+        };
+
+        assert!(state.add_litter(tile));
+        assert!(!state.add_litter(tile));
+        assert_eq!(state.litter.len(), 1);
+    }
+
+    #[test]
+    fn unstaffed_litter_degrades_cleanliness_and_rating_over_time() {
+        let mut state = GameState::default();
+        state.recalculate_rating();
+        let clean_rating = state.rating;
+        assert!(state.add_litter(Position {
+            x: 2,
+            y: ENTRANCE_Y,
+        }));
+        state.recalculate_rating();
+        let dirty_rating = state.rating;
+
+        assert!(state.park_cleanliness() < 100);
+        assert!(dirty_rating < clean_rating);
+        state.tick(30);
+        assert!(state.oldest_litter_age_minutes() >= 30);
+        assert!(state.park_cleanliness() < 88);
+    }
+
+    #[test]
+    fn janitor_claims_oldest_reachable_litter_and_cleans_only_on_arrival() {
+        let mut state = GameState::default();
+        assert!(state.place_path(5, ENTRANCE_Y).ok);
+        assert!(state.hire_janitor().ok);
+        let older = Position {
+            x: 5,
+            y: ENTRANCE_Y,
+        };
+        let newer = Position {
+            x: 1,
+            y: ENTRANCE_Y,
+        };
+        assert!(state.add_litter(older));
+        assert!(state.add_litter(newer));
+        let older_id = state.litter[0].id;
+
+        state.advance_janitor_work();
+
+        assert_eq!(state.janitors[0].target_litter_id, Some(older_id));
+        assert!(state.litter.iter().any(|task| task.id == older_id));
+        assert_ne!(
+            (state.janitors[0].x, state.janitors[0].y),
+            (older.x, older.y)
+        );
+
+        for _ in 0..4 {
+            state.advance_janitor_work();
+        }
+
+        assert!(!state.litter.iter().any(|task| task.id == older_id));
+        assert!(state.janitors[0].tasks_completed >= 1);
+    }
+
+    #[test]
+    fn unreachable_litter_remains_backlogged_and_reports_blocked() {
+        let mut state = GameState::default();
+        assert!(state.hire_janitor().ok);
+        state.set_tile(10, 10, TileKind::Path);
+        assert!(state.add_litter(Position { x: 10, y: 10 }));
+
+        state.advance_janitor_work();
+
+        assert_eq!(state.litter.len(), 1);
+        assert_eq!(state.janitors[0].target_litter_id, None);
+        assert!(state.litter_status(&state.litter[0]).contains("Blocked"));
+        assert!(state.janitor_status(&state.janitors[0]).contains("Blocked"));
+    }
+
+    #[test]
+    fn path_edits_release_invalid_cleanup_assignments_and_protect_staff_tiles() {
+        let mut state = GameState::default();
+        assert!(state.place_path(5, ENTRANCE_Y).ok);
+        assert!(state.place_path(6, ENTRANCE_Y).ok);
+        assert!(state.hire_janitor().ok);
+        assert!(state.add_litter(Position {
+            x: 6,
+            y: ENTRANCE_Y,
+        }));
+        state.assign_janitor_tasks();
+        assert!(state.janitors[0].target_litter_id.is_some());
+
+        let occupied = state.bulldoze(state.janitors[0].x, state.janitors[0].y);
+        assert!(!occupied.ok);
+
+        assert!(state.bulldoze(5, ENTRANCE_Y).ok);
+        state.advance_janitor_work();
+        assert_eq!(state.janitors[0].target_litter_id, None);
+        assert_eq!(state.litter.len(), 1);
+    }
+
+    #[test]
+    fn janitor_hiring_and_wages_are_categorized_in_finance_ledger() {
+        let mut state = GameState::default();
+        let before = state.cash_cents;
+        assert!(state.hire_janitor().ok);
+        assert_eq!(
+            state.finance_today.janitor_hiring_expense_cents,
+            JANITOR_HIRE_COST
+        );
+
+        state.charge_upkeep();
+
+        assert_eq!(
+            state.finance_today.janitor_wages_expense_cents,
+            JANITOR_HOURLY_WAGE
+        );
+        assert_eq!(
+            state.cash_cents,
+            before - JANITOR_HIRE_COST - JANITOR_HOURLY_WAGE
+        );
     }
 
     #[test]
@@ -2656,8 +3203,10 @@ mod tests {
         assert_eq!(ledger.habitat_care_expense_cents, WATER_REFILL_COST);
         assert_eq!(ledger.animal_feed_expense_cents, FEED_BATCH_COST);
         assert_eq!(ledger.keeper_hiring_expense_cents, KEEPER_HIRE_COST);
+        assert_eq!(ledger.janitor_hiring_expense_cents, 0);
         assert!(ledger.park_upkeep_expense_cents > 0);
         assert_eq!(ledger.keeper_wages_expense_cents, KEEPER_HOURLY_WAGE);
+        assert_eq!(ledger.janitor_wages_expense_cents, 0);
         assert_eq!(
             ledger.expense_total_cents(),
             ledger.construction_expense_cents
@@ -2665,8 +3214,10 @@ mod tests {
                 + ledger.habitat_care_expense_cents
                 + ledger.animal_feed_expense_cents
                 + ledger.keeper_hiring_expense_cents
+                + ledger.janitor_hiring_expense_cents
                 + ledger.park_upkeep_expense_cents
                 + ledger.keeper_wages_expense_cents
+                + ledger.janitor_wages_expense_cents
         );
         assert_eq!(
             ledger.profit_cents(),

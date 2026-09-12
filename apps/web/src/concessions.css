@@ -131,3 +131,83 @@
   font-weight: 900;
   letter-spacing: 0.8px;
 }
+
+
+.litter {
+  position: absolute;
+  width: 20px;
+  height: 11px;
+  pointer-events: none;
+}
+
+.litter::before,
+.litter::after {
+  position: absolute;
+  content: "";
+  border: 1px solid #4d3825;
+  background: #8a6744;
+  box-shadow: 0 2px 2px rgb(43 34 24 / 30%);
+}
+
+.litter::before {
+  left: 1px;
+  top: 3px;
+  width: 9px;
+  height: 5px;
+  transform: rotate(14deg);
+}
+
+.litter::after {
+  right: 1px;
+  top: 1px;
+  width: 7px;
+  height: 6px;
+  transform: rotate(-18deg);
+}
+
+.litter.assigned::after {
+  outline: 1px solid #f0d169;
+}
+
+.janitor {
+  position: absolute;
+  display: block;
+  width: 20px;
+  height: 30px;
+  pointer-events: none;
+}
+
+.janitor i {
+  position: absolute;
+  left: 6px;
+  top: 0;
+  width: 9px;
+  height: 9px;
+  border: 1px solid #36503b;
+  border-radius: 50%;
+  background: #e1b98d;
+}
+
+.janitor b {
+  position: absolute;
+  left: 4px;
+  top: 9px;
+  width: 13px;
+  height: 16px;
+  border: 1px solid #294331;
+  border-radius: 3px;
+  background: #5d8c62;
+  box-shadow: inset 0 -4px 0 rgb(35 67 44 / 25%);
+}
+
+.janitor::after {
+  position: absolute;
+  left: 17px;
+  top: 9px;
+  width: 2px;
+  height: 20px;
+  content: "";
+  background: #795633;
+  transform: rotate(15deg);
+  transform-origin: 50% 0;
+}

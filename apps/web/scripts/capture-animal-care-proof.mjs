@@ -113,8 +113,8 @@ try {
 
   await evaluate("document.querySelector('.care-depot').click(); true")
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (await evaluate("document.body.textContent.includes('Animal care depot')")) break
-    if (attempt === 39) throw new Error("Animal care depot panel did not open")
+    if (await evaluate("document.body.textContent.includes('Central operations depot')")) break
+    if (attempt === 39) throw new Error("Central operations depot panel did not open")
     await sleep(100)
   }
 
@@ -133,6 +133,7 @@ try {
 
   await clickPanelButton("Buy 10 feed crates")
   await clickPanelButton("Hire keeper")
+  await clickPanelButton("Hire janitor")
 
   const finalState = JSON.parse(
     await evaluate(`JSON.stringify({
@@ -140,16 +141,27 @@ try {
       hasFeed: document.body.textContent.includes('10 crates'),
       hasKeeper: document.body.textContent.includes('Keeper #1'),
       hasAvailable: document.body.textContent.includes('Available for assignment'),
+      hasJanitor: document.body.textContent.includes('Janitor #1'),
+      janitorIdle: document.body.textContent.includes('Idle · park paths are clean'),
+      janitorRendered: Boolean(document.querySelector('.janitor')),
     })`),
   )
-  if (!finalState.hasDepot || !finalState.hasFeed || !finalState.hasKeeper || !finalState.hasAvailable) {
+  if (
+    !finalState.hasDepot ||
+    !finalState.hasFeed ||
+    !finalState.hasKeeper ||
+    !finalState.hasAvailable ||
+    !finalState.hasJanitor ||
+    !finalState.janitorIdle ||
+    !finalState.janitorRendered
+  ) {
     throw new Error(`Animal-care depot did not reach expected state: ${JSON.stringify(finalState)}`)
   }
 
   mkdirSync("test-results", {recursive: true})
   const screenshot = await cdp.send("Page.captureScreenshot", {format: "png", fromSurface: true})
   writeFileSync("test-results/animal-care-depot.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Animal-care dogfood passed: feed purchased and keeper hired from the central depot")
+  console.log("Operations-depot dogfood passed: feed purchased and keeper + janitor hired centrally")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")

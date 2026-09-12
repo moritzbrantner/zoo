@@ -24,6 +24,8 @@
 .fence-segment,
 .concession,
 .care-depot,
+.litter,
+.janitor,
 .animal,
 .guest,
 .empty-habitat-marker {
@@ -91,6 +93,12 @@
   transform: translateZ(40px) rotateX(var(--zoo-camera-pitch-inverse)) skewY(-3deg);
 }
 
+.litter {
+  transform: translateZ(6px) rotateX(var(--zoo-camera-pitch-inverse));
+  transform-origin: 50% 100%;
+}
+
+.janitor,
 .animal,
 .empty-habitat-marker,
 .guest {
