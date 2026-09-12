@@ -111,6 +111,26 @@ type SpeciesOffer = {
   space_per_animal: number
 }
 
+type FinanceBreakdown = {
+  admissions_income_cents: number
+  concession_income_cents: number
+  construction_expense_cents: number
+  animal_purchase_expense_cents: number
+  habitat_care_expense_cents: number
+  animal_feed_expense_cents: number
+  keeper_hiring_expense_cents: number
+  park_upkeep_expense_cents: number
+  keeper_wages_expense_cents: number
+}
+
+type FinanceDay = {
+  day: number
+  income_cents: number
+  expenses_cents: number
+  profit_cents: number
+  breakdown: FinanceBreakdown
+}
+
 type Snapshot = {
   width: number
   height: number
@@ -138,11 +158,11 @@ type Snapshot = {
     poor_value: number
   }
   finance: {
-    income_today_cents: number
-    expenses_today_cents: number
-    profit_today_cents: number
     admission_price_cents: number
-    concession_revenue_today_cents: number
+    current_day: FinanceDay
+    previous_day: FinanceDay | null
+    profit_change_cents: number | null
+    profit_trend: "up" | "down" | "flat" | "no_previous_day"
   }
 }
 
@@ -1151,16 +1171,70 @@ export default function App() {
                 </ol>
                 <div className="finance-grid">
                   <span>Income today</span>
-                  <strong>{money(snapshot.finance.income_today_cents)}</strong>
+                  <strong>{money(snapshot.finance.current_day.income_cents)}</strong>
                   <span>Expenses today</span>
-                  <strong>{money(snapshot.finance.expenses_today_cents)}</strong>
+                  <strong>{money(snapshot.finance.current_day.expenses_cents)}</strong>
                   <span>Profit today</span>
-                  <strong>{money(snapshot.finance.profit_today_cents)}</strong>
-                  <span>Admission</span>
+                  <strong>{money(snapshot.finance.current_day.profit_cents)}</strong>
+                  <span>Admission price</span>
                   <strong>{money(snapshot.finance.admission_price_cents)}</strong>
-                  <span>Stand sales</span>
-                  <strong>{money(snapshot.finance.concession_revenue_today_cents)}</strong>
+                  <span>Trend</span>
+                  <strong>
+                    {snapshot.finance.profit_change_cents === null
+                      ? "First day"
+                      : `${snapshot.finance.profit_trend} · ${money(
+                          snapshot.finance.profit_change_cents,
+                        )}`}
+                  </strong>
                 </div>
+                <h3>Income breakdown</h3>
+                <div className="finance-grid">
+                  <span>Admissions</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.admissions_income_cents)}
+                  </strong>
+                  <span>Guest concessions</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.concession_income_cents)}
+                  </strong>
+                </div>
+                <h3>Expense breakdown</h3>
+                <div className="finance-grid">
+                  <span>Construction</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.construction_expense_cents)}
+                  </strong>
+                  <span>Animal purchases</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.animal_purchase_expense_cents)}
+                  </strong>
+                  <span>Habitat care</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.habitat_care_expense_cents)}
+                  </strong>
+                  <span>Animal feed</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.animal_feed_expense_cents)}
+                  </strong>
+                  <span>Keeper hiring</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.keeper_hiring_expense_cents)}
+                  </strong>
+                  <span>Park upkeep</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.park_upkeep_expense_cents)}
+                  </strong>
+                  <span>Keeper wages</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.keeper_wages_expense_cents)}
+                  </strong>
+                </div>
+                {snapshot.finance.previous_day !== null && (
+                  <div className="guest-thought">
+                    Day {snapshot.finance.previous_day.day} profit:{" "}
+                    {money(snapshot.finance.previous_day.profit_cents)}
+                  </div>
+                )}
                 <h3>Guest complaints</h3>
                 <div className="complaint-grid">
                   <span>Hungry</span>

@@ -115,6 +115,75 @@ struct Keeper {
     deliveries_completed: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum IncomeCategory {
+    Admissions,
+    Concessions,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ExpenseCategory {
+    Construction,
+    AnimalPurchase,
+    HabitatCare,
+    AnimalFeed,
+    KeeperHiring,
+    ParkUpkeep,
+    KeeperWages,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+struct FinanceLedger {
+    admissions_income_cents: i64,
+    concession_income_cents: i64,
+    construction_expense_cents: i64,
+    animal_purchase_expense_cents: i64,
+    habitat_care_expense_cents: i64,
+    animal_feed_expense_cents: i64,
+    keeper_hiring_expense_cents: i64,
+    park_upkeep_expense_cents: i64,
+    keeper_wages_expense_cents: i64,
+}
+
+impl FinanceLedger {
+    fn record_income(&mut self, category: IncomeCategory, cents: i64) {
+        match category {
+            IncomeCategory::Admissions => self.admissions_income_cents += cents,
+            IncomeCategory::Concessions => self.concession_income_cents += cents,
+        }
+    }
+
+    fn record_expense(&mut self, category: ExpenseCategory, cents: i64) {
+        match category {
+            ExpenseCategory::Construction => self.construction_expense_cents += cents,
+            ExpenseCategory::AnimalPurchase => self.animal_purchase_expense_cents += cents,
+            ExpenseCategory::HabitatCare => self.habitat_care_expense_cents += cents,
+            ExpenseCategory::AnimalFeed => self.animal_feed_expense_cents += cents,
+            ExpenseCategory::KeeperHiring => self.keeper_hiring_expense_cents += cents,
+            ExpenseCategory::ParkUpkeep => self.park_upkeep_expense_cents += cents,
+            ExpenseCategory::KeeperWages => self.keeper_wages_expense_cents += cents,
+        }
+    }
+
+    fn income_total_cents(self) -> i64 {
+        self.admissions_income_cents + self.concession_income_cents
+    }
+
+    fn expense_total_cents(self) -> i64 {
+        self.construction_expense_cents
+            + self.animal_purchase_expense_cents
+            + self.habitat_care_expense_cents
+            + self.animal_feed_expense_cents
+            + self.keeper_hiring_expense_cents
+            + self.park_upkeep_expense_cents
+            + self.keeper_wages_expense_cents
+    }
+
+    fn profit_cents(self) -> i64 {
+        self.income_total_cents() - self.expense_total_cents()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum HabitatOrientation {
@@ -605,9 +674,8 @@ struct GameState {
     spawn_accumulator: u32,
     upkeep_accumulator: u32,
     movement_accumulator: u32,
-    income_today_cents: i64,
-    expenses_today_cents: i64,
-    concession_revenue_today_cents: i64,
+    finance_today: FinanceLedger,
+    finance_previous: Option<FinanceLedger>,
 }
 
 impl Default for GameState {
@@ -632,9 +700,8 @@ impl Default for GameState {
             spawn_accumulator: 0,
             upkeep_accumulator: 0,
             movement_accumulator: 0,
-            income_today_cents: 0,
-            expenses_today_cents: 0,
-            concession_revenue_today_cents: 0,
+            finance_today: FinanceLedger::default(),
+            finance_previous: None,
         };
 
         state.set_tile(ENTRANCE_X, ENTRANCE_Y, TileKind::Entrance);
@@ -665,13 +732,18 @@ impl GameState {
         }
     }
 
-    fn spend(&mut self, cents: i64) -> Result<(), &'static str> {
+    fn spend(&mut self, cents: i64, category: ExpenseCategory) -> Result<(), &'static str> {
         if self.cash_cents < cents {
             return Err("Not enough cash");
         }
         self.cash_cents -= cents;
-        self.expenses_today_cents += cents;
+        self.finance_today.record_expense(category, cents);
         Ok(())
+    }
+
+    fn earn(&mut self, cents: i64, category: IncomeCategory) {
+        self.cash_cents += cents;
+        self.finance_today.record_income(category, cents);
     }
 
     fn place_path(&mut self, x: u32, y: u32) -> ActionResult {
@@ -686,7 +758,7 @@ impl GameState {
             Some(TileKind::AnimalCareDepot) => {
                 ActionResult::error("The central animal-care depot occupies that tile")
             }
-            Some(TileKind::Grass) => match self.spend(PATH_COST) {
+            Some(TileKind::Grass) => match self.spend(PATH_COST, ExpenseCategory::Construction) {
                 Ok(()) => {
                     self.set_tile(x, y, TileKind::Path);
                     ActionResult::ok("Path built")
@@ -735,7 +807,7 @@ impl GameState {
             return ActionResult::error("Concession stands must touch a guest path");
         }
 
-        if let Err(message) = self.spend(kind.build_cost()) {
+        if let Err(message) = self.spend(kind.build_cost(), ExpenseCategory::Construction) {
             return ActionResult::error(message);
         }
 
@@ -880,7 +952,7 @@ impl GameState {
         if !evaluation.ok {
             return ActionResult::error(evaluation.message);
         }
-        if let Err(message) = self.spend(evaluation.cost_cents) {
+        if let Err(message) = self.spend(evaluation.cost_cents, ExpenseCategory::Construction) {
             return ActionResult::error(message);
         }
 
@@ -987,7 +1059,7 @@ impl GameState {
             return ActionResult::error("Schedule a keeper before adopting animals");
         }
 
-        if let Err(message) = self.spend(species.purchase_cost()) {
+        if let Err(message) = self.spend(species.purchase_cost(), ExpenseCategory::AnimalPurchase) {
             return ActionResult::error(message);
         }
         let habitat = &mut self.habitats[index];
@@ -1007,7 +1079,7 @@ impl GameState {
     }
 
     fn buy_animal_feed(&mut self) -> ActionResult {
-        if let Err(message) = self.spend(FEED_BATCH_COST) {
+        if let Err(message) = self.spend(FEED_BATCH_COST, ExpenseCategory::AnimalFeed) {
             return ActionResult::error(message);
         }
         self.feed_crates = self.feed_crates.saturating_add(FEED_BATCH_CRATES);
@@ -1017,7 +1089,7 @@ impl GameState {
     }
 
     fn hire_keeper(&mut self) -> ActionResult {
-        if let Err(message) = self.spend(KEEPER_HIRE_COST) {
+        if let Err(message) = self.spend(KEEPER_HIRE_COST, ExpenseCategory::KeeperHiring) {
             return ActionResult::error(message);
         }
         let id = self.next_keeper_id;
@@ -1112,7 +1184,7 @@ impl GameState {
         if self.habitats[index].water >= 100 {
             return ActionResult::ok("Water is already full");
         }
-        if let Err(message) = self.spend(WATER_REFILL_COST) {
+        if let Err(message) = self.spend(WATER_REFILL_COST, ExpenseCategory::HabitatCare) {
             return ActionResult::error(message);
         }
         self.habitats[index].water = 100;
@@ -1130,7 +1202,7 @@ impl GameState {
         if self.habitats[index].cleanliness >= 100 {
             return ActionResult::ok("Habitat is already clean");
         }
-        if let Err(message) = self.spend(CLEAN_HABITAT_COST) {
+        if let Err(message) = self.spend(CLEAN_HABITAT_COST, ExpenseCategory::HabitatCare) {
             return ActionResult::error(message);
         }
         self.habitats[index].cleanliness = 100;
@@ -1148,7 +1220,7 @@ impl GameState {
         if self.habitats[index].has_shelter {
             return ActionResult::ok("Basic shelter is already installed");
         }
-        if let Err(message) = self.spend(SHELTER_COST) {
+        if let Err(message) = self.spend(SHELTER_COST, ExpenseCategory::HabitatCare) {
             return ActionResult::error(message);
         }
         self.habitats[index].has_shelter = true;
@@ -1161,9 +1233,8 @@ impl GameState {
             if self.minute_of_day >= 24 * 60 {
                 self.minute_of_day = 0;
                 self.day += 1;
-                self.income_today_cents = 0;
-                self.expenses_today_cents = 0;
-                self.concession_revenue_today_cents = 0;
+                self.finance_previous = Some(self.finance_today);
+                self.finance_today = FinanceLedger::default();
                 for stand in &mut self.concessions {
                     stand.sales_today = 0;
                 }
@@ -1288,8 +1359,7 @@ impl GameState {
             return;
         };
 
-        self.cash_cents += ADMISSION_PRICE;
-        self.income_today_cents += ADMISSION_PRICE;
+        self.earn(ADMISSION_PRICE, IncomeCategory::Admissions);
         self.guests.push(Guest {
             id: self.next_guest_id,
             x: start.x,
@@ -1454,9 +1524,7 @@ impl GameState {
 
             let kind = self.concessions[concession_index].kind;
             let price = kind.price_cents();
-            self.cash_cents += price;
-            self.income_today_cents += price;
-            self.concession_revenue_today_cents += price;
+            self.earn(price, IncomeCategory::Concessions);
             {
                 let stand = &mut self.concessions[concession_index];
                 stand.sales_today += 1;
@@ -1523,13 +1591,16 @@ impl GameState {
             .iter()
             .map(|habitat| i64::from(habitat.fence_length()))
             .sum();
-        let upkeep = self.habitats.len() as i64 * 250
+        let park_upkeep = self.habitats.len() as i64 * 250
             + animal_count * 125
             + fence_count * 8
-            + self.concessions.len() as i64 * 50
-            + self.keepers.len() as i64 * KEEPER_HOURLY_WAGE;
-        self.cash_cents -= upkeep;
-        self.expenses_today_cents += upkeep;
+            + self.concessions.len() as i64 * 50;
+        let keeper_wages = self.keepers.len() as i64 * KEEPER_HOURLY_WAGE;
+        self.cash_cents -= park_upkeep + keeper_wages;
+        self.finance_today
+            .record_expense(ExpenseCategory::ParkUpkeep, park_upkeep);
+        self.finance_today
+            .record_expense(ExpenseCategory::KeeperWages, keeper_wages);
     }
 
     fn recalculate_rating(&mut self) {
@@ -1876,13 +1947,7 @@ impl GameState {
             guests,
             species_catalog: self.species_catalog(),
             complaints: self.complaint_summary(),
-            finance: FinanceView {
-                income_today_cents: self.income_today_cents,
-                expenses_today_cents: self.expenses_today_cents,
-                profit_today_cents: self.income_today_cents - self.expenses_today_cents,
-                admission_price_cents: ADMISSION_PRICE,
-                concession_revenue_today_cents: self.concession_revenue_today_cents,
-            },
+            finance: FinanceView::new(self.day, self.finance_today, self.finance_previous),
         }
     }
 }
@@ -2010,13 +2075,57 @@ struct ComplaintSummary {
     poor_value: u32,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+struct FinanceDayView {
+    day: u32,
+    income_cents: i64,
+    expenses_cents: i64,
+    profit_cents: i64,
+    breakdown: FinanceLedger,
+}
+
+impl FinanceDayView {
+    fn new(day: u32, ledger: FinanceLedger) -> Self {
+        Self {
+            day,
+            income_cents: ledger.income_total_cents(),
+            expenses_cents: ledger.expense_total_cents(),
+            profit_cents: ledger.profit_cents(),
+            breakdown: ledger,
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct FinanceView {
-    income_today_cents: i64,
-    expenses_today_cents: i64,
-    profit_today_cents: i64,
     admission_price_cents: i64,
-    concession_revenue_today_cents: i64,
+    current_day: FinanceDayView,
+    previous_day: Option<FinanceDayView>,
+    profit_change_cents: Option<i64>,
+    profit_trend: &'static str,
+}
+
+impl FinanceView {
+    fn new(day: u32, current: FinanceLedger, previous: Option<FinanceLedger>) -> Self {
+        let current_day = FinanceDayView::new(day, current);
+        let previous_day =
+            previous.map(|ledger| FinanceDayView::new(day.saturating_sub(1), ledger));
+        let profit_change_cents =
+            previous_day.map(|previous| current_day.profit_cents - previous.profit_cents);
+        let profit_trend = match profit_change_cents {
+            None => "no_previous_day",
+            Some(change) if change > 0 => "up",
+            Some(change) if change < 0 => "down",
+            Some(_) => "flat",
+        };
+        Self {
+            admission_price_cents: ADMISSION_PRICE,
+            current_day,
+            previous_day,
+            profit_change_cents,
+            profit_trend,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -2184,9 +2293,11 @@ mod tests {
 
         assert!(state.place_path(5, ENTRANCE_Y).ok);
         assert_eq!(state.cash_cents, before - PATH_COST);
+        assert_eq!(state.finance_today.construction_expense_cents, PATH_COST);
 
         assert!(state.place_path(5, ENTRANCE_Y).ok);
         assert_eq!(state.cash_cents, before - PATH_COST);
+        assert_eq!(state.finance_today.construction_expense_cents, PATH_COST);
     }
 
     #[test]
@@ -2391,7 +2502,7 @@ mod tests {
         assert_eq!(drink.total_sales, 1);
         assert_eq!(food.total_sales, 1);
         assert_eq!(
-            state.concession_revenue_today_cents,
+            state.finance_today.concession_income_cents,
             DRINK_PRICE + FOOD_PRICE
         );
         assert!(state.guests[0].bought_drink);
@@ -2505,6 +2616,89 @@ mod tests {
         state.charge_upkeep();
 
         assert_eq!(state.cash_cents, before - KEEPER_HOURLY_WAGE);
+        assert_eq!(
+            state.finance_today.keeper_wages_expense_cents,
+            KEEPER_HOURLY_WAGE
+        );
+    }
+
+    #[test]
+    fn finance_ledger_reconciles_current_economy_categories() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+
+        assert!(state.buy_animal_feed().ok);
+        assert!(state.hire_keeper().ok);
+        assert!(state.schedule_keeper(habitat_id).ok);
+        assert!(state.adopt(habitat_id, "capybara").ok);
+
+        let care_before = state.finance_today.habitat_care_expense_cents;
+        assert!(state.refill_water(habitat_id).ok);
+        assert_eq!(state.finance_today.habitat_care_expense_cents, care_before);
+
+        state.habitats[0].water = 40;
+        assert!(state.refill_water(habitat_id).ok);
+        state.try_spawn_guest();
+        assert_eq!(state.guests.len(), 1);
+        state.charge_upkeep();
+
+        let ledger = state.finance_today;
+        assert_eq!(ledger.admissions_income_cents, ADMISSION_PRICE);
+        assert_eq!(
+            ledger.construction_expense_cents,
+            habitat_cost(LEGACY_HABITAT_WIDTH, LEGACY_HABITAT_HEIGHT)
+        );
+        assert_eq!(
+            ledger.animal_purchase_expense_cents,
+            Species::parse("capybara").unwrap().purchase_cost()
+        );
+        assert_eq!(ledger.habitat_care_expense_cents, WATER_REFILL_COST);
+        assert_eq!(ledger.animal_feed_expense_cents, FEED_BATCH_COST);
+        assert_eq!(ledger.keeper_hiring_expense_cents, KEEPER_HIRE_COST);
+        assert!(ledger.park_upkeep_expense_cents > 0);
+        assert_eq!(ledger.keeper_wages_expense_cents, KEEPER_HOURLY_WAGE);
+        assert_eq!(
+            ledger.expense_total_cents(),
+            ledger.construction_expense_cents
+                + ledger.animal_purchase_expense_cents
+                + ledger.habitat_care_expense_cents
+                + ledger.animal_feed_expense_cents
+                + ledger.keeper_hiring_expense_cents
+                + ledger.park_upkeep_expense_cents
+                + ledger.keeper_wages_expense_cents
+        );
+        assert_eq!(
+            ledger.profit_cents(),
+            ledger.income_total_cents() - ledger.expense_total_cents()
+        );
+    }
+
+    #[test]
+    fn finance_day_rollover_preserves_previous_day_and_resets_current_day() {
+        let mut state = GameState::default();
+        state
+            .finance_today
+            .record_income(IncomeCategory::Admissions, 1_200);
+        state
+            .finance_today
+            .record_expense(ExpenseCategory::Construction, 1_000);
+        state.minute_of_day = 24 * 60 - 1;
+
+        state.tick(1);
+
+        assert_eq!(state.day, 2);
+        assert_eq!(state.finance_today, FinanceLedger::default());
+        let previous = state.finance_previous.expect("day one ledger retained");
+        assert_eq!(previous.admissions_income_cents, 1_200);
+        assert_eq!(previous.construction_expense_cents, 1_000);
+        assert_eq!(previous.profit_cents(), 200);
+
+        let view = FinanceView::new(state.day, state.finance_today, state.finance_previous);
+        assert_eq!(view.current_day.profit_cents, 0);
+        assert_eq!(view.previous_day.expect("previous day view").day, 1);
+        assert_eq!(view.profit_change_cents, Some(-200));
+        assert_eq!(view.profit_trend, "down");
     }
 
     #[test]
