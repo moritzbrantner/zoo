@@ -72,6 +72,9 @@ type Concession = Point & {
   sales_today: number
   total_sales: number
   total_revenue_cents: number
+  condition: number
+  service_state: "healthy" | "degraded" | "failed"
+  maintenance_status: string
 }
 
 type Keeper = {
@@ -95,6 +98,21 @@ type LitterTask = Point & {
   status: string
 }
 
+type Mechanic = Point & {
+  id: number
+  target_maintenance_id: number | null
+  repairs_completed: number
+  status: string
+}
+
+type MaintenanceTask = Point & {
+  id: number
+  concession_id: number
+  age_minutes: number
+  assigned_mechanic_id: number | null
+  status: string
+}
+
 type AnimalCareDepot = Point & {
   feed_crates: number
   feed_batch_crates: number
@@ -103,8 +121,12 @@ type AnimalCareDepot = Point & {
   keeper_hourly_wage_cents: number
   janitor_hire_cost_cents: number
   janitor_hourly_wage_cents: number
+  mechanic_hire_cost_cents: number
+  mechanic_hourly_wage_cents: number
+  maintenance_repair_cost_cents: number
   keepers: Keeper[]
   janitors: Janitor[]
+  mechanics: Mechanic[]
 }
 
 type Guest = Point & {
@@ -137,9 +159,12 @@ type FinanceBreakdown = {
   animal_feed_expense_cents: number
   keeper_hiring_expense_cents: number
   janitor_hiring_expense_cents: number
+  mechanic_hiring_expense_cents: number
+  maintenance_repair_expense_cents: number
   park_upkeep_expense_cents: number
   keeper_wages_expense_cents: number
   janitor_wages_expense_cents: number
+  mechanic_wages_expense_cents: number
 }
 
 type FinanceDay = {
@@ -170,10 +195,15 @@ type Snapshot = {
   animals: Animal[]
   guests: Guest[]
   litter: LitterTask[]
+  maintenance: MaintenanceTask[]
   operations: {
     cleanliness: number
     litter_backlog: number
     oldest_litter_age_minutes: number
+    maintenance_backlog: number
+    oldest_maintenance_age_minutes: number
+    degraded_concessions: number
+    failed_concessions: number
   }
   species_catalog: SpeciesOffer[]
   complaints: {
@@ -570,6 +600,12 @@ export default function App() {
     perform(() => game.hire_janitor())
   }
 
+  const hireMechanic = () => {
+    const game = gameRef.current
+    if (!game) return
+    perform(() => game.hire_mechanic())
+  }
+
   const reset = () => {
     gameRef.current?.reset()
     setTool("select")
@@ -798,7 +834,7 @@ export default function App() {
                     top: position.top - 54,
                     zIndex: 640 + depot.x + depot.y,
                   }}
-                  title={`${depot.feed_crates} animal-feed crates · ${depot.keepers.length} keepers · ${depot.janitors.length} janitors`}
+                  title={`${depot.feed_crates} animal-feed crates · ${depot.keepers.length} keepers · ${depot.janitors.length} janitors · ${depot.mechanics.length} mechanics`}
                   aria-label="Central operations depot"
                   onClick={(event) => {
                     event.stopPropagation()
@@ -830,14 +866,14 @@ export default function App() {
               return (
                 <button
                   type="button"
-                  className={`concession concession-${stand.kind}`}
+                  className={`concession concession-${stand.kind} concession-${stand.service_state}`}
                   key={`concession:${stand.id}`}
                   style={{
                     left: position.left + 8,
                     top: position.top - 42,
                     zIndex: 610 + stand.x + stand.y,
                   }}
-                  title={`${label} stand · ${money(stand.price_cents)} · ${stand.sales_today} sales today`}
+                  title={`${label} stand · ${stand.condition}% condition · ${stand.service_state} · ${stand.maintenance_status}`}
                   aria-label={`${label} stand ${stand.id}`}
                   onClick={(event) => {
                     event.stopPropagation()
@@ -851,13 +887,21 @@ export default function App() {
                     setSelectedHabitatId(null)
                     setSelectedDepot(false)
                     setTool("select")
-                    setMessage(`${label} stand #${stand.id} · ${stand.sales_today} sales today`)
+                    setMessage(
+                      `${label} stand #${stand.id} · ${stand.condition}% condition · ${stand.service_state} · ${stand.maintenance_status}`,
+                    )
                     setMessageKind("info")
                   }}
                 >
                   <span className="concession-awning" />
                   <strong>{label}</strong>
-                  <small>{stand.kind === "food" ? "FOOD" : "DRINK"}</small>
+                  <small>
+                    {stand.service_state === "failed"
+                      ? "CLOSED"
+                      : stand.kind === "food"
+                        ? "FOOD"
+                        : "DRINK"}
+                  </small>
                   <span className="concession-counter" />
                 </button>
               )
@@ -893,6 +937,49 @@ export default function App() {
                   }}
                   title={`Janitor #${janitor.id} · ${janitor.status}`}
                   aria-label={`Janitor ${janitor.id}: ${janitor.status}`}
+                >
+                  <i />
+                  <b />
+                </span>
+              )
+            })}
+
+
+
+            {snapshot.maintenance.map((task) => {
+              const position = isoPosition(task.x, task.y)
+              return (
+                <span
+                  className={`maintenance-alert ${
+                    task.assigned_mechanic_id === null ? "waiting" : "assigned"
+                  }`}
+                  key={`maintenance:${task.id}`}
+                  style={{
+                    left: position.left + 38,
+                    top: position.top - 50,
+                    zIndex: 850 + task.x + task.y,
+                  }}
+                  title={`Stand #${task.concession_id} maintenance · ${task.age_minutes} min · ${task.status}`}
+                  aria-label={`Maintenance task ${task.id}: ${task.status}`}
+                >
+                  !
+                </span>
+              )
+            })}
+
+            {snapshot.animal_care_depot.mechanics.map((mechanic) => {
+              const position = isoPosition(mechanic.x, mechanic.y)
+              return (
+                <span
+                  className="mechanic"
+                  key={`mechanic:${mechanic.id}`}
+                  style={{
+                    left: position.left + 18,
+                    top: position.top - 9,
+                    zIndex: 825 + mechanic.x + mechanic.y,
+                  }}
+                  title={`Mechanic #${mechanic.id} · ${mechanic.status}`}
+                  aria-label={`Mechanic ${mechanic.id}: ${mechanic.status}`}
                 >
                   <i />
                   <b />
@@ -1025,6 +1112,22 @@ export default function App() {
                     <dd>{money(snapshot.animal_care_depot.janitor_hourly_wage_cents)}/hr</dd>
                   </div>
                   <div>
+                    <dt>Mechanics</dt>
+                    <dd>{snapshot.animal_care_depot.mechanics.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Wage / mechanic</dt>
+                    <dd>{money(snapshot.animal_care_depot.mechanic_hourly_wage_cents)}/hr</dd>
+                  </div>
+                  <div>
+                    <dt>Maintenance backlog</dt>
+                    <dd>{snapshot.operations.maintenance_backlog}</dd>
+                  </div>
+                  <div>
+                    <dt>Oldest maintenance</dt>
+                    <dd>{snapshot.operations.oldest_maintenance_age_minutes} min</dd>
+                  </div>
+                  <div>
                     <dt>Path cleanliness</dt>
                     <dd>{snapshot.operations.cleanliness}%</dd>
                   </div>
@@ -1058,6 +1161,13 @@ export default function App() {
                   </span>
                   <strong>{money(snapshot.animal_care_depot.janitor_hire_cost_cents)}</strong>
                 </button>
+                <button className="shop-row" onClick={hireMechanic}>
+                  <span>
+                    <b>Hire mechanic</b>
+                    <small>Mechanics respond to reachable facility maintenance</small>
+                  </span>
+                  <strong>{money(snapshot.animal_care_depot.mechanic_hire_cost_cents)}</strong>
+                </button>
                 <h3>Keeper schedule</h3>
                 {snapshot.animal_care_depot.keepers.length === 0 ? (
                   <div className="guest-thought">No keepers hired yet.</div>
@@ -1090,6 +1200,25 @@ export default function App() {
                       <div>
                         <dt>Cleanups</dt>
                         <dd>{janitor.tasks_completed}</dd>
+                      </div>
+                    </dl>
+                  ))
+                )}
+                <h3>Mechanic service</h3>
+                {snapshot.animal_care_depot.mechanics.length === 0 ? (
+                  <div className="guest-thought">
+                    No mechanics hired. Worn stands can degrade and eventually close.
+                  </div>
+                ) : (
+                  snapshot.animal_care_depot.mechanics.map((mechanic) => (
+                    <dl key={mechanic.id}>
+                      <div>
+                        <dt>Mechanic #{mechanic.id}</dt>
+                        <dd>{mechanic.status}</dd>
+                      </div>
+                      <div>
+                        <dt>Repairs</dt>
+                        <dd>{mechanic.repairs_completed}</dd>
                       </div>
                     </dl>
                   ))
@@ -1279,6 +1408,7 @@ export default function App() {
                   <li>Choose Habitat and drag a closed rectangular fence around clear grass.</li>
                   <li>Open the operations depot, buy animal feed, and hire a keeper.</li>
                   <li>Hire a janitor so path litter has a visible service response.</li>
+                  <li>Hire a mechanic before concession wear turns into closures.</li>
                   <li>Select the enclosure and schedule an available keeper.</li>
                   <li>Adopt animals after the habitat has a food-delivery schedule.</li>
                   <li>Place guest food and drink stands on clear grass beside busy paths.</li>
@@ -1312,6 +1442,16 @@ export default function App() {
                   <strong>{snapshot.operations.oldest_litter_age_minutes} min</strong>
                   <span>Janitors</span>
                   <strong>{snapshot.animal_care_depot.janitors.length}</strong>
+                  <span>Maintenance backlog</span>
+                  <strong>{snapshot.operations.maintenance_backlog}</strong>
+                  <span>Oldest maintenance</span>
+                  <strong>{snapshot.operations.oldest_maintenance_age_minutes} min</strong>
+                  <span>Degraded stands</span>
+                  <strong>{snapshot.operations.degraded_concessions}</strong>
+                  <span>Failed stands</span>
+                  <strong>{snapshot.operations.failed_concessions}</strong>
+                  <span>Mechanics</span>
+                  <strong>{snapshot.animal_care_depot.mechanics.length}</strong>
                 </div>
                 <h3>Income breakdown</h3>
                 <div className="finance-grid">
@@ -1350,6 +1490,14 @@ export default function App() {
                   <strong>
                     {money(snapshot.finance.current_day.breakdown.janitor_hiring_expense_cents)}
                   </strong>
+                  <span>Mechanic hiring</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.mechanic_hiring_expense_cents)}
+                  </strong>
+                  <span>Maintenance repairs</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.maintenance_repair_expense_cents)}
+                  </strong>
                   <span>Park upkeep</span>
                   <strong>
                     {money(snapshot.finance.current_day.breakdown.park_upkeep_expense_cents)}
@@ -1361,6 +1509,10 @@ export default function App() {
                   <span>Janitor wages</span>
                   <strong>
                     {money(snapshot.finance.current_day.breakdown.janitor_wages_expense_cents)}
+                  </strong>
+                  <span>Mechanic wages</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.mechanic_wages_expense_cents)}
                   </strong>
                 </div>
                 {snapshot.finance.previous_day !== null && (
