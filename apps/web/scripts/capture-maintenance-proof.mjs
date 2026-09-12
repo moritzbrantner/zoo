@@ -36,7 +36,9 @@ async function waitForPageTarget() {
       const response = await fetch(`http://127.0.0.1:${debuggingPort}/json`)
       if (response.ok) {
         const targets = await response.json()
-        const target = targets.find((candidate) => candidate.type === "page" && candidate.url.startsWith(previewUrl))
+        const target = targets.find(
+          (candidate) => candidate.type === "page" && candidate.url.startsWith(previewUrl),
+        )
         if (target?.webSocketDebuggerUrl) return target
       }
     } catch {}
@@ -83,8 +85,14 @@ try {
   await cdp.send("Page.enable")
   await cdp.send("Runtime.enable")
   const evaluate = async (expression) => {
-    const response = await cdp.send("Runtime.evaluate", {expression, awaitPromise: true, returnByValue: true})
-    if (response.exceptionDetails) throw new Error(response.exceptionDetails.text ?? "Browser evaluation failed")
+    const response = await cdp.send("Runtime.evaluate", {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+    })
+    if (response.exceptionDetails) {
+      throw new Error(response.exceptionDetails.text ?? "Browser evaluation failed")
+    }
     return response.result.value
   }
 
@@ -94,18 +102,63 @@ try {
     await sleep(250)
   }
 
-  await evaluate(`(() => {
-    const tool = [...document.querySelectorAll('.tool')].find((button) => button.textContent.includes('Food stand'))
-    tool?.click()
-    document.querySelector('[aria-label="grass tile 1, 6"]')?.click()
-    const speed = [...document.querySelectorAll('.speed-controls button')].find((button) => button.textContent.includes('4×'))
-    speed?.click()
+  const foodToolClicked = await evaluate(`(() => {
+    const tool = [...document.querySelectorAll('.tool')].find((button) =>
+      button.textContent.includes('Food stand'),
+    )
+    if (!tool) return false
+    tool.click()
     return true
   })()`)
+  if (!foodToolClicked) throw new Error("Could not activate the Food stand tool")
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const active = await evaluate(
+      `Boolean(document.querySelector('.tool.active')?.textContent.includes('Food stand'))`,
+    )
+    if (active) break
+    if (attempt === 39) throw new Error("Food stand tool did not become active")
+    await sleep(50)
+  }
+
+  const placed = await evaluate(`(() => {
+    const tile = document.querySelector('[aria-label="grass tile 1, 6"]')
+    if (!tile) return false
+    tile.click()
+    return true
+  })()`)
+  if (!placed) throw new Error("Could not click the maintenance proof stand tile")
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (await evaluate("Boolean(document.querySelector('.concession-food'))")) break
+    if (attempt === 39) throw new Error("Maintenance proof food stand did not render")
+    await sleep(100)
+  }
+
+  const speedClicked = await evaluate(`(() => {
+    const speed = [...document.querySelectorAll('.speed-controls button')].find((button) =>
+      button.textContent.includes('4×'),
+    )
+    if (!speed) return false
+    speed.click()
+    return true
+  })()`)
+  if (!speedClicked) throw new Error("Could not activate 4× simulation speed")
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const active = await evaluate(
+      `Boolean([...document.querySelectorAll('.speed-controls button')].find((button) => button.textContent.includes('4×'))?.classList.contains('active'))`,
+    )
+    if (active) break
+    if (attempt === 39) throw new Error("4× simulation speed did not become active")
+    await sleep(50)
+  }
 
   let failed = false
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    failed = await evaluate(`Boolean(document.querySelector('.concession-failed') && document.querySelector('.maintenance-alert'))`)
+  for (let attempt = 0; attempt < 160; attempt += 1) {
+    failed = await evaluate(
+      `Boolean(document.querySelector('.concession-failed') && document.querySelector('.maintenance-alert'))`,
+    )
     if (failed) break
     await sleep(250)
   }
@@ -113,7 +166,9 @@ try {
 
   await evaluate("document.querySelector('.care-depot').click(); true")
   const hired = await evaluate(`(() => {
-    const button = [...document.querySelectorAll('.side-panel button')].find((candidate) => candidate.textContent.includes('Hire mechanic'))
+    const button = [...document.querySelectorAll('.side-panel button')].find((candidate) =>
+      candidate.textContent.includes('Hire mechanic'),
+    )
     if (!button) return false
     button.click()
     return true
@@ -122,18 +177,22 @@ try {
 
   let repaired = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    repaired = await evaluate(`Boolean(document.querySelector('.concession-healthy') && !document.querySelector('.maintenance-alert'))`)
+    repaired = await evaluate(
+      `Boolean(document.querySelector('.concession-healthy') && !document.querySelector('.maintenance-alert'))`,
+    )
     if (repaired) break
     await sleep(250)
   }
   if (!repaired) throw new Error("Mechanic did not reach and repair the failed stand")
 
-  const finalState = JSON.parse(await evaluate(`JSON.stringify({
-    mechanic: Boolean(document.querySelector('.mechanic')),
-    healthy: Boolean(document.querySelector('.concession-healthy')),
-    noTask: !document.querySelector('.maintenance-alert'),
-    panel: document.body.textContent.includes('Repairs'),
-  })`))
+  const finalState = JSON.parse(
+    await evaluate(`JSON.stringify({
+      mechanic: Boolean(document.querySelector('.mechanic')),
+      healthy: Boolean(document.querySelector('.concession-healthy')),
+      noTask: !document.querySelector('.maintenance-alert'),
+      panel: document.body.textContent.includes('Repairs'),
+    })`),
+  )
   if (!finalState.mechanic || !finalState.healthy || !finalState.noTask || !finalState.panel) {
     throw new Error(`Maintenance proof ended in unexpected state: ${JSON.stringify(finalState)}`)
   }
