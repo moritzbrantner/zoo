@@ -24,7 +24,9 @@ jobs:
         with:
           bun-version: 1.4.0
       - name: Apply mechanic maintenance slice
-        run: python .github/scripts/materialize_mechanic_maintenance.py
+        run: |
+          python .github/scripts/materialize_mechanic_maintenance.py
+          python .github/scripts/fix_mechanic_maintenance_test.py
       - name: Format Rust
         run: cargo fmt --all
       - name: Lint Rust
