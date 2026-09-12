@@ -1958,17 +1958,36 @@ impl GameState {
         }
     }
 
-    fn concession_service_tile(&self, concession_id: u32) -> Option<Position> {
-        let stand = self
+    fn concession_service_tiles(&self, concession_id: u32) -> Vec<Position> {
+        let Some(stand) = self
             .concessions
             .iter()
-            .find(|stand| stand.id == concession_id)?;
+            .find(|stand| stand.id == concession_id)
+        else {
+            return Vec::new();
+        };
         self.neighbors(Position {
             x: stand.x,
             y: stand.y,
         })
         .into_iter()
-        .find(|position| self.is_walkable(*position))
+        .filter(|position| self.is_walkable(*position))
+        .collect()
+    }
+
+    fn concession_service_tile_from(
+        &self,
+        concession_id: u32,
+        start: Position,
+    ) -> Option<Position> {
+        self.concession_service_tiles(concession_id)
+            .into_iter()
+            .filter_map(|target| {
+                self.path_between(start, target)
+                    .map(|route| (route.len(), target))
+            })
+            .min_by_key(|(route_len, target)| (*route_len, target.y, target.x))
+            .map(|(_, target)| target)
     }
 
     fn ensure_maintenance_task(&mut self, concession_id: u32) -> bool {
@@ -2042,9 +2061,10 @@ impl GameState {
                 .maintenance
                 .iter()
                 .find(|task| task.id == task_id)
-                .and_then(|task| self.concession_service_tile(task.concession_id));
-            let reachable =
-                target.is_some_and(|target| self.path_between(mechanic_position, target).is_some());
+                .and_then(|task| {
+                    self.concession_service_tile_from(task.concession_id, mechanic_position)
+                });
+            let reachable = target.is_some();
             if reachable {
                 continue;
             }
@@ -2075,10 +2095,8 @@ impl GameState {
                 .iter()
                 .filter(|task| task.assigned_mechanic_id.is_none())
                 .filter(|task| {
-                    self.concession_service_tile(task.concession_id)
-                        .is_some_and(|target| {
-                            self.path_between(mechanic_position, target).is_some()
-                        })
+                    self.concession_service_tile_from(task.concession_id, mechanic_position)
+                        .is_some()
                 })
                 .min_by_key(|task| task.id)
                 .map(|task| task.id);
@@ -2139,18 +2157,22 @@ impl GameState {
             let Some(task_id) = self.mechanics[mechanic_index].target_maintenance_id else {
                 continue;
             };
-            let Some(target) = self
+            let current = Position {
+                x: self.mechanics[mechanic_index].x,
+                y: self.mechanics[mechanic_index].y,
+            };
+            let Some(concession_id) = self
                 .maintenance
                 .iter()
                 .find(|task| task.id == task_id)
-                .and_then(|task| self.concession_service_tile(task.concession_id))
+                .map(|task| task.concession_id)
             else {
                 self.mechanics[mechanic_index].target_maintenance_id = None;
                 continue;
             };
-            let current = Position {
-                x: self.mechanics[mechanic_index].x,
-                y: self.mechanics[mechanic_index].y,
+            let Some(target) = self.concession_service_tile_from(concession_id, current) else {
+                self.mechanics[mechanic_index].target_maintenance_id = None;
+                continue;
             };
             let Some(route) = self.path_between(current, target) else {
                 continue;
@@ -2497,9 +2519,13 @@ impl GameState {
             && let Some(task) = self.maintenance.iter().find(|task| task.id == task_id)
         {
             let age = self.absolute_minute().saturating_sub(task.created_minute);
+            let position = Position {
+                x: mechanic.x,
+                y: mechanic.y,
+            };
             let at_service_tile = self
-                .concession_service_tile(task.concession_id)
-                .is_some_and(|target| target.x == mechanic.x && target.y == mechanic.y);
+                .concession_service_tiles(task.concession_id)
+                .contains(&position);
             if at_service_tile && self.cash_cents < MAINTENANCE_REPAIR_COST {
                 return format!(
                     "Waiting for repair parts at stand #{} · ${} needed",
@@ -2520,8 +2546,8 @@ impl GameState {
             y: mechanic.y,
         };
         let reachable = self.maintenance.iter().any(|task| {
-            self.concession_service_tile(task.concession_id)
-                .is_some_and(|target| self.path_between(position, target).is_some())
+            self.concession_service_tile_from(task.concession_id, position)
+                .is_some()
         });
         if reachable {
             "Available for maintenance".to_owned()
@@ -2531,23 +2557,21 @@ impl GameState {
     }
 
     fn maintenance_status(&self, task: &MaintenanceTask) -> String {
-        let Some(target) = self.concession_service_tile(task.concession_id) else {
+        if self.concession_service_tiles(task.concession_id).is_empty() {
             return "Blocked · stand has no path service point".to_owned();
-        };
+        }
         if let Some(mechanic_id) = task.assigned_mechanic_id
             && let Some(mechanic) = self
                 .mechanics
                 .iter()
                 .find(|mechanic| mechanic.id == mechanic_id)
         {
+            let position = Position {
+                x: mechanic.x,
+                y: mechanic.y,
+            };
             let reachable = self
-                .path_between(
-                    Position {
-                        x: mechanic.x,
-                        y: mechanic.y,
-                    },
-                    target,
-                )
+                .concession_service_tile_from(task.concession_id, position)
                 .is_some();
             return if reachable {
                 format!("Mechanic #{mechanic_id} responding")
@@ -2559,12 +2583,12 @@ impl GameState {
             return "Waiting · no mechanic hired".to_owned();
         }
         if self.mechanics.iter().any(|mechanic| {
-            self.path_between(
+            self.concession_service_tile_from(
+                task.concession_id,
                 Position {
                     x: mechanic.x,
                     y: mechanic.y,
                 },
-                target,
             )
             .is_some()
         }) {
@@ -3647,6 +3671,43 @@ mod tests {
             state.cash_cents,
             cash_before_repair - MAINTENANCE_REPAIR_COST
         );
+    }
+
+    #[test]
+    fn mechanic_chooses_reachable_service_tile_across_split_path_components() {
+        let mut state = GameState::default();
+        assert!(state.place_path(5, ENTRANCE_Y).ok);
+        assert!(state.place_path(6, ENTRANCE_Y).ok);
+        assert!(state.place_concession(6, ENTRANCE_Y - 1, "food").ok);
+
+        // The north service tile is an isolated path component and appears before the
+        // reachable south tile in neighbor order. Mechanics must consider both.
+        state.set_tile(6, ENTRANCE_Y - 2, TileKind::Path);
+        state.concessions[0].condition = 50;
+        let concession_id = state.concessions[0].id;
+        assert!(state.ensure_maintenance_task(concession_id));
+        let task_id = state.maintenance[0].id;
+        assert!(state.hire_mechanic().ok);
+
+        state.assign_mechanic_tasks();
+
+        assert_eq!(state.mechanics[0].target_maintenance_id, Some(task_id));
+        assert!(
+            !state
+                .maintenance_status(&state.maintenance[0])
+                .contains("Blocked")
+        );
+
+        for _ in 0..8 {
+            state.advance_mechanic_work();
+            if state.maintenance.is_empty() {
+                break;
+            }
+        }
+
+        assert!(state.maintenance.is_empty());
+        assert_eq!(state.concessions[0].condition, 100);
+        assert_eq!(state.mechanics[0].repairs_completed, 1);
     }
 
     #[test]
