@@ -7,9 +7,20 @@ start = text.index("    fn mechanic_hiring_wages_and_repairs_are_categorized()")
 end = text.index("    #[test]", start + 1)
 block = text[start:end]
 
-cash = block.index("state.cash_cents")
-assert_start = block.rfind("assert_eq!(", 0, cash)
-if assert_start < 0:
+assert_start = None
+search_from = 0
+while True:
+    cash = block.find("state.cash_cents", search_from)
+    if cash < 0:
+        break
+    candidate = block.rfind("assert_eq!(", 0, cash)
+    if candidate >= 0:
+        prior_close = block.rfind(";", candidate, cash)
+        if prior_close < candidate:
+            assert_start = candidate
+            break
+    search_from = cash + 1
+if assert_start is None:
     raise SystemExit("mechanic cash assertion start not found")
 
 open_paren = block.index("(", assert_start)
