@@ -1,0 +1,55 @@
+name: Materialize mechanic maintenance slice
+
+on:
+  push:
+    branches: [operations/mechanic-maintenance-backlog]
+    paths:
+      - .github/mechanic-maintenance-trigger.txt
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: operations/mechanic-maintenance-backlog
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - name: Apply mechanic maintenance slice
+        run: python .github/scripts/materialize_mechanic_maintenance.py
+      - name: Format Rust
+        run: cargo fmt --all
+      - name: Lint Rust
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test Rust
+        run: cargo test --workspace
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: bun install
+      - name: Build web
+        working-directory: apps/web
+        run: bun run build
+      - name: Persist product implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            crates/zoo-core/src/lib.rs \
+            apps/web/src/App.tsx \
+            apps/web/src/concessions.css \
+            apps/web/src/three-d.css \
+            apps/web/scripts/capture-animal-care-proof.mjs \
+            apps/web/scripts/capture-maintenance-proof.mjs
+          git diff --cached --check
+          git commit -m 'gameplay: add mechanic maintenance backlog'
+          git push origin HEAD:operations/mechanic-maintenance-backlog
