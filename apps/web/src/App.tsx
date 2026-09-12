@@ -81,13 +81,30 @@ type Keeper = {
   status: string
 }
 
+type Janitor = Point & {
+  id: number
+  target_litter_id: number | null
+  tasks_completed: number
+  status: string
+}
+
+type LitterTask = Point & {
+  id: number
+  age_minutes: number
+  assigned_janitor_id: number | null
+  status: string
+}
+
 type AnimalCareDepot = Point & {
   feed_crates: number
   feed_batch_crates: number
   feed_batch_cost_cents: number
   keeper_hire_cost_cents: number
   keeper_hourly_wage_cents: number
+  janitor_hire_cost_cents: number
+  janitor_hourly_wage_cents: number
   keepers: Keeper[]
+  janitors: Janitor[]
 }
 
 type Guest = Point & {
@@ -119,8 +136,10 @@ type FinanceBreakdown = {
   habitat_care_expense_cents: number
   animal_feed_expense_cents: number
   keeper_hiring_expense_cents: number
+  janitor_hiring_expense_cents: number
   park_upkeep_expense_cents: number
   keeper_wages_expense_cents: number
+  janitor_wages_expense_cents: number
 }
 
 type FinanceDay = {
@@ -150,6 +169,12 @@ type Snapshot = {
   animal_care_depot: AnimalCareDepot
   animals: Animal[]
   guests: Guest[]
+  litter: LitterTask[]
+  operations: {
+    cleanliness: number
+    litter_backlog: number
+    oldest_litter_age_minutes: number
+  }
   species_catalog: SpeciesOffer[]
   complaints: {
     hungry: number
@@ -539,6 +564,12 @@ export default function App() {
     perform(() => game.hire_keeper())
   }
 
+  const hireJanitor = () => {
+    const game = gameRef.current
+    if (!game) return
+    perform(() => game.hire_janitor())
+  }
+
   const reset = () => {
     gameRef.current?.reset()
     setTool("select")
@@ -767,8 +798,8 @@ export default function App() {
                     top: position.top - 54,
                     zIndex: 640 + depot.x + depot.y,
                   }}
-                  title={`${depot.feed_crates} animal-feed crates · ${depot.keepers.length} keepers`}
-                  aria-label="Animal care depot"
+                  title={`${depot.feed_crates} animal-feed crates · ${depot.keepers.length} keepers · ${depot.janitors.length} janitors`}
+                  aria-label="Central operations depot"
                   onClick={(event) => {
                     event.stopPropagation()
                     if (tool === "pan") return
@@ -781,12 +812,12 @@ export default function App() {
                     setSelectedHabitatId(null)
                     setSelectedDepot(true)
                     setTool("select")
-                    setMessage("Animal care depot selected · buy feed and hire keepers here.")
+                    setMessage("Central operations depot selected · stock animal feed and hire park staff here.")
                     setMessageKind("info")
                   }}
                 >
                   <span className="concession-awning" />
-                  <strong>Care</strong>
+                  <strong>Ops</strong>
                   <small>DEPOT</small>
                   <span className="concession-counter" />
                 </button>
@@ -829,6 +860,43 @@ export default function App() {
                   <small>{stand.kind === "food" ? "FOOD" : "DRINK"}</small>
                   <span className="concession-counter" />
                 </button>
+              )
+            })}
+
+            {snapshot.litter.map((task) => {
+              const position = isoPosition(task.x, task.y)
+              return (
+                <span
+                  className={`litter ${task.assigned_janitor_id === null ? "waiting" : "assigned"}`}
+                  key={`litter:${task.id}`}
+                  style={{
+                    left: position.left + 20,
+                    top: position.top + 8,
+                    zIndex: 700 + task.x + task.y,
+                  }}
+                  title={`Litter #${task.id} · ${task.age_minutes} min · ${task.status}`}
+                  aria-label={`Litter task ${task.id}: ${task.status}`}
+                />
+              )
+            })}
+
+            {snapshot.animal_care_depot.janitors.map((janitor) => {
+              const position = isoPosition(janitor.x, janitor.y)
+              return (
+                <span
+                  className="janitor"
+                  key={`janitor:${janitor.id}`}
+                  style={{
+                    left: position.left + 22,
+                    top: position.top - 8,
+                    zIndex: 820 + janitor.x + janitor.y,
+                  }}
+                  title={`Janitor #${janitor.id} · ${janitor.status}`}
+                  aria-label={`Janitor ${janitor.id}: ${janitor.status}`}
+                >
+                  <i />
+                  <b />
+                </span>
               )
             })}
 
@@ -928,12 +996,12 @@ export default function App() {
           {selectedDepot ? (
             <>
               <div className="window-title">
-                <span>Animal care depot</span>
+                <span>Central operations depot</span>
                 <button onClick={() => setSelectedDepot(false)}>×</button>
               </div>
               <div className="manager-card">
                 <div className="guest-thought">
-                  Animal feed and keeper staffing are dispatched from this central facility.
+                  Animal feed and park staff are dispatched from this central facility.
                 </div>
                 <dl>
                   <div>
@@ -947,6 +1015,26 @@ export default function App() {
                   <div>
                     <dt>Wage / keeper</dt>
                     <dd>{money(snapshot.animal_care_depot.keeper_hourly_wage_cents)}/hr</dd>
+                  </div>
+                  <div>
+                    <dt>Janitors</dt>
+                    <dd>{snapshot.animal_care_depot.janitors.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Wage / janitor</dt>
+                    <dd>{money(snapshot.animal_care_depot.janitor_hourly_wage_cents)}/hr</dd>
+                  </div>
+                  <div>
+                    <dt>Path cleanliness</dt>
+                    <dd>{snapshot.operations.cleanliness}%</dd>
+                  </div>
+                  <div>
+                    <dt>Litter backlog</dt>
+                    <dd>{snapshot.operations.litter_backlog}</dd>
+                  </div>
+                  <div>
+                    <dt>Oldest litter</dt>
+                    <dd>{snapshot.operations.oldest_litter_age_minutes} min</dd>
                   </div>
                 </dl>
                 <button className="shop-row" onClick={buyAnimalFeed}>
@@ -963,6 +1051,13 @@ export default function App() {
                   </span>
                   <strong>{money(snapshot.animal_care_depot.keeper_hire_cost_cents)}</strong>
                 </button>
+                <button className="shop-row" onClick={hireJanitor}>
+                  <span>
+                    <b>Hire janitor</b>
+                    <small>Janitors claim and clean reachable path litter</small>
+                  </span>
+                  <strong>{money(snapshot.animal_care_depot.janitor_hire_cost_cents)}</strong>
+                </button>
                 <h3>Keeper schedule</h3>
                 {snapshot.animal_care_depot.keepers.length === 0 ? (
                   <div className="guest-thought">No keepers hired yet.</div>
@@ -976,6 +1071,25 @@ export default function App() {
                       <div>
                         <dt>Food deliveries</dt>
                         <dd>{keeper.deliveries_completed}</dd>
+                      </div>
+                    </dl>
+                  ))
+                )}
+                <h3>Janitor service</h3>
+                {snapshot.animal_care_depot.janitors.length === 0 ? (
+                  <div className="guest-thought">
+                    No janitors hired. Litter will remain visible until staff can reach it.
+                  </div>
+                ) : (
+                  snapshot.animal_care_depot.janitors.map((janitor) => (
+                    <dl key={janitor.id}>
+                      <div>
+                        <dt>Janitor #{janitor.id}</dt>
+                        <dd>{janitor.status}</dd>
+                      </div>
+                      <div>
+                        <dt>Cleanups</dt>
+                        <dd>{janitor.tasks_completed}</dd>
                       </div>
                     </dl>
                   ))
@@ -1163,11 +1277,12 @@ export default function App() {
                   <li>Guests enter through the gate on the west edge.</li>
                   <li>Drag the path tool to extend the entrance route.</li>
                   <li>Choose Habitat and drag a closed rectangular fence around clear grass.</li>
-                  <li>Open the care depot, buy animal feed, and hire a keeper.</li>
+                  <li>Open the operations depot, buy animal feed, and hire a keeper.</li>
+                  <li>Hire a janitor so path litter has a visible service response.</li>
                   <li>Select the enclosure and schedule an available keeper.</li>
                   <li>Adopt animals after the habitat has a food-delivery schedule.</li>
                   <li>Place guest food and drink stands on clear grass beside busy paths.</li>
-                  <li>Watch keepers maintain feed stock while guests buy refreshments.</li>
+                  <li>Watch staff respond as guests create animal-care and cleanup work.</li>
                 </ol>
                 <div className="finance-grid">
                   <span>Income today</span>
@@ -1186,6 +1301,17 @@ export default function App() {
                           snapshot.finance.profit_change_cents,
                         )}`}
                   </strong>
+                </div>
+                <h3>Park operations</h3>
+                <div className="finance-grid">
+                  <span>Path cleanliness</span>
+                  <strong>{snapshot.operations.cleanliness}%</strong>
+                  <span>Litter backlog</span>
+                  <strong>{snapshot.operations.litter_backlog}</strong>
+                  <span>Oldest wait</span>
+                  <strong>{snapshot.operations.oldest_litter_age_minutes} min</strong>
+                  <span>Janitors</span>
+                  <strong>{snapshot.animal_care_depot.janitors.length}</strong>
                 </div>
                 <h3>Income breakdown</h3>
                 <div className="finance-grid">
@@ -1220,6 +1346,10 @@ export default function App() {
                   <strong>
                     {money(snapshot.finance.current_day.breakdown.keeper_hiring_expense_cents)}
                   </strong>
+                  <span>Janitor hiring</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.janitor_hiring_expense_cents)}
+                  </strong>
                   <span>Park upkeep</span>
                   <strong>
                     {money(snapshot.finance.current_day.breakdown.park_upkeep_expense_cents)}
@@ -1227,6 +1357,10 @@ export default function App() {
                   <span>Keeper wages</span>
                   <strong>
                     {money(snapshot.finance.current_day.breakdown.keeper_wages_expense_cents)}
+                  </strong>
+                  <span>Janitor wages</span>
+                  <strong>
+                    {money(snapshot.finance.current_day.breakdown.janitor_wages_expense_cents)}
                   </strong>
                 </div>
                 {snapshot.finance.previous_day !== null && (
