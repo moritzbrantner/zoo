@@ -1,0 +1,29 @@
+.park-three-renderer-canvas {
+  position: absolute;
+  left: 116px;
+  top: -37px;
+  z-index: 0;
+  display: block;
+  width: 1240px;
+  height: 720px;
+  pointer-events: none;
+}
+
+.park.shared-three-renderer .tile {
+  background: transparent;
+  box-shadow: none;
+}
+
+.park.shared-three-renderer .tile::after {
+  border-color: transparent;
+}
+
+.park.shared-three-renderer .tile:hover {
+  background: rgb(255 255 255 / 10%);
+  box-shadow: 0 0 0 2px rgb(246 211 111 / 55%);
+}
+
+.park.shared-three-renderer .tile.selected {
+  background: rgb(246 211 111 / 16%);
+  box-shadow: 0 0 0 4px #f6d36f;
+}
