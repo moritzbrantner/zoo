@@ -1,0 +1,10 @@
+[package]
+name = "zoo-scene"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Zoo-specific scene and camera interaction policy over shared 3D foundations"
+
+[dependencies]
+three-d-camera = { git = "https://github.com/moritzbrantner/3d-lab.git", rev = "77b967445efdf142fb51c0475bc4a507f258e752" }
+three-d-core = { git = "https://github.com/moritzbrantner/3d-lab.git", rev = "77b967445efdf142fb51c0475bc4a507f258e752" }
