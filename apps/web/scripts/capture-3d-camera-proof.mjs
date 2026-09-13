@@ -130,11 +130,17 @@ try {
       pitch: park?.dataset.cameraPitch,
       tileLeft: tile?.style.left,
       tileTop: tile?.style.top,
+      tileWidth: tile?.style.width,
+      tileHeight: tile?.style.height,
+      tileClipPath: tile?.style.clipPath,
       renderer: document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRenderer,
     }
   })()`)
   if (baseline.yaw !== "0" || baseline.pitch !== "0" || baseline.renderer !== "ready") {
     throw new Error(`Unexpected default shared 3D camera: ${JSON.stringify(baseline)}`)
+  }
+  if (!baseline.tileClipPath?.startsWith("polygon(")) {
+    throw new Error(`Default tile hit geometry is not projected: ${JSON.stringify(baseline)}`)
   }
 
   const activated = await evaluate(`(() => {
@@ -153,26 +159,44 @@ try {
     moved = await evaluate(`(() => {
       const park = document.querySelector('.park')
       const tile = document.querySelector('[aria-label="grass tile 1, 8"]')
+      const rect = tile?.getBoundingClientRect()
+      const hit = rect
+        ? document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        : null
       return {
         yaw: park?.dataset.cameraYaw,
         pitch: park?.dataset.cameraPitch,
         tileLeft: tile?.style.left,
         tileTop: tile?.style.top,
+        tileWidth: tile?.style.width,
+        tileHeight: tile?.style.height,
+        tileClipPath: tile?.style.clipPath,
+        hitTile: hit?.closest?.('button.tile')?.getAttribute('aria-label'),
       }
     })()`)
     if (
       moved.yaw === "45" &&
       moved.pitch === "12" &&
-      (moved.tileLeft !== baseline.tileLeft || moved.tileTop !== baseline.tileTop)
+      moved.tileClipPath?.startsWith("polygon(") &&
+      moved.hitTile === "grass tile 1, 8" &&
+      (moved.tileLeft !== baseline.tileLeft ||
+        moved.tileTop !== baseline.tileTop ||
+        moved.tileWidth !== baseline.tileWidth ||
+        moved.tileHeight !== baseline.tileHeight)
     ) break
     await sleep(50)
   }
   if (
     moved?.yaw !== "45" ||
     moved?.pitch !== "12" ||
-    (moved.tileLeft === baseline.tileLeft && moved.tileTop === baseline.tileTop)
+    !moved?.tileClipPath?.startsWith("polygon(") ||
+    moved?.hitTile !== "grass tile 1, 8" ||
+    (moved.tileLeft === baseline.tileLeft &&
+      moved.tileTop === baseline.tileTop &&
+      moved.tileWidth === baseline.tileWidth &&
+      moved.tileHeight === baseline.tileHeight)
   ) {
-    throw new Error(`Shared 3D camera projection did not move as expected: ${JSON.stringify(moved)}`)
+    throw new Error(`Shared 3D camera/hit projection did not move coherently: ${JSON.stringify(moved)}`)
   }
 
   const overlayFacing = await evaluate(`(() => {
@@ -252,13 +276,40 @@ try {
   }
   if (!rotated) throw new Error("Shared 3D camera did not rotate after new-park reset")
 
-  const reset = await evaluate(`(() => {
+  const topBarReset = await evaluate(`(() => {
+    const button = document.querySelector('.camera-reset')
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!topBarReset) throw new Error("Could not activate the existing top-bar camera reset")
+
+  restored = false
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    restored = await evaluate(`(() => {
+      const park = document.querySelector('.park')
+      return park?.dataset.cameraYaw === '0' && park?.dataset.cameraPitch === '0'
+    })()`)
+    if (restored) break
+    await sleep(50)
+  }
+  if (!restored) throw new Error("Top-bar camera reset did not restore the shared 3D rig")
+
+  const rotatedForSharedReset = await evaluate(`(() => {
+    const button = document.querySelector('.camera-orbit-left')
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!rotatedForSharedReset) throw new Error("Could not rotate before testing the shared reset control")
+
+  const sharedReset = await evaluate(`(() => {
     const button = document.querySelector('.camera-orbit-reset')
     if (!button) return false
     button.click()
     return true
   })()`)
-  if (!reset) throw new Error("Could not reset shared 3D camera")
+  if (!sharedReset) throw new Error("Could not reset shared 3D camera")
 
   restored = false
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -272,7 +323,7 @@ try {
   if (!restored) throw new Error("Shared 3D camera did not return to the default isometric view")
 
   console.log(
-    "Shared 3D camera dogfood passed: 3d-lab rendering, orbit/tilt projection, overlay reprojection, new-park reset, explicit reset, and visual proof are coherent.",
+    "Shared 3D camera dogfood passed: 3d-lab rendering, projected tile hit geometry, orbit/tilt projection, overlay reprojection, new-park reset, top-bar reset, explicit reset, and visual proof are coherent.",
   )
 } finally {
   cdp?.close()
