@@ -29,7 +29,9 @@ impl fmt::Display for ParkCameraError {
             Self::InvalidParkExtent => {
                 formatter.write_str("park width and depth must be finite and positive")
             }
-            Self::InvalidAspect => formatter.write_str("viewport aspect must be finite and positive"),
+            Self::InvalidAspect => {
+                formatter.write_str("viewport aspect must be finite and positive")
+            }
             Self::InvalidZoomFactor => {
                 formatter.write_str("zoom factor must be finite and positive")
             }
@@ -91,8 +93,7 @@ impl ParkCameraRig {
     }
 
     pub fn rotate_steps(&mut self, steps: i32) {
-        self.yaw_degrees =
-            (self.yaw_degrees + steps as f32 * ORBIT_STEP_DEGREES).rem_euclid(360.0);
+        self.yaw_degrees = (self.yaw_degrees + steps as f32 * ORBIT_STEP_DEGREES).rem_euclid(360.0);
     }
 
     pub fn tilt_by_degrees(&mut self, delta_degrees: f32) {
