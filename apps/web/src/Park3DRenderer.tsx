@@ -212,10 +212,20 @@ export default function Park3DRenderer() {
     const pitch = relativePitch(camera.pitchDegrees)
     targets.park.dataset.cameraYaw = String(yaw)
     targets.park.dataset.cameraPitch = String(pitch)
-    targets.park.style.setProperty("--zoo-camera-yaw-inverse", `${-yaw}deg`)
-    targets.park.style.setProperty("--zoo-camera-pitch-inverse", `${-pitch}deg`)
-    setCameraLabel({yaw, pitch})
-    targets.park.classList.add("shared-three-renderer")
+    const inverseYaw = `${-yaw}deg`
+    const inversePitch = `${-pitch}deg`
+    if (targets.park.style.getPropertyValue("--zoo-camera-yaw-inverse").trim() !== inverseYaw) {
+      targets.park.style.setProperty("--zoo-camera-yaw-inverse", inverseYaw)
+    }
+    if (targets.park.style.getPropertyValue("--zoo-camera-pitch-inverse").trim() !== inversePitch) {
+      targets.park.style.setProperty("--zoo-camera-pitch-inverse", inversePitch)
+    }
+    setCameraLabel((current) =>
+      current.yaw === yaw && current.pitch === pitch ? current : {yaw, pitch},
+    )
+    if (!targets.park.classList.contains("shared-three-renderer")) {
+      targets.park.classList.add("shared-three-renderer")
+    }
     setReady(true)
     return true
   }, [targets])
@@ -244,10 +254,15 @@ export default function Park3DRenderer() {
     let cancelled = false
     let mutationObserver: MutationObserver | null = null
     let transformObserver: MutationObserver | null = null
+    let lastInlineTransform = ""
 
     const syncBaseTransform = () => {
       const next = targets.park.style.transform || "translate(0px, 0px) scale(1)"
-      targets.park.style.setProperty("--zoo-base-transform", next)
+      if (next === lastInlineTransform) return
+      lastInlineTransform = next
+      if (targets.park.style.getPropertyValue("--zoo-base-transform").trim() !== next) {
+        targets.park.style.setProperty("--zoo-base-transform", next)
+      }
     }
 
     void initScene()
