@@ -34,9 +34,8 @@ Do not ask again about boundaries already established above.
 
 Before merging gameplay changes:
 
-1. `cargo test`
-2. Build the WASM package with `wasm-pack`.
-3. `cd apps/web && bun install && bun run build`
-4. Run the repository's coding-tooling validation.
-5. Manually exercise the smallest affected playable loop on desktop and, when input is affected, a phone-sized touch viewport.
-6. For pinned cross-repository contracts, verify the exact accepted revision rather than an unpinned branch tip.
+1. Run `make verify` from the repository root. It performs Rust formatting, strict Clippy, workspace tests, the WASM build, dependency install, TypeScript compilation, and the production web build.
+2. Let the pull request `Verify` workflow complete; it additionally exercises the repository's asset-tooling consumer and browser visual dogfood.
+3. When foundation/configuration files covered by `.github/workflows/foundation-audit.yml` change, require that path-scoped `Foundation Fleet Audit` workflow as the coding-tooling check. Do not claim an equivalent local command exists unless one is added to the repository.
+4. Manually exercise the smallest affected playable loop on desktop and, when input is affected, a phone-sized touch viewport.
+5. For pinned cross-repository contracts, verify the exact accepted revision rather than an unpinned branch tip.
