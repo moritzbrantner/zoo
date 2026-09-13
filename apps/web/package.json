@@ -5,13 +5,14 @@
   "type": "module",
   "packageManager": "bun@1.4.0",
   "scripts": {
-    "wasm": "cd ../../crates/zoo-core && wasm-pack build --target web --out-dir ../../apps/web/src/wasm --out-name zoo_core",
+    "wasm": "cd ../../crates/zoo-core && wasm-pack build --target web --out-dir ../../apps/web/src/wasm --out-name zoo_core && cd ../zoo-scene && wasm-pack build --target web --out-dir ../../apps/web/src/scene-wasm --out-name zoo_scene",
     "dev": "bun run wasm && vite",
     "typecheck": "tsc --noEmit",
     "build": "bun run wasm && tsc && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@moritzbrantner/three-d-renderer": "github:moritzbrantner/3d-lab#43b52c81ffea60e8697dc539f93d76b36c3e0ec6",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
