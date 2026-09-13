@@ -9,7 +9,7 @@ use three_d_camera::{CameraError, OrthographicCamera};
 use three_d_core::Vec3;
 use wasm_bindgen::prelude::*;
 
-const DEFAULT_YAW_DEGREES: f32 = 45.0;
+const DEFAULT_YAW_DEGREES: f32 = 225.0;
 const DEFAULT_PITCH_DEGREES: f32 = 31.15;
 const MIN_PITCH_DEGREES: f32 = 20.0;
 const MAX_PITCH_DEGREES: f32 = 70.0;
@@ -70,8 +70,12 @@ impl ParkCameraRig {
             return Err(ParkCameraError::InvalidParkExtent);
         }
 
+        // Zoo's legacy isometric DOM grid anchors each tile at its left diamond vertex. The
+        // reusable renderer uses the tile's actual 3D center at (x + 1, z), so the scene center
+        // is shifted by (+0.5, -0.5) relative to width/2, depth/2. Keeping that mapping here
+        // lets the migration preserve existing hit targets while projection itself stays shared.
         Ok(Self {
-            target: Vec3::new(park_width * 0.5, 0.0, park_depth * 0.5),
+            target: Vec3::new((park_width + 1.0) * 0.5, 0.0, (park_depth - 1.0) * 0.5),
             park_span: park_width.max(park_depth),
             yaw_degrees: DEFAULT_YAW_DEGREES,
             pitch_degrees: DEFAULT_PITCH_DEGREES,
@@ -220,6 +224,12 @@ mod tests {
             ParkCameraRig::new(20.0, f32::NAN),
             Err(ParkCameraError::InvalidParkExtent)
         );
+    }
+
+    #[test]
+    fn centers_scene_on_renderer_tile_coordinates() {
+        let rig = ParkCameraRig::new(20.0, 14.0).expect("park extent is valid");
+        assert_eq!(rig.target(), Vec3::new(10.5, 0.0, 6.5));
     }
 
     #[test]
