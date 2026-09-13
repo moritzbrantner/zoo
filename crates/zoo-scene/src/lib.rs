@@ -4,8 +4,10 @@
 //! management-game policy needed to frame and manipulate a Zoo park view.
 
 use core::fmt;
+use serde::Serialize;
 use three_d_camera::{CameraError, OrthographicCamera};
 use three_d_core::Vec3;
+use wasm_bindgen::prelude::*;
 
 const DEFAULT_YAW_DEGREES: f32 = 45.0;
 const DEFAULT_PITCH_DEGREES: f32 = 35.0;
@@ -144,6 +146,65 @@ impl ParkCameraRig {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserCameraFrame {
+    view_matrix: [f32; 16],
+    projection_matrix: [f32; 16],
+    yaw_degrees: f32,
+    pitch_degrees: f32,
+    zoom: f32,
+}
+
+impl BrowserCameraFrame {
+    fn from_rig(rig: ParkCameraRig, aspect: f32) -> Result<Self, ParkCameraError> {
+        let camera = rig.camera(aspect)?;
+        Ok(Self {
+            view_matrix: camera.view_matrix().elements,
+            projection_matrix: camera.projection_matrix().elements,
+            yaw_degrees: rig.yaw_degrees(),
+            pitch_degrees: rig.pitch_degrees(),
+            zoom: rig.zoom(),
+        })
+    }
+}
+
+fn js_error(error: impl fmt::Display) -> JsValue {
+    JsValue::from_str(&error.to_string())
+}
+
+#[wasm_bindgen]
+pub struct ParkCameraBridge {
+    rig: ParkCameraRig,
+}
+
+#[wasm_bindgen]
+impl ParkCameraBridge {
+    #[wasm_bindgen(constructor)]
+    pub fn new(park_width: f32, park_depth: f32) -> Result<ParkCameraBridge, JsValue> {
+        Ok(Self {
+            rig: ParkCameraRig::new(park_width, park_depth).map_err(js_error)?,
+        })
+    }
+
+    pub fn rotate_steps(&mut self, steps: i32) {
+        self.rig.rotate_steps(steps);
+    }
+
+    pub fn tilt_by_degrees(&mut self, delta_degrees: f32) {
+        self.rig.tilt_by_degrees(delta_degrees);
+    }
+
+    pub fn zoom_by_factor(&mut self, factor: f32) -> Result<(), JsValue> {
+        self.rig.zoom_by_factor(factor).map_err(js_error)
+    }
+
+    pub fn frame_json(&self, aspect: f32) -> Result<String, JsValue> {
+        let frame = BrowserCameraFrame::from_rig(self.rig, aspect).map_err(js_error)?;
+        serde_json::to_string(&frame).map_err(js_error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +266,18 @@ mod tests {
             rig.zoom_by_factor(f32::INFINITY),
             Err(ParkCameraError::InvalidZoomFactor)
         );
+    }
+
+    #[test]
+    fn browser_frame_uses_shared_camera_matrices() {
+        let rig = ParkCameraRig::new(20.0, 14.0).expect("park extent is valid");
+        let shared = rig.camera(16.0 / 9.0).expect("shared camera is valid");
+        let frame = BrowserCameraFrame::from_rig(rig, 16.0 / 9.0).expect("frame is valid");
+
+        assert_eq!(frame.view_matrix, shared.view_matrix().elements);
+        assert_eq!(frame.projection_matrix, shared.projection_matrix().elements);
+        assert_eq!(frame.yaw_degrees, DEFAULT_YAW_DEGREES);
+        assert_eq!(frame.pitch_degrees, DEFAULT_PITCH_DEGREES);
+        assert_eq!(frame.zoom, 1.0);
     }
 }
