@@ -112,25 +112,29 @@ try {
   let ready = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
     ready = await evaluate(`Boolean(
-      document.querySelector('.park') &&
+      document.querySelector('.park.shared-three-renderer') &&
+      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"]') &&
       document.querySelector('.camera-orbit-controls') &&
       document.querySelector('[aria-label="grass tile 1, 8"]')
     )`)
     if (ready) break
     await sleep(250)
   }
-  if (!ready) throw new Error("3D camera did not become interactive")
+  if (!ready) throw new Error("Shared 3d-lab camera/renderer did not become interactive")
 
   const baseline = await evaluate(`(() => {
     const park = document.querySelector('.park')
+    const tile = document.querySelector('[aria-label="grass tile 1, 8"]')
     return {
       yaw: park?.dataset.cameraYaw,
       pitch: park?.dataset.cameraPitch,
-      transform: getComputedStyle(park).transform,
+      tileLeft: tile?.style.left,
+      tileTop: tile?.style.top,
+      renderer: document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRenderer,
     }
   })()`)
-  if (baseline.yaw !== "0" || baseline.pitch !== "0") {
-    throw new Error(`Unexpected default 3D camera: ${JSON.stringify(baseline)}`)
+  if (baseline.yaw !== "0" || baseline.pitch !== "0" || baseline.renderer !== "ready") {
+    throw new Error(`Unexpected default shared 3D camera: ${JSON.stringify(baseline)}`)
   }
 
   const activated = await evaluate(`(() => {
@@ -142,23 +146,33 @@ try {
     tilt.click()
     return true
   })()`)
-  if (!activated) throw new Error("Could not activate 3D camera controls")
+  if (!activated) throw new Error("Could not activate shared 3D camera controls")
 
   let moved = null
   for (let attempt = 0; attempt < 30; attempt += 1) {
     moved = await evaluate(`(() => {
       const park = document.querySelector('.park')
+      const tile = document.querySelector('[aria-label="grass tile 1, 8"]')
       return {
         yaw: park?.dataset.cameraYaw,
         pitch: park?.dataset.cameraPitch,
-        transform: getComputedStyle(park).transform,
+        tileLeft: tile?.style.left,
+        tileTop: tile?.style.top,
       }
     })()`)
-    if (moved.yaw === "45" && moved.pitch === "12" && moved.transform !== baseline.transform) break
+    if (
+      moved.yaw === "45" &&
+      moved.pitch === "12" &&
+      (moved.tileLeft !== baseline.tileLeft || moved.tileTop !== baseline.tileTop)
+    ) break
     await sleep(50)
   }
-  if (moved?.yaw !== "45" || moved?.pitch !== "12" || moved.transform === baseline.transform) {
-    throw new Error(`3D camera transform did not move as expected: ${JSON.stringify(moved)}`)
+  if (
+    moved?.yaw !== "45" ||
+    moved?.pitch !== "12" ||
+    (moved.tileLeft === baseline.tileLeft && moved.tileTop === baseline.tileTop)
+  ) {
+    throw new Error(`Shared 3D camera projection did not move as expected: ${JSON.stringify(moved)}`)
   }
 
   const overlayFacing = await evaluate(`(() => {
@@ -170,7 +184,7 @@ try {
     }
   })()`)
   if (overlayFacing.inverseYaw !== "-45deg" || overlayFacing.labelTransform === "none") {
-    throw new Error(`Viewer-facing overlays did not counter-rotate: ${JSON.stringify(overlayFacing)}`)
+    throw new Error(`Viewer-facing overlays did not follow the shared camera: ${JSON.stringify(overlayFacing)}`)
   }
 
   const raisedObjects = await evaluate(`(() => {
@@ -178,7 +192,7 @@ try {
     return style.transform
   })()`)
   if (!raisedObjects || raisedObjects === "none") {
-    throw new Error("The 3D scene does not expose a raised park object")
+    throw new Error("The transitional overlay does not expose a raised park object")
   }
 
   const viewport = await evaluate(`(() => {
@@ -209,7 +223,7 @@ try {
     button.click()
     return true
   })()`)
-  if (!newParkReset) throw new Error("Could not start a new park during 3D camera dogfood")
+  if (!newParkReset) throw new Error("Could not start a new park during shared 3D camera dogfood")
 
   let restored = false
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -220,7 +234,7 @@ try {
     if (restored) break
     await sleep(50)
   }
-  if (!restored) throw new Error("Starting a new park did not reset the 3D camera")
+  if (!restored) throw new Error("Starting a new park did not reset the shared 3D camera")
 
   const rotatedAgain = await evaluate(`(() => {
     const button = document.querySelector('.camera-orbit-right')
@@ -228,7 +242,7 @@ try {
     button.click()
     return true
   })()`)
-  if (!rotatedAgain) throw new Error("Could not rotate the 3D camera after new-park reset")
+  if (!rotatedAgain) throw new Error("Could not rotate the shared 3D camera after new-park reset")
 
   let rotated = false
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -236,7 +250,7 @@ try {
     if (rotated) break
     await sleep(50)
   }
-  if (!rotated) throw new Error("3D camera did not rotate after new-park reset")
+  if (!rotated) throw new Error("Shared 3D camera did not rotate after new-park reset")
 
   const reset = await evaluate(`(() => {
     const button = document.querySelector('.camera-orbit-reset')
@@ -244,7 +258,7 @@ try {
     button.click()
     return true
   })()`)
-  if (!reset) throw new Error("Could not reset 3D camera")
+  if (!reset) throw new Error("Could not reset shared 3D camera")
 
   restored = false
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -255,10 +269,10 @@ try {
     if (restored) break
     await sleep(50)
   }
-  if (!restored) throw new Error("3D camera did not return to the default isometric view")
+  if (!restored) throw new Error("Shared 3D camera did not return to the default isometric view")
 
   console.log(
-    "3D camera dogfood passed: orbit/tilt, viewer-facing overlays, new-park reset, explicit reset, raised objects, and visual proof are all coherent.",
+    "Shared 3D camera dogfood passed: 3d-lab rendering, orbit/tilt projection, overlay reprojection, new-park reset, explicit reset, and visual proof are coherent.",
   )
 } finally {
   cdp?.close()
