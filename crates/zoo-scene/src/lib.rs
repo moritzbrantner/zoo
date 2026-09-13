@@ -10,12 +10,13 @@ use three_d_core::Vec3;
 use wasm_bindgen::prelude::*;
 
 const DEFAULT_YAW_DEGREES: f32 = 45.0;
-const DEFAULT_PITCH_DEGREES: f32 = 35.0;
+const DEFAULT_PITCH_DEGREES: f32 = 31.15;
 const MIN_PITCH_DEGREES: f32 = 20.0;
 const MAX_PITCH_DEGREES: f32 = 70.0;
 const MIN_ZOOM: f32 = 0.35;
 const MAX_ZOOM: f32 = 4.0;
 const ORBIT_STEP_DEGREES: f32 = 45.0;
+const PARK_FRAMING_HALF_HEIGHT_FACTOR: f32 = 0.439;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParkCameraError {
@@ -127,7 +128,7 @@ impl ParkCameraRig {
             self.target.y + distance * pitch.sin(),
             self.target.z + horizontal_distance * yaw.cos(),
         );
-        let half_height = self.park_span * 0.75 / self.zoom;
+        let half_height = self.park_span * PARK_FRAMING_HALF_HEIGHT_FACTOR / self.zoom;
         let half_width = half_height * aspect;
         let near = 0.1;
         let far = distance * 4.0 + self.park_span;
