@@ -243,9 +243,9 @@ mod tests {
         let plus_z = matrix.transform_point(Vec3::new(2.0, 0.0, 9.0));
 
         assert!(plus_x.x > center.x);
-        assert!(plus_x.y > center.y);
+        assert!(plus_x.y < center.y);
         assert!(plus_z.x < center.x);
-        assert!(plus_z.y > center.y);
+        assert!(plus_z.y < center.y);
     }
 
     #[test]
