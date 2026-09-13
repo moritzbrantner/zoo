@@ -43,6 +43,19 @@ type Targets = {
   viewport: HTMLElement
 }
 
+type OverlayRule = {
+  offsetX: number
+  offsetY: number
+  snap: number
+}
+
+const PROJECTION_VIEWPORT = {
+  x: CANVAS_LEFT,
+  y: CANVAS_TOP,
+  width: RENDER_WIDTH,
+  height: RENDER_HEIGHT,
+}
+
 const TILE_COLORS: Record<TileKind, `#${string}`> = {
   grass: "#74ad50",
   path: "#d1bb8d",
@@ -104,6 +117,10 @@ function pseudoWorldPoint(left: number, top: number): [number, number, number] {
   return [(horizontal + vertical) * 0.5, 0, (vertical - horizontal) * 0.5]
 }
 
+function snap(value: number, step: number) {
+  return Math.round(value / step) * step
+}
+
 function inlineNumber(element: HTMLElement, property: "left" | "top") {
   const value = Number.parseFloat(element.style[property])
   return Number.isFinite(value) ? value : null
@@ -132,32 +149,101 @@ function captureCanonicalPosition(element: HTMLElement) {
   return Number.isFinite(baseLeft) && Number.isFinite(baseTop) ? {left: baseLeft, top: baseTop} : null
 }
 
-function projectDomOverlay(park: HTMLElement, camera: RendererCamera) {
-  const viewport = {
-    x: CANVAS_LEFT,
-    y: CANVAS_TOP,
-    width: RENDER_WIDTH,
-    height: RENDER_HEIGHT,
+function overlayRule(element: HTMLElement): OverlayRule | null {
+  if (element.classList.contains("placement-ghost")) return {offsetX: 0, offsetY: 0, snap: 1}
+  if (element.classList.contains("fence-segment")) return {offsetX: 0, offsetY: 0, snap: 1}
+  if (element.classList.contains("placement-price")) return {offsetX: 24, offsetY: -52, snap: 1}
+  if (element.classList.contains("entrance-gate")) return {offsetX: -24, offsetY: -48, snap: 1}
+  if (element.classList.contains("care-depot")) return {offsetX: 4, offsetY: -54, snap: 1}
+  if (element.classList.contains("concession")) return {offsetX: 8, offsetY: -42, snap: 1}
+  if (element.classList.contains("litter")) return {offsetX: 20, offsetY: 8, snap: 1}
+  if (element.classList.contains("janitor")) return {offsetX: 22, offsetY: -8, snap: 1}
+  if (element.classList.contains("maintenance-alert")) return {offsetX: 38, offsetY: -50, snap: 1}
+  if (element.classList.contains("mechanic")) return {offsetX: 18, offsetY: -9, snap: 1}
+  if (element.classList.contains("animal")) return {offsetX: 14, offsetY: -16, snap: 1}
+  if (element.classList.contains("empty-habitat-marker")) return {offsetX: 15, offsetY: -10, snap: 0.5}
+  if (element.classList.contains("guest")) return {offsetX: 24, offsetY: -4, snap: 1}
+  if (element.classList.contains("park-border-tile")) return {offsetX: 0, offsetY: 0, snap: 1}
+  if (element.classList.contains("park-boundary-fence")) return {offsetX: 0, offsetY: 0, snap: 1}
+  if (element.classList.contains("park-entrance-building")) {
+    return {offsetX: 0, offsetY: -64, snap: 1}
   }
+  return null
+}
 
+function applyStyle(element: HTMLElement, property: keyof CSSStyleDeclaration, value: string) {
+  if (element.style[property] !== value) {
+    ;(element.style[property] as string) = value
+  }
+}
+
+function projectTileFootprint(element: HTMLElement, tile: TileDescriptor, camera: RendererCamera) {
+  const corners: Array<[number, number, number]> = [
+    [tile.x + 0.5, 0, tile.y - 0.5],
+    [tile.x + 1.5, 0, tile.y - 0.5],
+    [tile.x + 1.5, 0, tile.y + 0.5],
+    [tile.x + 0.5, 0, tile.y + 0.5],
+  ]
+  const projected = corners.map((corner) => projectWorldPoint(camera, corner, PROJECTION_VIEWPORT))
+  const minX = Math.min(...projected.map((point) => point.x))
+  const maxX = Math.max(...projected.map((point) => point.x))
+  const minY = Math.min(...projected.map((point) => point.y))
+  const maxY = Math.max(...projected.map((point) => point.y))
+  const width = Math.max(maxX - minX, 1)
+  const height = Math.max(maxY - minY, 1)
+  const left = `${Number(minX.toFixed(3))}px`
+  const top = `${Number(minY.toFixed(3))}px`
+  const polygon = projected
+    .map((point) => {
+      const x = ((point.x - minX) / width) * 100
+      const y = ((point.y - minY) / height) * 100
+      return `${Number(x.toFixed(3))}% ${Number(y.toFixed(3))}%`
+    })
+    .join(", ")
+
+  element.dataset.sharedRendererAppliedLeft = left
+  element.dataset.sharedRendererAppliedTop = top
+  applyStyle(element, "left", left)
+  applyStyle(element, "top", top)
+  applyStyle(element, "width", `${Number(width.toFixed(3))}px`)
+  applyStyle(element, "height", `${Number(height.toFixed(3))}px`)
+  applyStyle(element, "clipPath", `polygon(${polygon})`)
+}
+
+function inferWorldAnchor(canonical: {left: number; top: number}, rule: OverlayRule) {
+  const [rawX, , rawZ] = pseudoWorldPoint(
+    canonical.left - rule.offsetX,
+    canonical.top - rule.offsetY,
+  )
+  return [snap(rawX, rule.snap), 0, snap(rawZ, rule.snap)] as [number, number, number]
+}
+
+function projectOverlay(element: HTMLElement, canonical: {left: number; top: number}, camera: RendererCamera) {
+  const rule = overlayRule(element)
+  if (!rule) return
+  const anchor = inferWorldAnchor(canonical, rule)
+  const projected = projectWorldPoint(camera, anchor, PROJECTION_VIEWPORT)
+  const left = `${Number((projected.x + rule.offsetX).toFixed(3))}px`
+  const top = `${Number((projected.y + rule.offsetY).toFixed(3))}px`
+
+  element.dataset.sharedRendererAppliedLeft = left
+  element.dataset.sharedRendererAppliedTop = top
+  applyStyle(element, "left", left)
+  applyStyle(element, "top", top)
+}
+
+function projectDomOverlay(park: HTMLElement, camera: RendererCamera) {
   for (const element of park.querySelectorAll<HTMLElement>("[style]")) {
     if (element.classList.contains("park-three-renderer-canvas")) continue
     const canonical = captureCanonicalPosition(element)
     if (!canonical) continue
 
     const tile = parseTile(element)
-    const projected = tile
-      ? projectWorldPoint(camera, [tile.x + 1, 0, tile.y], viewport)
-      : projectWorldPoint(camera, pseudoWorldPoint(canonical.left, canonical.top), viewport)
-    const nextLeft = tile ? projected.x - 29 : projected.x
-    const nextTop = tile ? projected.y - 15 : projected.y
-    const left = `${Number(nextLeft.toFixed(3))}px`
-    const top = `${Number(nextTop.toFixed(3))}px`
-
-    element.dataset.sharedRendererAppliedLeft = left
-    element.dataset.sharedRendererAppliedTop = top
-    if (element.style.left !== left) element.style.left = left
-    if (element.style.top !== top) element.style.top = top
+    if (tile) {
+      projectTileFootprint(element, tile, camera)
+      continue
+    }
+    projectOverlay(element, canonical, camera)
   }
 }
 
@@ -167,6 +253,11 @@ function restoreDomOverlay(park: HTMLElement) {
     const top = Number(element.dataset.sharedRendererBaseTop)
     if (Number.isFinite(left)) element.style.left = `${left}px`
     if (Number.isFinite(top)) element.style.top = `${top}px`
+    if (element.classList.contains("tile")) {
+      element.style.removeProperty("width")
+      element.style.removeProperty("height")
+      element.style.removeProperty("clip-path")
+    }
     delete element.dataset.sharedRendererBaseLeft
     delete element.dataset.sharedRendererBaseTop
     delete element.dataset.sharedRendererAppliedLeft
@@ -314,6 +405,12 @@ export default function Park3DRenderer() {
         setReady(false)
       })
 
+    const resetFromTopBar = () => {
+      window.requestAnimationFrame(resetCamera)
+    }
+    const resetButton = document.querySelector<HTMLButtonElement>(".camera-reset")
+    resetButton?.addEventListener("click", resetFromTopBar)
+
     const resetForNewPark = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return
       const button = event.target.closest<HTMLButtonElement>("button.secondary")
@@ -327,6 +424,7 @@ export default function Park3DRenderer() {
       cancelled = true
       mutationObserver?.disconnect()
       transformObserver?.disconnect()
+      resetButton?.removeEventListener("click", resetFromTopBar)
       document.removeEventListener("click", resetForNewPark)
       if (renderRequestRef.current !== null) {
         window.cancelAnimationFrame(renderRequestRef.current)
