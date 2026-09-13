@@ -9,7 +9,7 @@ use three_d_camera::{CameraError, OrthographicCamera};
 use three_d_core::Vec3;
 use wasm_bindgen::prelude::*;
 
-const DEFAULT_YAW_DEGREES: f32 = 225.0;
+const DEFAULT_YAW_DEGREES: f32 = 45.0;
 const DEFAULT_PITCH_DEGREES: f32 = 31.15;
 const MIN_PITCH_DEGREES: f32 = 20.0;
 const MAX_PITCH_DEGREES: f32 = 70.0;
@@ -100,7 +100,8 @@ impl ParkCameraRig {
     }
 
     pub fn rotate_steps(&mut self, steps: i32) {
-        self.yaw_degrees = (self.yaw_degrees + steps as f32 * ORBIT_STEP_DEGREES).rem_euclid(360.0);
+        self.yaw_degrees =
+            (self.yaw_degrees + steps as f32 * ORBIT_STEP_DEGREES).rem_euclid(360.0);
     }
 
     pub fn tilt_by_degrees(&mut self, delta_degrees: f32) {
@@ -230,6 +231,21 @@ mod tests {
     fn centers_scene_on_renderer_tile_coordinates() {
         let rig = ParkCameraRig::new(20.0, 14.0).expect("park extent is valid");
         assert_eq!(rig.target(), Vec3::new(10.5, 0.0, 6.5));
+    }
+
+    #[test]
+    fn canonical_view_preserves_legacy_grid_axes() {
+        let rig = ParkCameraRig::new(20.0, 14.0).expect("park extent is valid");
+        let camera = rig.camera(1240.0 / 720.0).expect("camera is valid");
+        let matrix = camera.view_projection_matrix();
+        let center = matrix.transform_point(Vec3::new(2.0, 0.0, 8.0));
+        let plus_x = matrix.transform_point(Vec3::new(3.0, 0.0, 8.0));
+        let plus_z = matrix.transform_point(Vec3::new(2.0, 0.0, 9.0));
+
+        assert!(plus_x.x > center.x);
+        assert!(plus_x.y > center.y);
+        assert!(plus_z.x < center.x);
+        assert!(plus_z.y > center.y);
     }
 
     #[test]
