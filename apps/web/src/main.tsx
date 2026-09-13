@@ -1,7 +1,7 @@
 import {StrictMode} from "react"
 import {createRoot} from "react-dom/client"
 import App from "./App"
-import Park3DCamera from "./Park3DCamera"
+import Park3DRenderer from "./Park3DRenderer"
 import ParkFrameOverlay from "./ParkFrameOverlay"
 import {installTouchTileDragSupport} from "./touch-input"
 import "./styles.css"
@@ -12,6 +12,7 @@ import "./concessions.css"
 import "./mobile.css"
 import "./three-d.css"
 import "./three-d-overrides.css"
+import "./shared-renderer.css"
 
 installTouchTileDragSupport()
 
@@ -19,6 +20,6 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
     <ParkFrameOverlay />
-    <Park3DCamera />
+    <Park3DRenderer />
   </StrictMode>,
 )
