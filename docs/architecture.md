@@ -9,6 +9,7 @@ The architectural goal is the smallest playable vertical slice built on the inte
 | Concern | Authority | Zoo responsibility |
 | --- | --- | --- |
 | Park rules, money, placement validity, guest/animal decisions, staff work, saves | `zoo-core` | Own the deterministic game semantics and stable game IDs. |
+| Zoo-specific scene framing, orbit/zoom policy, mapping game-space state toward shared scene contracts | `zoo-scene` | Adapt Zoo state without becoming a generic renderer or camera-math authority. |
 | Camera matrices, transforms, renderer-independent mesh/asset semantics, animation primitives, LOD | `moritzbrantner/3d-lab` | Supply game-specific camera interaction policy and scene data; do not reimplement generic 3D math. |
 | Generated/processed asset provenance, canonical asset catalog, reproducible 3D processing | `moritzbrantner/asset-tooling` | Declare Zoo asset intent and consume verified outputs. |
 | Collision response, rigid-body motion, CCD, physical spatial queries | `moritzbrantner/physics-engine` | Integrate only where physical truth is part of gameplay; do not approximate engine behavior in React. |
@@ -23,7 +24,7 @@ The current browser presentation grew from an MVP into a local pseudo-3D engine:
 The migration therefore proceeds upstream-first:
 
 1. Add the missing orthographic/isometric-capable camera primitive to `3d-lab` rather than extending Zoo's CSS camera math.
-2. Introduce a thin Zoo scene/presentation adapter that consumes pinned `3d-lab` camera/transform/asset contracts.
+2. Use `zoo-scene` as the thin Zoo-owned adapter over an exact pinned `3d-lab` revision. It owns park framing, orbit steps, pitch bounds, and zoom policy while returning the shared `OrthographicCamera` contract.
 3. Replace CSS pseudo-3D world projection incrementally with a real renderer adapter while keeping React for HUD and management interaction.
 4. Move durable 3D assets through `asset-tooling`; use `3d-lab` for renderer-independent mesh/material/LOD semantics.
 5. Keep path construction, habitat ownership, guest choices, welfare, economy, staff tasks, and other game-specific rules in `zoo-core`.
@@ -32,6 +33,8 @@ The migration therefore proceeds upstream-first:
 ## Dependency policy
 
 Cross-repository dependencies must be pinned to exact accepted revisions. If a required shared contract is unavailable or incompatible, validation should fail closed rather than silently falling back to a second local implementation.
+
+`zoo-scene` is the first concrete enforcement of this policy: its shared camera and vector dependencies use one exact `3d-lab` commit. The pin must move only to another reviewed/accepted revision; it must not become a branch-tip dependency.
 
 A local substitute is acceptable only when all of the following hold:
 
@@ -42,7 +45,7 @@ A local substitute is acceptable only when all of the following hold:
 
 ## Rendering boundary
 
-`zoo-core` emits stable game state and game-space coordinates. A presentation adapter maps that state into renderer-independent scene data and shared camera semantics. The concrete browser renderer owns GPU/DOM objects only.
+`zoo-core` emits stable game state and game-space coordinates. `zoo-scene` maps the presentation-facing parts into shared camera/scene semantics. The concrete browser renderer owns GPU/DOM objects only.
 
 Camera orbit, zoom gestures, framing targets, and persistence are Zoo interaction policy. Projection/view math is shared 3D infrastructure. Selection and placement intent may originate in the renderer, but final validity remains a `zoo-core` decision.
 
