@@ -161,6 +161,19 @@ function projectDomOverlay(park: HTMLElement, camera: RendererCamera) {
   }
 }
 
+function restoreDomOverlay(park: HTMLElement) {
+  for (const element of park.querySelectorAll<HTMLElement>("[data-shared-renderer-base-left]")) {
+    const left = Number(element.dataset.sharedRendererBaseLeft)
+    const top = Number(element.dataset.sharedRendererBaseTop)
+    if (Number.isFinite(left)) element.style.left = `${left}px`
+    if (Number.isFinite(top)) element.style.top = `${top}px`
+    delete element.dataset.sharedRendererBaseLeft
+    delete element.dataset.sharedRendererBaseTop
+    delete element.dataset.sharedRendererAppliedLeft
+    delete element.dataset.sharedRendererAppliedTop
+  }
+}
+
 function parseCameraFrame(bridge: ParkCameraBridge): CameraFrame {
   return JSON.parse(bridge.frame_json(RENDER_ASPECT)) as CameraFrame
 }
@@ -169,7 +182,6 @@ export default function Park3DRenderer() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<ThreeSceneRenderer | null>(null)
   const bridgeRef = useRef<ParkCameraBridge | null>(null)
-  const frameRef = useRef<CameraFrame | null>(null)
   const renderRequestRef = useRef<number | null>(null)
   const [targets, setTargets] = useState<Targets | null>(null)
   const [cameraLabel, setCameraLabel] = useState({yaw: 0, pitch: 0})
@@ -196,38 +208,45 @@ export default function Park3DRenderer() {
 
   const renderCurrent = useCallback(() => {
     if (!targets || !rendererRef.current || !bridgeRef.current) return false
-    const tiles = collectTiles(targets.park)
-    if (tiles.length === 0) return false
+    try {
+      const tiles = collectTiles(targets.park)
+      if (tiles.length === 0) return false
 
-    const camera = parseCameraFrame(bridgeRef.current)
-    const frame: RendererFrame = {
-      camera,
-      nodes: renderNodes(tiles),
-    }
-    rendererRef.current.render(frame)
-    frameRef.current = camera
-    projectDomOverlay(targets.park, camera)
+      const camera = parseCameraFrame(bridgeRef.current)
+      const frame: RendererFrame = {
+        camera,
+        nodes: renderNodes(tiles),
+      }
+      rendererRef.current.render(frame)
+      projectDomOverlay(targets.park, camera)
 
-    const yaw = relativeYaw(camera.yawDegrees)
-    const pitch = relativePitch(camera.pitchDegrees)
-    targets.park.dataset.cameraYaw = String(yaw)
-    targets.park.dataset.cameraPitch = String(pitch)
-    const inverseYaw = `${-yaw}deg`
-    const inversePitch = `${-pitch}deg`
-    if (targets.park.style.getPropertyValue("--zoo-camera-yaw-inverse").trim() !== inverseYaw) {
-      targets.park.style.setProperty("--zoo-camera-yaw-inverse", inverseYaw)
+      const yaw = relativeYaw(camera.yawDegrees)
+      const pitch = relativePitch(camera.pitchDegrees)
+      targets.park.dataset.cameraYaw = String(yaw)
+      targets.park.dataset.cameraPitch = String(pitch)
+      const inverseYaw = `${-yaw}deg`
+      const inversePitch = `${-pitch}deg`
+      if (targets.park.style.getPropertyValue("--zoo-camera-yaw-inverse").trim() !== inverseYaw) {
+        targets.park.style.setProperty("--zoo-camera-yaw-inverse", inverseYaw)
+      }
+      if (targets.park.style.getPropertyValue("--zoo-camera-pitch-inverse").trim() !== inversePitch) {
+        targets.park.style.setProperty("--zoo-camera-pitch-inverse", inversePitch)
+      }
+      setCameraLabel((current) =>
+        current.yaw === yaw && current.pitch === pitch ? current : {yaw, pitch},
+      )
+      if (!targets.park.classList.contains("shared-three-renderer")) {
+        targets.park.classList.add("shared-three-renderer")
+      }
+      setReady(true)
+      return true
+    } catch (error) {
+      console.error("Shared 3d-lab renderer frame rejected; restoring DOM presentation", error)
+      restoreDomOverlay(targets.park)
+      targets.park.classList.remove("shared-three-renderer")
+      setReady(false)
+      return false
     }
-    if (targets.park.style.getPropertyValue("--zoo-camera-pitch-inverse").trim() !== inversePitch) {
-      targets.park.style.setProperty("--zoo-camera-pitch-inverse", inversePitch)
-    }
-    setCameraLabel((current) =>
-      current.yaw === yaw && current.pitch === pitch ? current : {yaw, pitch},
-    )
-    if (!targets.park.classList.contains("shared-three-renderer")) {
-      targets.park.classList.add("shared-three-renderer")
-    }
-    setReady(true)
-    return true
   }, [targets])
 
   const scheduleRender = useCallback(() => {
@@ -243,6 +262,7 @@ export default function Park3DRenderer() {
     const tiles = collectTiles(targets.park)
     if (tiles.length === 0) return
     const extent = readParkExtent(tiles)
+    bridgeRef.current?.free()
     bridgeRef.current = new ParkCameraBridge(extent.width, extent.height)
     renderCurrent()
   }, [renderCurrent, targets])
@@ -288,7 +308,8 @@ export default function Park3DRenderer() {
         transformObserver.observe(targets.park, {attributes: true, attributeFilter: ["style"]})
       })
       .catch((error) => {
-        console.error("Shared 3d-lab renderer failed; retaining DOM fallback", error)
+        console.error("Shared 3d-lab renderer failed; restoring DOM presentation", error)
+        restoreDomOverlay(targets.park)
         targets.park.classList.remove("shared-three-renderer")
         setReady(false)
       })
@@ -313,8 +334,9 @@ export default function Park3DRenderer() {
       }
       rendererRef.current?.dispose()
       rendererRef.current = null
+      bridgeRef.current?.free()
       bridgeRef.current = null
-      frameRef.current = null
+      restoreDomOverlay(targets.park)
       targets.park.classList.remove("shared-three-renderer")
       setReady(false)
     }
