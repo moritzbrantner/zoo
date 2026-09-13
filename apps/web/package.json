@@ -12,7 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@moritzbrantner/three-d-renderer": "github:moritzbrantner/3d-lab#43b52c81ffea60e8697dc539f93d76b36c3e0ec6",
+    "@moritzbrantner/three-d-renderer": "github:moritzbrantner/3d-lab#6a18cb2d1fe9efdbae619c144b2180fdeb472172",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
