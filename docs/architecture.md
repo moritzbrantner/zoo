@@ -10,31 +10,33 @@ The architectural goal is the smallest playable vertical slice built on the inte
 | --- | --- | --- |
 | Park rules, money, placement validity, guest/animal decisions, staff work, saves | `zoo-core` | Own the deterministic game semantics and stable game IDs. |
 | Zoo-specific scene framing, orbit/zoom policy, mapping game-space state toward shared scene contracts | `zoo-scene` | Adapt Zoo state without becoming a generic renderer or camera-math authority. |
-| Camera matrices, transforms, renderer-independent mesh/asset semantics, animation primitives, LOD | `moritzbrantner/3d-lab` | Supply game-specific camera interaction policy and scene data; do not reimplement generic 3D math. |
+| Camera matrices, transforms, renderer-independent mesh/asset semantics, animation primitives, LOD, and the reusable concrete Three.js browser renderer | `moritzbrantner/3d-lab` | Supply Zoo scene data and interaction policy; consume the shared renderer instead of constructing a parallel renderer. |
 | Generated/processed asset provenance, canonical asset catalog, reproducible 3D processing | `moritzbrantner/asset-tooling` | Declare Zoo asset intent and consume verified outputs. |
 | Collision response, rigid-body motion, CCD, physical spatial queries | `moritzbrantner/physics-engine` | Integrate only where physical truth is part of gameplay; do not approximate engine behavior in React. |
 | ECS storage experiments and benchmark evidence | `moritzbrantner/ecs-lab` | No direct runtime dependency. Reusable ECS functionality must first become an intentional shared foundation rather than being copied out of the lab. |
 | Geographic/MapLibre map presentation and geo-data utilities | `moritzbrantner/maps` | No forced dependency for the current tile park. Reuse only a genuinely applicable data/spatial contract; Zoo owns its park-grid semantics. |
-| React UI, touch/mouse/keyboard interaction, renderer adapter, HUD/windows | `apps/web` | Present authoritative Rust state and translate user intent into commands. Presentation must not own game balance, placement validity, camera projection math, or physics semantics. |
+| React UI, touch/mouse/keyboard interaction, HUD/windows, and thin consumer glue | `apps/web` | Present authoritative state and translate user intent into commands. It must not own game balance, placement validity, generic rendering, camera projection math, or physics semantics. |
 
 ## Current correction
 
-The current browser presentation grew from an MVP into a local pseudo-3D engine: CSS perspective/3D transforms, local yaw/pitch projection policy, object billboard compensation, and a large `App.tsx` all live in the product repository. That was useful to prove the game loop, but it is not the intended long-term authority boundary.
+The browser presentation grew from an MVP into a local pseudo-3D engine: CSS perspective/3D transforms, local yaw/pitch projection policy, object billboard compensation, and a large `App.tsx` all accumulated in the product repository. That proved the game loop but created the wrong durable authority boundary.
 
 The migration therefore proceeds upstream-first:
 
-1. Add the missing orthographic/isometric-capable camera primitive to `3d-lab` rather than extending Zoo's CSS camera math.
-2. Use `zoo-scene` as the thin Zoo-owned adapter over an exact pinned `3d-lab` revision. It owns park framing, orbit steps, pitch bounds, and zoom policy while returning the shared `OrthographicCamera` contract.
-3. Replace CSS pseudo-3D world projection incrementally with a real renderer adapter while keeping React for HUD and management interaction.
-4. Move durable 3D assets through `asset-tooling`; use `3d-lab` for renderer-independent mesh/material/LOD semantics.
-5. Keep path construction, habitat ownership, guest choices, welfare, economy, staff tasks, and other game-specific rules in `zoo-core`.
-6. Add `physics-engine` only for interactions whose gameplay semantics require physical collision/motion truth. Tile occupancy and ordinary park pathfinding do not become physics problems merely because the game is rendered in 3D.
+1. The missing orthographic/isometric-capable camera primitive was added to `3d-lab` rather than extending Zoo's CSS camera math.
+2. `zoo-scene` is the thin Zoo-owned adapter over one exact pinned `3d-lab` revision. It owns park framing, orbit steps, pitch bounds, and zoom policy while returning shared camera matrices.
+3. `3d-lab` now also owns the reusable concrete Three.js renderer. Zoo consumes it at the same exact accepted revision; React does not instantiate its own generic renderer.
+4. The first migration slice renders terrain through the shared renderer, removes the Zoo-local CSS camera implementation, and keeps existing DOM tiles temporarily as transparent interaction targets. Those targets are reprojected with `3d-lab`'s shared world-to-screen helper, so rotation does not require local matrix math.
+5. Remaining pseudo-3D objects migrate incrementally into shared scene nodes; the transitional DOM interaction layer is removed only after renderer picking/interaction reaches parity.
+6. Durable 3D assets move through `asset-tooling`; renderer-independent mesh/material/LOD semantics remain in `3d-lab`.
+7. Path construction, habitat ownership, guest choices, welfare, economy, staff tasks, and other game-specific rules remain in `zoo-core`.
+8. `physics-engine` is added only for interactions whose gameplay semantics require physical collision/motion truth. Tile occupancy and ordinary park pathfinding do not become physics problems merely because the game is rendered in 3D.
 
 ## Dependency policy
 
 Cross-repository dependencies must be pinned to exact accepted revisions. If a required shared contract is unavailable or incompatible, validation should fail closed rather than silently falling back to a second local implementation.
 
-`zoo-scene` is the first concrete enforcement of this policy: its shared camera and vector dependencies use one exact `3d-lab` commit. The pin must move only to another reviewed/accepted revision; it must not become a branch-tip dependency.
+Both `zoo-scene` and the browser renderer consumer pin the accepted `3d-lab` revision. A pin moves only to another reviewed/accepted revision; it must not become a branch-tip dependency.
 
 A local substitute is acceptable only when all of the following hold:
 
@@ -45,9 +47,11 @@ A local substitute is acceptable only when all of the following hold:
 
 ## Rendering boundary
 
-`zoo-core` emits stable game state and game-space coordinates. `zoo-scene` maps the presentation-facing parts into shared camera/scene semantics. The concrete browser renderer owns GPU/DOM objects only.
+`zoo-core` emits stable game state and game-space coordinates. `zoo-scene` maps the presentation-facing parts into shared camera/scene semantics. `@moritzbrantner/three-d-renderer` from `3d-lab` owns concrete Three.js scene/GPU adaptation, including the WebGPU-camera to WebGL-depth boundary and reusable world-to-screen projection.
 
-Camera orbit, zoom gestures, framing targets, and persistence are Zoo interaction policy. Projection/view math is shared 3D infrastructure. Selection and placement intent may originate in the renderer, but final validity remains a `zoo-core` decision.
+Camera orbit, zoom gestures, framing targets, and persistence are Zoo interaction policy. Projection/view math and concrete rendering are shared 3D infrastructure. Selection and placement intent may originate in the presentation layer, but final validity remains a `zoo-core` decision.
+
+The current DOM tile layer is explicitly transitional: while terrain has moved to the shared renderer, transparent DOM controls remain for the already-proven mouse/touch placement commands. Their positions are derived through the shared projection helper rather than a second camera implementation. They should disappear once shared renderer picking can preserve equivalent desktop and phone-sized interaction.
 
 Mobile and desktop inputs must converge on the same commands. Touch-specific gesture handling is presentation state and must not create a second rules path.
 
