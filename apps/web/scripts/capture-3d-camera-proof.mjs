@@ -199,24 +199,42 @@ try {
     throw new Error(`Shared 3D camera/hit projection did not move coherently: ${JSON.stringify(moved)}`)
   }
 
-  const overlayFacing = await evaluate(`(() => {
+  const projectedPresentation = await evaluate(`(() => {
     const park = document.querySelector('.park')
     const label = document.querySelector('.park-label')
+    const depot = document.querySelector('.care-depot')
+    const tile = document.querySelector('[aria-label="grass tile 1, 8"]')
+    const border = document.querySelector('.park-border-tile')
+    const boundaryFence = document.querySelector('.park-boundary-fence')
+    tile?.classList.add('selected')
+    const selectedTileTransform = tile ? getComputedStyle(tile).transform : null
+    tile?.classList.remove('selected')
     return {
       inverseYaw: park?.style.getPropertyValue('--zoo-camera-yaw-inverse').trim(),
-      labelTransform: label ? getComputedStyle(label).transform : 'none',
+      labelTransform: label ? getComputedStyle(label).transform : null,
+      depotTransform: depot ? getComputedStyle(depot).transform : null,
+      selectedTileTransform,
+      borderClipPath: border?.style.clipPath,
+      borderWidth: border?.style.width,
+      borderHeight: border?.style.height,
+      boundaryFenceTransform: boundaryFence?.style.transform,
+      boundaryFenceWidth: boundaryFence?.style.width,
     }
   })()`)
-  if (overlayFacing.inverseYaw !== "-45deg" || overlayFacing.labelTransform === "none") {
-    throw new Error(`Viewer-facing overlays did not follow the shared camera: ${JSON.stringify(overlayFacing)}`)
-  }
-
-  const raisedObjects = await evaluate(`(() => {
-    const style = getComputedStyle(document.querySelector('.empty-habitat-marker') ?? document.querySelector('.care-depot'))
-    return style.transform
-  })()`)
-  if (!raisedObjects || raisedObjects === "none") {
-    throw new Error("The transitional overlay does not expose a raised park object")
+  if (
+    projectedPresentation.inverseYaw !== "-45deg" ||
+    projectedPresentation.labelTransform !== "none" ||
+    projectedPresentation.depotTransform !== "none" ||
+    projectedPresentation.selectedTileTransform !== "none" ||
+    !projectedPresentation.borderClipPath?.startsWith("polygon(") ||
+    !(Number.parseFloat(projectedPresentation.borderWidth) > 0) ||
+    !(Number.parseFloat(projectedPresentation.borderHeight) > 0) ||
+    !projectedPresentation.boundaryFenceTransform?.startsWith("rotate(") ||
+    !(Number.parseFloat(projectedPresentation.boundaryFenceWidth) > 0)
+  ) {
+    throw new Error(
+      `Projected DOM presentation still contains legacy camera geometry: ${JSON.stringify(projectedPresentation)}`,
+    )
   }
 
   const viewport = await evaluate(`(() => {
@@ -323,7 +341,7 @@ try {
   if (!restored) throw new Error("Shared 3D camera did not return to the default isometric view")
 
   console.log(
-    "Shared 3D camera dogfood passed: 3d-lab rendering, projected tile hit geometry, orbit/tilt projection, overlay reprojection, new-park reset, top-bar reset, explicit reset, and visual proof are coherent.",
+    "Shared 3D camera dogfood passed: 3d-lab rendering, projected playable/frame geometry, screen-space overlays, orbit/tilt, existing resets, and visual proof are coherent.",
   )
 } finally {
   cdp?.close()
