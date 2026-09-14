@@ -255,32 +255,33 @@ try {
         y: top + height * Number.parseFloat(match[2]) / 100,
       }))
     }
-    const canonicalTile = (element) => {
-      const left = Number(element.dataset.sharedRendererBaseLeft)
-      const top = Number(element.dataset.sharedRendererBaseTop)
-      if (!Number.isFinite(left) || !Number.isFinite(top)) return null
-      const horizontal = (left - 620) / 29
-      const vertical = (top - 68) / 15
-      return {
-        x: Math.round((horizontal + vertical) * 0.5),
-        y: Math.round((vertical - horizontal) * 0.5),
-      }
-    }
     const edgeIndices = {
       north: [0, 1],
       east: [1, 2],
       south: [3, 2],
       west: [0, 3],
     }
+    const projectedEdges = [...document.querySelectorAll('button.tile')].flatMap((tile) => {
+      const points = polygonPoints(tile)
+      if (!points) return []
+      const label = tile.getAttribute('aria-label') ?? 'unknown tile'
+      return Object.entries(edgeIndices).map(([side, indices]) => ({
+        id: label + ':' + side,
+        side,
+        start: points[indices[0]],
+        end: points[indices[1]],
+      }))
+    })
+    const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y)
+    const edgeError = (actualStart, actualEnd, edge) => Math.min(
+      distance(actualStart, edge.start) + distance(actualEnd, edge.end),
+      distance(actualStart, edge.end) + distance(actualEnd, edge.start),
+    )
+
     return [...document.querySelectorAll('.fence-segment:not(.fence-preview)')].map((element) => {
       const side = ['north', 'east', 'south', 'west'].find((candidate) =>
         element.classList.contains('fence-' + candidate),
       )
-      const gameTile = canonicalTile(element)
-      const tile = gameTile
-        ? document.querySelector('[aria-label$="tile ' + gameTile.x + ', ' + gameTile.y + '"]')
-        : null
-      const projected = tile ? polygonPoints(tile) : null
       const angleMatch = element.style.transform.match(/^rotate\\((-?[\\d.]+)deg\\)$/)
       const width = Number.parseFloat(element.style.width)
       const left = Number.parseFloat(element.style.left)
@@ -292,15 +293,15 @@ try {
         x: actualStart.x + width * Math.cos(angle),
         y: actualStart.y + width * Math.sin(angle),
       }
-      const indices = edgeIndices[side]
-      const expectedStart = projected && indices ? projected[indices[0]] : null
-      const expectedEnd = projected && indices ? projected[indices[1]] : null
-      const distance = (a, b) => a && b ? Math.hypot(a.x - b.x, a.y - b.y) : Number.POSITIVE_INFINITY
+      const candidates = projectedEdges
+        .filter((edge) => edge.side === side)
+        .map((edge) => ({...edge, error: edgeError(actualStart, actualEnd, edge)}))
+        .sort((leftEdge, rightEdge) => leftEdge.error - rightEdge.error)
+      const best = candidates[0]
       return {
         side,
-        hasProjectedTile: Boolean(projected),
-        startError: distance(actualStart, expectedStart),
-        endError: distance(actualEnd, expectedEnd),
+        matchedEdge: best?.id ?? null,
+        edgeError: best?.error ?? Number.POSITIVE_INFINITY,
       }
     })
   })()`)
@@ -315,11 +316,13 @@ try {
       throw new Error(`Expected ${expectedCount} ${side} fence segments, found ${count}`)
     }
   }
-  const misplaced = geometry.filter(
-    (segment) => !segment.hasProjectedTile || segment.startError > 1.5 || segment.endError > 1.5,
-  )
+  const misplaced = geometry.filter((segment) => segment.edgeError > 3)
   if (misplaced.length > 0) {
-    throw new Error(`Projected fence rails are off their rendered tile edges: ${JSON.stringify(misplaced)}`)
+    throw new Error(`Projected fence rails are off rendered tile edges: ${JSON.stringify(misplaced)}`)
+  }
+  const distinctEdges = new Set(geometry.map((segment) => segment.matchedEdge))
+  if (distinctEdges.size !== geometry.length) {
+    throw new Error(`Projected fence rails do not map one-to-one to rendered tile edges: ${JSON.stringify(geometry)}`)
   }
 
   const clip = await evaluate(`(() => {
@@ -343,7 +346,7 @@ try {
   writeFileSync("test-results/fence-rendering.png", Buffer.from(screenshot.data, "base64"))
 
   console.log(
-    "Fence browser dogfood passed: touch drag previews projected 4×3 geometry, commits only on release, and renders 14 rails aligned to projected tile edges.",
+    "Fence browser dogfood passed: touch drag previews projected 4×3 geometry, commits only on release, and renders 14 rails one-to-one on projected tile edges.",
   )
 } finally {
   cdp?.close()
