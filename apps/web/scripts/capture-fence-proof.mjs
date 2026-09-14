@@ -242,6 +242,39 @@ try {
     throw new Error(`The 4×3 habitat was not created on touch release during browser dogfood: ${message}`)
   }
 
+  let committedProjection = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    committedProjection = await evaluate(`(() => {
+      const rails = [...document.querySelectorAll('.fence-segment:not(.fence-preview)')]
+      const projected = rails.filter((element) =>
+        element.style.transform.startsWith('rotate(') &&
+        Number.parseFloat(element.style.width) > 0 &&
+        element.style.left === element.dataset.sharedRendererAppliedLeft &&
+        element.style.top === element.dataset.sharedRendererAppliedTop &&
+        Boolean(element.dataset.sharedRendererDepth),
+      )
+      return {
+        rails: rails.length,
+        projected: projected.length,
+        samples: rails.slice(0, 2).map((element) => ({
+          left: element.style.left,
+          appliedLeft: element.dataset.sharedRendererAppliedLeft ?? null,
+          top: element.style.top,
+          appliedTop: element.dataset.sharedRendererAppliedTop ?? null,
+          transform: element.style.transform,
+          depth: element.dataset.sharedRendererDepth ?? null,
+        })),
+      }
+    })()`)
+    if (committedProjection.rails === 14 && committedProjection.projected === 14) break
+    await sleep(50)
+  }
+  if (committedProjection?.rails !== 14 || committedProjection?.projected !== 14) {
+    throw new Error(
+      `Committed habitat rails did not settle on shared projected geometry: ${JSON.stringify(committedProjection)}`,
+    )
+  }
+
   const geometry = await evaluate(`(() => {
     const polygonPoints = (tile) => {
       const style = getComputedStyle(tile)
