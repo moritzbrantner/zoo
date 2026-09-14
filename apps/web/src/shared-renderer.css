@@ -31,6 +31,10 @@
   transform: none;
 }
 
+.park.shared-three-renderer .park-entrance-base {
+  display: none;
+}
+
 .park.shared-three-renderer .placement-ghost,
 .park.shared-three-renderer .park-border-tile,
 .park.shared-three-renderer .placement-price,
