@@ -170,8 +170,6 @@ function overlayRule(element: HTMLElement): OverlayRule | null {
   if (element.classList.contains("animal")) return {offsetX: 14, offsetY: -16, snap: 1}
   if (element.classList.contains("empty-habitat-marker")) return {offsetX: 15, offsetY: -10, snap: 0.5}
   if (element.classList.contains("guest")) return {offsetX: 24, offsetY: -4, snap: 1}
-  if (element.classList.contains("park-border-tile")) return {offsetX: 0, offsetY: 0, snap: 1}
-  if (element.classList.contains("park-boundary-fence")) return {offsetX: 0, offsetY: 0, snap: 1}
   if (element.classList.contains("park-entrance-building")) {
     return {offsetX: 0, offsetY: -64, snap: 1}
   }
@@ -239,7 +237,7 @@ function canonicalWorldTile(canonical: {left: number; top: number}) {
   return {x: snap(rawX, 1), z: snap(rawZ, 1)}
 }
 
-function projectPlacementGhost(
+function projectCanonicalTileFootprint(
   element: HTMLElement,
   canonical: {left: number; top: number},
   camera: RendererCamera,
@@ -250,7 +248,12 @@ function projectPlacementGhost(
 
 function readFenceSide(element: HTMLElement): FenceSide | null {
   for (const side of ["north", "east", "south", "west"] as const) {
-    if (element.classList.contains(`fence-${side}`)) return side
+    if (
+      element.classList.contains(`fence-${side}`) ||
+      element.classList.contains(`park-boundary-fence-${side}`)
+    ) {
+      return side
+    }
   }
   return null
 }
@@ -284,8 +287,11 @@ function projectFenceSegment(
   const deltaY = end.y - start.y
   const width = Math.max(Math.hypot(deltaX, deltaY), 1)
   const angle = (Math.atan2(deltaY, deltaX) * 180) / Math.PI
+  const elementHeight = Number.parseFloat(getComputedStyle(element).height)
+  const halfHeight = Number.isFinite(elementHeight) ? elementHeight / 2 : 2.5
   const left = `${Number(start.x.toFixed(3))}px`
-  const top = `${Number((start.y - 2.5).toFixed(3))}px`
+  const top = `${Number((start.y - halfHeight).toFixed(3))}px`
+  const postAngle = `${Number((-angle).toFixed(3))}deg`
 
   element.dataset.sharedRendererAppliedLeft = left
   element.dataset.sharedRendererAppliedTop = top
@@ -294,7 +300,8 @@ function projectFenceSegment(
   applyStyle(element, "width", `${Number(width.toFixed(3))}px`)
   applyStyle(element, "transformOrigin", "0 50%")
   applyStyle(element, "transform", `rotate(${Number(angle.toFixed(3))}deg)`)
-  applyCustomProperty(element, "--fence-post-angle", `${Number((-angle).toFixed(3))}deg`)
+  applyCustomProperty(element, "--fence-post-angle", postAngle)
+  applyCustomProperty(element, "--park-fence-post-angle", postAngle)
   return true
 }
 
@@ -334,11 +341,18 @@ function projectDomOverlay(park: HTMLElement, camera: RendererCamera) {
       projectTileFootprint(element, tile, camera)
       continue
     }
-    if (element.classList.contains("placement-ghost")) {
-      projectPlacementGhost(element, canonical, camera)
+    if (
+      element.classList.contains("placement-ghost") ||
+      element.classList.contains("park-border-tile")
+    ) {
+      projectCanonicalTileFootprint(element, canonical, camera)
       continue
     }
-    if (element.classList.contains("fence-segment") && projectFenceSegment(element, canonical, camera)) {
+    if (
+      (element.classList.contains("fence-segment") ||
+        element.classList.contains("park-boundary-fence")) &&
+      projectFenceSegment(element, canonical, camera)
+    ) {
       continue
     }
     projectOverlay(element, canonical, camera)
@@ -351,16 +365,24 @@ function restoreDomOverlay(park: HTMLElement) {
     const top = Number(element.dataset.sharedRendererBaseTop)
     if (Number.isFinite(left)) element.style.left = `${left}px`
     if (Number.isFinite(top)) element.style.top = `${top}px`
-    if (element.classList.contains("tile") || element.classList.contains("placement-ghost")) {
+    if (
+      element.classList.contains("tile") ||
+      element.classList.contains("placement-ghost") ||
+      element.classList.contains("park-border-tile")
+    ) {
       element.style.removeProperty("width")
       element.style.removeProperty("height")
       element.style.removeProperty("clip-path")
     }
-    if (element.classList.contains("fence-segment")) {
+    if (
+      element.classList.contains("fence-segment") ||
+      element.classList.contains("park-boundary-fence")
+    ) {
       element.style.removeProperty("width")
       element.style.removeProperty("transform")
       element.style.removeProperty("transform-origin")
       element.style.removeProperty("--fence-post-angle")
+      element.style.removeProperty("--park-fence-post-angle")
     }
     delete element.dataset.sharedRendererBaseLeft
     delete element.dataset.sharedRendererBaseTop
