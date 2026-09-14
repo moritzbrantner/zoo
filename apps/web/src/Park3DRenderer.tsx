@@ -24,6 +24,8 @@ const DEFAULT_SHARED_PITCH = 31.15
 const PITCH_STEP = 6
 
 type TileKind = "grass" | "path" | "entrance" | "habitat" | "concession"
+type FenceSide = "north" | "east" | "south" | "west"
+type WorldPoint = [number, number, number]
 
 type TileDescriptor = {
   element: HTMLButtonElement
@@ -111,10 +113,17 @@ function relativePitch(pitchDegrees: number) {
   return Number((pitchDegrees - DEFAULT_SHARED_PITCH).toFixed(2))
 }
 
-function pseudoWorldPoint(left: number, top: number): [number, number, number] {
+function pseudoWorldPoint(left: number, top: number): WorldPoint {
   const horizontal = (left - ISO_ORIGIN_X) / ISO_X_STEP
   const vertical = (top - ISO_ORIGIN_Y) / ISO_Y_STEP
   return [(horizontal + vertical) * 0.5, 0, (vertical - horizontal) * 0.5]
+}
+
+function legacyScreenPoint([x, , z]: WorldPoint) {
+  return {
+    left: ISO_ORIGIN_X + (x - z) * ISO_X_STEP,
+    top: ISO_ORIGIN_Y + (x + z) * ISO_Y_STEP,
+  }
 }
 
 function snap(value: number, step: number) {
@@ -150,8 +159,6 @@ function captureCanonicalPosition(element: HTMLElement) {
 }
 
 function overlayRule(element: HTMLElement): OverlayRule | null {
-  if (element.classList.contains("placement-ghost")) return {offsetX: 0, offsetY: 0, snap: 1}
-  if (element.classList.contains("fence-segment")) return {offsetX: 0, offsetY: 0, snap: 1}
   if (element.classList.contains("placement-price")) return {offsetX: 24, offsetY: -52, snap: 1}
   if (element.classList.contains("entrance-gate")) return {offsetX: -24, offsetY: -48, snap: 1}
   if (element.classList.contains("care-depot")) return {offsetX: 4, offsetY: -54, snap: 1}
@@ -177,13 +184,26 @@ function applyStyle(element: HTMLElement, property: keyof CSSStyleDeclaration, v
   }
 }
 
-function projectTileFootprint(element: HTMLElement, tile: TileDescriptor, camera: RendererCamera) {
-  const corners: Array<[number, number, number]> = [
-    [tile.x + 0.5, 0, tile.y - 0.5],
-    [tile.x + 1.5, 0, tile.y - 0.5],
-    [tile.x + 1.5, 0, tile.y + 0.5],
-    [tile.x + 0.5, 0, tile.y + 0.5],
+function applyCustomProperty(element: HTMLElement, property: string, value: string) {
+  if (element.style.getPropertyValue(property) !== value) {
+    element.style.setProperty(property, value)
+  }
+}
+
+function tileTopCorners(x: number, z: number): WorldPoint[] {
+  return [
+    [x + 0.5, 0, z - 0.5],
+    [x + 1.5, 0, z - 0.5],
+    [x + 1.5, 0, z + 0.5],
+    [x + 0.5, 0, z + 0.5],
   ]
+}
+
+function projectPolygonFootprint(
+  element: HTMLElement,
+  corners: WorldPoint[],
+  camera: RendererCamera,
+) {
   const projected = corners.map((corner) => projectWorldPoint(camera, corner, PROJECTION_VIEWPORT))
   const minX = Math.min(...projected.map((point) => point.x))
   const maxX = Math.max(...projected.map((point) => point.x))
@@ -210,21 +230,92 @@ function projectTileFootprint(element: HTMLElement, tile: TileDescriptor, camera
   applyStyle(element, "clipPath", `polygon(${polygon})`)
 }
 
+function projectTileFootprint(element: HTMLElement, tile: TileDescriptor, camera: RendererCamera) {
+  projectPolygonFootprint(element, tileTopCorners(tile.x, tile.y), camera)
+}
+
+function canonicalWorldTile(canonical: {left: number; top: number}) {
+  const [rawX, , rawZ] = pseudoWorldPoint(canonical.left, canonical.top)
+  return {x: snap(rawX, 1), z: snap(rawZ, 1)}
+}
+
+function projectPlacementGhost(
+  element: HTMLElement,
+  canonical: {left: number; top: number},
+  camera: RendererCamera,
+) {
+  const tile = canonicalWorldTile(canonical)
+  projectPolygonFootprint(element, tileTopCorners(tile.x, tile.z), camera)
+}
+
+function readFenceSide(element: HTMLElement): FenceSide | null {
+  for (const side of ["north", "east", "south", "west"] as const) {
+    if (element.classList.contains(`fence-${side}`)) return side
+  }
+  return null
+}
+
+function fenceEndpoints(x: number, z: number, side: FenceSide): [WorldPoint, WorldPoint] {
+  const [northWest, northEast, southEast, southWest] = tileTopCorners(x, z)
+  switch (side) {
+    case "north":
+      return [northWest, northEast]
+    case "east":
+      return [northEast, southEast]
+    case "south":
+      return [southWest, southEast]
+    case "west":
+      return [northWest, southWest]
+  }
+}
+
+function projectFenceSegment(
+  element: HTMLElement,
+  canonical: {left: number; top: number},
+  camera: RendererCamera,
+) {
+  const side = readFenceSide(element)
+  if (!side) return false
+  const tile = canonicalWorldTile(canonical)
+  const [startWorld, endWorld] = fenceEndpoints(tile.x, tile.z, side)
+  const start = projectWorldPoint(camera, startWorld, PROJECTION_VIEWPORT)
+  const end = projectWorldPoint(camera, endWorld, PROJECTION_VIEWPORT)
+  const deltaX = end.x - start.x
+  const deltaY = end.y - start.y
+  const width = Math.max(Math.hypot(deltaX, deltaY), 1)
+  const angle = (Math.atan2(deltaY, deltaX) * 180) / Math.PI
+  const left = `${Number(start.x.toFixed(3))}px`
+  const top = `${Number((start.y - 2.5).toFixed(3))}px`
+
+  element.dataset.sharedRendererAppliedLeft = left
+  element.dataset.sharedRendererAppliedTop = top
+  applyStyle(element, "left", left)
+  applyStyle(element, "top", top)
+  applyStyle(element, "width", `${Number(width.toFixed(3))}px`)
+  applyStyle(element, "transformOrigin", "0 50%")
+  applyStyle(element, "transform", `rotate(${Number(angle.toFixed(3))}deg)`)
+  applyCustomProperty(element, "--fence-post-angle", `${Number((-angle).toFixed(3))}deg`)
+  return true
+}
+
 function inferWorldAnchor(canonical: {left: number; top: number}, rule: OverlayRule) {
   const [rawX, , rawZ] = pseudoWorldPoint(
     canonical.left - rule.offsetX,
     canonical.top - rule.offsetY,
   )
-  return [snap(rawX, rule.snap), 0, snap(rawZ, rule.snap)] as [number, number, number]
+  return [snap(rawX, rule.snap), 0, snap(rawZ, rule.snap)] as WorldPoint
 }
 
 function projectOverlay(element: HTMLElement, canonical: {left: number; top: number}, camera: RendererCamera) {
   const rule = overlayRule(element)
   if (!rule) return
   const anchor = inferWorldAnchor(canonical, rule)
+  const legacyAnchor = legacyScreenPoint(anchor)
+  const residualX = canonical.left - rule.offsetX - legacyAnchor.left
+  const residualY = canonical.top - rule.offsetY - legacyAnchor.top
   const projected = projectWorldPoint(camera, anchor, PROJECTION_VIEWPORT)
-  const left = `${Number((projected.x + rule.offsetX).toFixed(3))}px`
-  const top = `${Number((projected.y + rule.offsetY).toFixed(3))}px`
+  const left = `${Number((projected.x + rule.offsetX + residualX).toFixed(3))}px`
+  const top = `${Number((projected.y + rule.offsetY + residualY).toFixed(3))}px`
 
   element.dataset.sharedRendererAppliedLeft = left
   element.dataset.sharedRendererAppliedTop = top
@@ -243,6 +334,13 @@ function projectDomOverlay(park: HTMLElement, camera: RendererCamera) {
       projectTileFootprint(element, tile, camera)
       continue
     }
+    if (element.classList.contains("placement-ghost")) {
+      projectPlacementGhost(element, canonical, camera)
+      continue
+    }
+    if (element.classList.contains("fence-segment") && projectFenceSegment(element, canonical, camera)) {
+      continue
+    }
     projectOverlay(element, canonical, camera)
   }
 }
@@ -253,10 +351,16 @@ function restoreDomOverlay(park: HTMLElement) {
     const top = Number(element.dataset.sharedRendererBaseTop)
     if (Number.isFinite(left)) element.style.left = `${left}px`
     if (Number.isFinite(top)) element.style.top = `${top}px`
-    if (element.classList.contains("tile")) {
+    if (element.classList.contains("tile") || element.classList.contains("placement-ghost")) {
       element.style.removeProperty("width")
       element.style.removeProperty("height")
       element.style.removeProperty("clip-path")
+    }
+    if (element.classList.contains("fence-segment")) {
+      element.style.removeProperty("width")
+      element.style.removeProperty("transform")
+      element.style.removeProperty("transform-origin")
+      element.style.removeProperty("--fence-post-angle")
     }
     delete element.dataset.sharedRendererBaseLeft
     delete element.dataset.sharedRendererBaseTop
