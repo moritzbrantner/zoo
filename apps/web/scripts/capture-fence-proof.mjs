@@ -249,7 +249,7 @@ try {
       const width = Number.parseFloat(tile.style.width)
       const height = Number.parseFloat(tile.style.height)
       const matches = [...tile.style.clipPath.matchAll(/(-?[\\d.]+)%\\s+(-?[\\d.]+)%/g)]
-      if (matches.length !== 4) return null
+      if (matches.length !== 4 || ![left, top, width, height].every(Number.isFinite)) return null
       return matches.map((match) => ({
         x: left + width * Number.parseFloat(match[1]) / 100,
         y: top + height * Number.parseFloat(match[2]) / 100,
@@ -282,26 +282,44 @@ try {
       const side = ['north', 'east', 'south', 'west'].find((candidate) =>
         element.classList.contains('fence-' + candidate),
       )
-      const angleMatch = element.style.transform.match(/^rotate\\((-?[\\d.]+)deg\\)$/)
       const width = Number.parseFloat(element.style.width)
       const left = Number.parseFloat(element.style.left)
       const top = Number.parseFloat(element.style.top)
       const halfHeight = Number.parseFloat(getComputedStyle(element).height) / 2
-      const angle = angleMatch ? Number.parseFloat(angleMatch[1]) * Math.PI / 180 : Number.NaN
+      const matrix = new DOMMatrix(getComputedStyle(element).transform)
+      const axisLength = Math.hypot(matrix.a, matrix.b)
+      const directionX = axisLength > 0 ? matrix.a / axisLength : Number.NaN
+      const directionY = axisLength > 0 ? matrix.b / axisLength : Number.NaN
       const actualStart = {x: left, y: top + halfHeight}
       const actualEnd = {
-        x: actualStart.x + width * Math.cos(angle),
-        y: actualStart.y + width * Math.sin(angle),
+        x: actualStart.x + width * directionX,
+        y: actualStart.y + width * directionY,
       }
-      const candidates = projectedEdges
-        .filter((edge) => edge.side === side)
-        .map((edge) => ({...edge, error: edgeError(actualStart, actualEnd, edge)}))
-        .sort((leftEdge, rightEdge) => leftEdge.error - rightEdge.error)
+      const finiteGeometry = [
+        width,
+        left,
+        top,
+        halfHeight,
+        directionX,
+        directionY,
+        actualStart.x,
+        actualStart.y,
+        actualEnd.x,
+        actualEnd.y,
+      ].every(Number.isFinite)
+      const candidates = finiteGeometry
+        ? projectedEdges
+            .filter((edge) => edge.side === side)
+            .map((edge) => ({...edge, error: edgeError(actualStart, actualEnd, edge)}))
+            .filter((edge) => Number.isFinite(edge.error))
+            .sort((leftEdge, rightEdge) => leftEdge.error - rightEdge.error)
+        : []
       const best = candidates[0]
       return {
         side,
+        finiteGeometry,
         matchedEdge: best?.id ?? null,
-        edgeError: best?.error ?? Number.POSITIVE_INFINITY,
+        edgeError: best?.error ?? null,
       }
     })
   })()`)
@@ -315,6 +333,12 @@ try {
     if (count !== expectedCount) {
       throw new Error(`Expected ${expectedCount} ${side} fence segments, found ${count}`)
     }
+  }
+  const invalid = geometry.filter(
+    (segment) => !segment.finiteGeometry || segment.matchedEdge === null || segment.edgeError === null,
+  )
+  if (invalid.length > 0) {
+    throw new Error(`Projected fence proof could not resolve finite rail geometry: ${JSON.stringify(invalid)}`)
   }
   const misplaced = geometry.filter((segment) => segment.edgeError > 3)
   if (misplaced.length > 0) {
