@@ -491,9 +491,19 @@ export default function Park3DRenderer() {
       setReady(true)
       return true
     } catch (error) {
-      console.error("Shared 3d-lab renderer frame rejected; restoring DOM presentation", error)
-      restoreDomOverlay(targets.park)
-      targets.park.classList.remove("shared-three-renderer")
+      console.error("Shared 3d-lab renderer frame rejected; failing closed", error)
+      rendererRef.current?.dispose()
+      rendererRef.current = null
+      bridgeRef.current?.free()
+      bridgeRef.current = null
+      if (canvasRef.current) {
+        canvasRef.current.style.visibility = "hidden"
+        canvasRef.current.dataset.sharedRenderer = "failed"
+      }
+      targets.park.classList.add("shared-three-renderer")
+      targets.park.dataset.sharedRendererFailure = "true"
+      targets.park.inert = true
+      targets.park.style.visibility = "hidden"
       setReady(false)
       return false
     }
@@ -558,9 +568,17 @@ export default function Park3DRenderer() {
         transformObserver.observe(targets.park, {attributes: true, attributeFilter: ["style"]})
       })
       .catch((error) => {
-        console.error("Shared 3d-lab renderer failed; restoring DOM presentation", error)
-        restoreDomOverlay(targets.park)
-        targets.park.classList.remove("shared-three-renderer")
+        console.error("Shared 3d-lab renderer failed; failing closed", error)
+        rendererRef.current?.dispose()
+        rendererRef.current = null
+        bridgeRef.current?.free()
+        bridgeRef.current = null
+        canvas.style.visibility = "hidden"
+        canvas.dataset.sharedRenderer = "failed"
+        targets.park.classList.add("shared-three-renderer")
+        targets.park.dataset.sharedRendererFailure = "true"
+        targets.park.inert = true
+        targets.park.style.visibility = "hidden"
         setReady(false)
       })
 
@@ -593,6 +611,10 @@ export default function Park3DRenderer() {
       rendererRef.current = null
       bridgeRef.current?.free()
       bridgeRef.current = null
+      targets.park.inert = false
+      targets.park.style.removeProperty("visibility")
+      delete targets.park.dataset.sharedRendererFailure
+      canvas.style.removeProperty("visibility")
       restoreDomOverlay(targets.park)
       targets.park.classList.remove("shared-three-renderer")
       setReady(false)
