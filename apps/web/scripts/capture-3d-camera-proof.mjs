@@ -206,6 +206,23 @@ try {
     const tile = document.querySelector('[aria-label="grass tile 1, 8"]')
     const border = document.querySelector('.park-border-tile')
     const boundaryFence = document.querySelector('.park-boundary-fence')
+    const entranceBase = document.querySelector('.park-entrance-base')
+    const depthEntries = [...document.querySelectorAll('[data-shared-renderer-depth]')]
+      .map((element) => ({
+        depth: Number(element.dataset.sharedRendererDepth),
+        zIndex: Number(element.style.zIndex),
+      }))
+      .filter((entry) => Number.isFinite(entry.depth) && Number.isFinite(entry.zIndex))
+      .sort((left, right) => left.depth - right.depth)
+    let depthOrderValid = true
+    for (let index = 1; index < depthEntries.length; index += 1) {
+      const nearer = depthEntries[index - 1]
+      const farther = depthEntries[index]
+      if (farther.depth - nearer.depth > 0.000002 && farther.zIndex >= nearer.zIndex) {
+        depthOrderValid = false
+        break
+      }
+    }
     tile?.classList.add('selected')
     const selectedTileTransform = tile ? getComputedStyle(tile).transform : null
     tile?.classList.remove('selected')
@@ -219,6 +236,9 @@ try {
       borderHeight: border?.style.height,
       boundaryFenceTransform: boundaryFence?.style.transform,
       boundaryFenceWidth: boundaryFence?.style.width,
+      entranceBaseDisplay: entranceBase ? getComputedStyle(entranceBase).display : null,
+      depthSamples: depthEntries.length,
+      depthOrderValid,
     }
   })()`)
   if (
@@ -230,10 +250,13 @@ try {
     !(Number.parseFloat(projectedPresentation.borderWidth) > 0) ||
     !(Number.parseFloat(projectedPresentation.borderHeight) > 0) ||
     !projectedPresentation.boundaryFenceTransform?.startsWith("rotate(") ||
-    !(Number.parseFloat(projectedPresentation.boundaryFenceWidth) > 0)
+    !(Number.parseFloat(projectedPresentation.boundaryFenceWidth) > 0) ||
+    projectedPresentation.entranceBaseDisplay !== "none" ||
+    projectedPresentation.depthSamples < 4 ||
+    !projectedPresentation.depthOrderValid
   ) {
     throw new Error(
-      `Projected DOM presentation still contains legacy camera geometry: ${JSON.stringify(projectedPresentation)}`,
+      `Projected DOM presentation is not coherent with shared camera geometry/depth: ${JSON.stringify(projectedPresentation)}`,
     )
   }
 
@@ -341,7 +364,7 @@ try {
   if (!restored) throw new Error("Shared 3D camera did not return to the default isometric view")
 
   console.log(
-    "Shared 3D camera dogfood passed: 3d-lab rendering, projected playable/frame geometry, screen-space overlays, orbit/tilt, existing resets, and visual proof are coherent.",
+    "Shared 3D camera dogfood passed: 3d-lab rendering, projected geometry/depth order, screen-space overlays, orbit/tilt, existing resets, and visual proof are coherent.",
   )
 } finally {
   cdp?.close()
