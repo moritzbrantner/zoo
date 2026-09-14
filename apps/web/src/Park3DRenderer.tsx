@@ -22,6 +22,8 @@ const ISO_Y_STEP = 15
 const DEFAULT_SHARED_YAW = 45
 const DEFAULT_SHARED_PITCH = 31.15
 const PITCH_STEP = 6
+const PROJECTED_DEPTH_SCALE = 1_000_000
+const PROJECTED_DEPTH_BASE = 1_000
 
 type TileKind = "grass" | "path" | "entrance" | "habitat" | "concession"
 type FenceSide = "north" | "east" | "south" | "west"
@@ -158,6 +160,14 @@ function captureCanonicalPosition(element: HTMLElement) {
   return Number.isFinite(baseLeft) && Number.isFinite(baseTop) ? {left: baseLeft, top: baseTop} : null
 }
 
+function captureCanonicalZIndex(element: HTMLElement) {
+  const current = element.style.zIndex
+  const applied = element.dataset.sharedRendererAppliedZIndex
+  if (element.dataset.sharedRendererBaseZIndex === undefined || current !== applied) {
+    element.dataset.sharedRendererBaseZIndex = current
+  }
+}
+
 function overlayRule(element: HTMLElement): OverlayRule | null {
   if (element.classList.contains("placement-price")) return {offsetX: 24, offsetY: -52, snap: 1}
   if (element.classList.contains("entrance-gate")) return {offsetX: -24, offsetY: -48, snap: 1}
@@ -186,6 +196,17 @@ function applyCustomProperty(element: HTMLElement, property: string, value: stri
   if (element.style.getPropertyValue(property) !== value) {
     element.style.setProperty(property, value)
   }
+}
+
+function applyProjectedDepth(element: HTMLElement, depth: number) {
+  captureCanonicalZIndex(element)
+  const clampedDepth = Number.isFinite(depth) ? Math.min(Math.max(depth, 0), 1) : 1
+  const zIndex = String(
+    PROJECTED_DEPTH_BASE + Math.round((1 - clampedDepth) * PROJECTED_DEPTH_SCALE),
+  )
+  element.dataset.sharedRendererDepth = clampedDepth.toFixed(6)
+  element.dataset.sharedRendererAppliedZIndex = zIndex
+  applyStyle(element, "zIndex", zIndex)
 }
 
 function tileTopCorners(x: number, z: number): WorldPoint[] {
@@ -226,6 +247,7 @@ function projectPolygonFootprint(
   applyStyle(element, "width", `${Number(width.toFixed(3))}px`)
   applyStyle(element, "height", `${Number(height.toFixed(3))}px`)
   applyStyle(element, "clipPath", `polygon(${polygon})`)
+  return projected.reduce((total, point) => total + point.depth, 0) / projected.length
 }
 
 function projectTileFootprint(element: HTMLElement, tile: TileDescriptor, camera: RendererCamera) {
@@ -243,7 +265,7 @@ function projectCanonicalTileFootprint(
   camera: RendererCamera,
 ) {
   const tile = canonicalWorldTile(canonical)
-  projectPolygonFootprint(element, tileTopCorners(tile.x, tile.z), camera)
+  return projectPolygonFootprint(element, tileTopCorners(tile.x, tile.z), camera)
 }
 
 function readFenceSide(element: HTMLElement): FenceSide | null {
@@ -302,6 +324,7 @@ function projectFenceSegment(
   applyStyle(element, "transform", `rotate(${Number(angle.toFixed(3))}deg)`)
   applyCustomProperty(element, "--fence-post-angle", postAngle)
   applyCustomProperty(element, "--park-fence-post-angle", postAngle)
+  applyProjectedDepth(element, (start.depth + end.depth) / 2)
   return true
 }
 
@@ -328,6 +351,7 @@ function projectOverlay(element: HTMLElement, canonical: {left: number; top: num
   element.dataset.sharedRendererAppliedTop = top
   applyStyle(element, "left", left)
   applyStyle(element, "top", top)
+  applyProjectedDepth(element, projected.depth)
 }
 
 function projectDomOverlay(park: HTMLElement, camera: RendererCamera) {
@@ -345,7 +369,8 @@ function projectDomOverlay(park: HTMLElement, camera: RendererCamera) {
       element.classList.contains("placement-ghost") ||
       element.classList.contains("park-border-tile")
     ) {
-      projectCanonicalTileFootprint(element, canonical, camera)
+      const depth = projectCanonicalTileFootprint(element, canonical, camera)
+      applyProjectedDepth(element, depth)
       continue
     }
     if (
@@ -384,10 +409,18 @@ function restoreDomOverlay(park: HTMLElement) {
       element.style.removeProperty("--fence-post-angle")
       element.style.removeProperty("--park-fence-post-angle")
     }
+    if (element.dataset.sharedRendererBaseZIndex !== undefined) {
+      const baseZIndex = element.dataset.sharedRendererBaseZIndex
+      if (baseZIndex === "") element.style.removeProperty("z-index")
+      else element.style.zIndex = baseZIndex
+    }
     delete element.dataset.sharedRendererBaseLeft
     delete element.dataset.sharedRendererBaseTop
+    delete element.dataset.sharedRendererBaseZIndex
     delete element.dataset.sharedRendererAppliedLeft
     delete element.dataset.sharedRendererAppliedTop
+    delete element.dataset.sharedRendererAppliedZIndex
+    delete element.dataset.sharedRendererDepth
   }
 }
 
