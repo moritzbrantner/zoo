@@ -244,11 +244,12 @@ try {
 
   const geometry = await evaluate(`(() => {
     const polygonPoints = (tile) => {
-      const left = Number.parseFloat(tile.style.left)
-      const top = Number.parseFloat(tile.style.top)
-      const width = Number.parseFloat(tile.style.width)
-      const height = Number.parseFloat(tile.style.height)
-      const matches = [...tile.style.clipPath.matchAll(/(-?[\\d.]+)%\\s+(-?[\\d.]+)%/g)]
+      const style = getComputedStyle(tile)
+      const left = Number.parseFloat(style.left)
+      const top = Number.parseFloat(style.top)
+      const width = Number.parseFloat(style.width)
+      const height = Number.parseFloat(style.height)
+      const matches = [...style.clipPath.matchAll(/(-?[\\d.]+)%\\s+(-?[\\d.]+)%/g)]
       if (matches.length !== 4 || ![left, top, width, height].every(Number.isFinite)) return null
       return matches.map((match) => ({
         x: left + width * Number.parseFloat(match[1]) / 100,
@@ -282,11 +283,12 @@ try {
       const side = ['north', 'east', 'south', 'west'].find((candidate) =>
         element.classList.contains('fence-' + candidate),
       )
-      const width = Number.parseFloat(element.style.width)
-      const left = Number.parseFloat(element.style.left)
-      const top = Number.parseFloat(element.style.top)
-      const halfHeight = Number.parseFloat(getComputedStyle(element).height) / 2
-      const matrix = new DOMMatrix(getComputedStyle(element).transform)
+      const style = getComputedStyle(element)
+      const width = Number.parseFloat(style.width)
+      const left = Number.parseFloat(style.left)
+      const top = Number.parseFloat(style.top)
+      const halfHeight = Number.parseFloat(style.height) / 2
+      const matrix = new DOMMatrix(style.transform)
       const axisLength = Math.hypot(matrix.a, matrix.b)
       const directionX = axisLength > 0 ? matrix.a / axisLength : Number.NaN
       const directionY = axisLength > 0 ? matrix.b / axisLength : Number.NaN
@@ -318,6 +320,13 @@ try {
       return {
         side,
         finiteGeometry,
+        raw: {
+          width: style.width,
+          left: style.left,
+          top: style.top,
+          height: style.height,
+          transform: style.transform,
+        },
         matchedEdge: best?.id ?? null,
         edgeError: best?.error ?? null,
       }
