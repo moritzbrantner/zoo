@@ -180,15 +180,40 @@ try {
     })
   }
 
-  let previewSegments = 0
+  let previewState = null
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    previewSegments = await evaluate(`document.querySelectorAll('.fence-preview').length`)
-    if (previewSegments === 14) break
+    previewState = await evaluate(`(() => {
+      const rails = [...document.querySelectorAll('.fence-preview')]
+      const ghosts = [...document.querySelectorAll('.placement-ghost')]
+      return {
+        rails: rails.length,
+        projectedRails: rails.filter((element) =>
+          element.style.transform.startsWith('rotate(') && Number.parseFloat(element.style.width) > 0,
+        ).length,
+        ghosts: ghosts.length,
+        projectedGhosts: ghosts.filter((element) =>
+          element.style.clipPath.startsWith('polygon(') &&
+          Number.parseFloat(element.style.width) > 0 &&
+          Number.parseFloat(element.style.height) > 0,
+        ).length,
+      }
+    })()`)
+    if (
+      previewState.rails === 14 &&
+      previewState.projectedRails === 14 &&
+      previewState.ghosts === 12 &&
+      previewState.projectedGhosts === 12
+    ) break
     await sleep(50)
   }
-  if (previewSegments !== 14) {
+  if (
+    previewState?.rails !== 14 ||
+    previewState?.projectedRails !== 14 ||
+    previewState?.ghosts !== 12 ||
+    previewState?.projectedGhosts !== 12
+  ) {
     throw new Error(
-      `Touch drag did not extend the live 4×3 fence preview; expected 14 rails, found ${previewSegments}`,
+      `Touch drag did not expose projected 4×3 placement geometry: ${JSON.stringify(previewState)}`,
     )
   }
 
@@ -218,26 +243,64 @@ try {
   }
 
   const geometry = await evaluate(`(() => {
-    const expectedCenters = {
-      north: [43.5, 7.5],
-      east: [43.5, 22.5],
-      south: [14.5, 22.5],
-      west: [14.5, 7.5],
+    const polygonPoints = (tile) => {
+      const left = Number.parseFloat(tile.style.left)
+      const top = Number.parseFloat(tile.style.top)
+      const width = Number.parseFloat(tile.style.width)
+      const height = Number.parseFloat(tile.style.height)
+      const matches = [...tile.style.clipPath.matchAll(/(-?[\\d.]+)%\\s+(-?[\\d.]+)%/g)]
+      if (matches.length !== 4) return null
+      return matches.map((match) => ({
+        x: left + width * Number.parseFloat(match[1]) / 100,
+        y: top + height * Number.parseFloat(match[2]) / 100,
+      }))
     }
-    const park = document.querySelector('.park')
-    const parkRect = park.getBoundingClientRect()
+    const canonicalTile = (element) => {
+      const left = Number(element.dataset.sharedRendererBaseLeft)
+      const top = Number(element.dataset.sharedRendererBaseTop)
+      if (!Number.isFinite(left) || !Number.isFinite(top)) return null
+      const horizontal = (left - 620) / 29
+      const vertical = (top - 68) / 15
+      return {
+        x: Math.round((horizontal + vertical) * 0.5),
+        y: Math.round((vertical - horizontal) * 0.5),
+      }
+    }
+    const edgeIndices = {
+      north: [0, 1],
+      east: [1, 2],
+      south: [3, 2],
+      west: [0, 3],
+    }
     return [...document.querySelectorAll('.fence-segment:not(.fence-preview)')].map((element) => {
       const side = ['north', 'east', 'south', 'west'].find((candidate) =>
         element.classList.contains('fence-' + candidate),
       )
-      const rect = element.getBoundingClientRect()
-      const [edgeX, edgeY] = expectedCenters[side]
-      const expectedX = parkRect.left + Number.parseFloat(element.style.left) + edgeX
-      const expectedY = parkRect.top + Number.parseFloat(element.style.top) + edgeY
+      const gameTile = canonicalTile(element)
+      const tile = gameTile
+        ? document.querySelector('[aria-label$="tile ' + gameTile.x + ', ' + gameTile.y + '"]')
+        : null
+      const projected = tile ? polygonPoints(tile) : null
+      const angleMatch = element.style.transform.match(/^rotate\\((-?[\\d.]+)deg\\)$/)
+      const width = Number.parseFloat(element.style.width)
+      const left = Number.parseFloat(element.style.left)
+      const top = Number.parseFloat(element.style.top)
+      const halfHeight = Number.parseFloat(getComputedStyle(element).height) / 2
+      const angle = angleMatch ? Number.parseFloat(angleMatch[1]) * Math.PI / 180 : Number.NaN
+      const actualStart = {x: left, y: top + halfHeight}
+      const actualEnd = {
+        x: actualStart.x + width * Math.cos(angle),
+        y: actualStart.y + width * Math.sin(angle),
+      }
+      const indices = edgeIndices[side]
+      const expectedStart = projected && indices ? projected[indices[0]] : null
+      const expectedEnd = projected && indices ? projected[indices[1]] : null
+      const distance = (a, b) => a && b ? Math.hypot(a.x - b.x, a.y - b.y) : Number.POSITIVE_INFINITY
       return {
         side,
-        dx: rect.left + rect.width / 2 - expectedX,
-        dy: rect.top + rect.height / 2 - expectedY,
+        hasProjectedTile: Boolean(projected),
+        startError: distance(actualStart, expectedStart),
+        endError: distance(actualEnd, expectedEnd),
       }
     })
   })()`)
@@ -253,10 +316,10 @@ try {
     }
   }
   const misplaced = geometry.filter(
-    (segment) => Math.abs(segment.dx) > 1.5 || Math.abs(segment.dy) > 1.5,
+    (segment) => !segment.hasProjectedTile || segment.startError > 1.5 || segment.endError > 1.5,
   )
   if (misplaced.length > 0) {
-    throw new Error(`Fence rails are off their tile edges: ${JSON.stringify(misplaced)}`)
+    throw new Error(`Projected fence rails are off their rendered tile edges: ${JSON.stringify(misplaced)}`)
   }
 
   const clip = await evaluate(`(() => {
@@ -280,7 +343,7 @@ try {
   writeFileSync("test-results/fence-rendering.png", Buffer.from(screenshot.data, "base64"))
 
   console.log(
-    "Fence browser dogfood passed: touch drag previews a 4×3 enclosure, commits only on release, and renders 14 aligned perimeter rails.",
+    "Fence browser dogfood passed: touch drag previews projected 4×3 geometry, commits only on release, and renders 14 rails aligned to projected tile edges.",
   )
 } finally {
   cdp?.close()
