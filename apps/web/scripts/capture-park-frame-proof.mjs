@@ -112,7 +112,10 @@ try {
   let ready = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
     ready = await evaluate(`Boolean(
+      document.querySelector('.park.shared-three-renderer') &&
+      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"]') &&
       document.querySelector('.park-entrance-building') &&
+      document.querySelector('.park-entrance-base') &&
       document.querySelector('.park-border-tile') &&
       document.querySelector('.park-boundary-fence')
     )`)
@@ -129,10 +132,8 @@ try {
     }).filter(Boolean)
     const width = Math.max(...tiles.map((tile) => tile.x)) + 1
     const height = Math.max(...tiles.map((tile) => tile.y)) + 1
-    const entrance = document.querySelector('.tile-entrance')
     const base = document.querySelector('.park-entrance-base')
-    const entranceRect = entrance.getBoundingClientRect()
-    const baseRect = base.getBoundingClientRect()
+    const building = document.querySelector('.park-entrance-building')
     const viewportRect = document.querySelector('.viewport').getBoundingClientRect()
     return {
       width,
@@ -140,10 +141,8 @@ try {
       borderCount: document.querySelectorAll('.park-border-tile').length,
       fenceCount: document.querySelectorAll('.park-boundary-fence').length,
       approachCount: document.querySelectorAll('.park-border-approach').length,
-      baseDx: baseRect.left - entranceRect.left,
-      baseDy: baseRect.top - entranceRect.top,
-      baseWidthDelta: baseRect.width - entranceRect.width,
-      baseHeightDelta: baseRect.height - entranceRect.height,
+      baseDisplay: base ? getComputedStyle(base).display : null,
+      buildingDisplay: building ? getComputedStyle(building).display : null,
       oldGateVisible: getComputedStyle(document.querySelector('.entrance-gate')).display !== 'none',
       viewport: {
         x: viewportRect.left,
@@ -166,16 +165,11 @@ try {
   if (frame.approachCount !== 4) {
     throw new Error(`Expected a four-tile entrance approach, found ${frame.approachCount}`)
   }
-
-  for (const [label, delta] of Object.entries({
-    baseDx: frame.baseDx,
-    baseDy: frame.baseDy,
-    baseWidthDelta: frame.baseWidthDelta,
-    baseHeightDelta: frame.baseHeightDelta,
-  })) {
-    if (Math.abs(delta) > 1.5) {
-      throw new Error(`Entrance building base is not aligned with its entrance tile: ${label}=${delta}`)
-    }
+  if (frame.baseDisplay !== "none") {
+    throw new Error(`Legacy entrance ground diamond is still visible in shared-renderer mode: ${frame.baseDisplay}`)
+  }
+  if (frame.buildingDisplay === "none") {
+    throw new Error("Entrance building disappeared with its legacy ground diamond")
   }
   if (frame.oldGateVisible) throw new Error("Legacy floating entrance gate is still visible")
 
@@ -189,7 +183,7 @@ try {
   writeFileSync("test-results/park-frame.png", Buffer.from(screenshot.data, "base64"))
 
   console.log(
-    `Park-frame browser dogfood passed: ${frame.width}×${frame.height} buildable area, ${frame.borderCount} outer tiles, ${frame.fenceCount} fence segments, tiled entrance building aligned.`,
+    `Park-frame browser dogfood passed: ${frame.width}×${frame.height} buildable area, ${frame.borderCount} projected outer tiles, ${frame.fenceCount} projected fence segments, and renderer-owned entrance ground.`,
   )
 } finally {
   cdp?.close()

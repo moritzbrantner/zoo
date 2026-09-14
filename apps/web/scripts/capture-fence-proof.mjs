@@ -180,15 +180,40 @@ try {
     })
   }
 
-  let previewSegments = 0
+  let previewState = null
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    previewSegments = await evaluate(`document.querySelectorAll('.fence-preview').length`)
-    if (previewSegments === 14) break
+    previewState = await evaluate(`(() => {
+      const rails = [...document.querySelectorAll('.fence-preview')]
+      const ghosts = [...document.querySelectorAll('.placement-ghost')]
+      return {
+        rails: rails.length,
+        projectedRails: rails.filter((element) =>
+          element.style.transform.startsWith('rotate(') && Number.parseFloat(element.style.width) > 0,
+        ).length,
+        ghosts: ghosts.length,
+        projectedGhosts: ghosts.filter((element) =>
+          element.style.clipPath.startsWith('polygon(') &&
+          Number.parseFloat(element.style.width) > 0 &&
+          Number.parseFloat(element.style.height) > 0,
+        ).length,
+      }
+    })()`)
+    if (
+      previewState.rails === 14 &&
+      previewState.projectedRails === 14 &&
+      previewState.ghosts === 12 &&
+      previewState.projectedGhosts === 12
+    ) break
     await sleep(50)
   }
-  if (previewSegments !== 14) {
+  if (
+    previewState?.rails !== 14 ||
+    previewState?.projectedRails !== 14 ||
+    previewState?.ghosts !== 12 ||
+    previewState?.projectedGhosts !== 12
+  ) {
     throw new Error(
-      `Touch drag did not extend the live 4×3 fence preview; expected 14 rails, found ${previewSegments}`,
+      `Touch drag did not expose projected 4×3 placement geometry: ${JSON.stringify(previewState)}`,
     )
   }
 
@@ -217,27 +242,126 @@ try {
     throw new Error(`The 4×3 habitat was not created on touch release during browser dogfood: ${message}`)
   }
 
+  let committedProjection = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    committedProjection = await evaluate(`(() => {
+      const rails = [...document.querySelectorAll('.fence-segment:not(.fence-preview)')]
+      const projected = rails.filter((element) =>
+        element.style.transform.startsWith('rotate(') &&
+        Number.parseFloat(element.style.width) > 0 &&
+        element.style.left === element.dataset.sharedRendererAppliedLeft &&
+        element.style.top === element.dataset.sharedRendererAppliedTop &&
+        Boolean(element.dataset.sharedRendererDepth),
+      )
+      return {
+        rails: rails.length,
+        projected: projected.length,
+        samples: rails.slice(0, 2).map((element) => ({
+          left: element.style.left,
+          appliedLeft: element.dataset.sharedRendererAppliedLeft ?? null,
+          top: element.style.top,
+          appliedTop: element.dataset.sharedRendererAppliedTop ?? null,
+          transform: element.style.transform,
+          depth: element.dataset.sharedRendererDepth ?? null,
+        })),
+      }
+    })()`)
+    if (committedProjection.rails === 14 && committedProjection.projected === 14) break
+    await sleep(50)
+  }
+  if (committedProjection?.rails !== 14 || committedProjection?.projected !== 14) {
+    throw new Error(
+      `Committed habitat rails did not settle on shared projected geometry: ${JSON.stringify(committedProjection)}`,
+    )
+  }
+
   const geometry = await evaluate(`(() => {
-    const expectedCenters = {
-      north: [43.5, 7.5],
-      east: [43.5, 22.5],
-      south: [14.5, 22.5],
-      west: [14.5, 7.5],
+    const polygonPoints = (tile) => {
+      const style = getComputedStyle(tile)
+      const left = Number.parseFloat(style.left)
+      const top = Number.parseFloat(style.top)
+      const width = Number.parseFloat(style.width)
+      const height = Number.parseFloat(style.height)
+      const matches = [...style.clipPath.matchAll(/(-?[\\d.]+)%\\s+(-?[\\d.]+)%/g)]
+      if (matches.length !== 4 || ![left, top, width, height].every(Number.isFinite)) return null
+      return matches.map((match) => ({
+        x: left + width * Number.parseFloat(match[1]) / 100,
+        y: top + height * Number.parseFloat(match[2]) / 100,
+      }))
     }
-    const park = document.querySelector('.park')
-    const parkRect = park.getBoundingClientRect()
+    const edgeIndices = {
+      north: [0, 1],
+      east: [1, 2],
+      south: [3, 2],
+      west: [0, 3],
+    }
+    const projectedEdges = [...document.querySelectorAll('button.tile')].flatMap((tile) => {
+      const points = polygonPoints(tile)
+      if (!points) return []
+      const label = tile.getAttribute('aria-label') ?? 'unknown tile'
+      return Object.entries(edgeIndices).map(([side, indices]) => ({
+        id: label + ':' + side,
+        side,
+        start: points[indices[0]],
+        end: points[indices[1]],
+      }))
+    })
+    const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y)
+    const edgeError = (actualStart, actualEnd, edge) => Math.min(
+      distance(actualStart, edge.start) + distance(actualEnd, edge.end),
+      distance(actualStart, edge.end) + distance(actualEnd, edge.start),
+    )
+
     return [...document.querySelectorAll('.fence-segment:not(.fence-preview)')].map((element) => {
       const side = ['north', 'east', 'south', 'west'].find((candidate) =>
         element.classList.contains('fence-' + candidate),
       )
-      const rect = element.getBoundingClientRect()
-      const [edgeX, edgeY] = expectedCenters[side]
-      const expectedX = parkRect.left + Number.parseFloat(element.style.left) + edgeX
-      const expectedY = parkRect.top + Number.parseFloat(element.style.top) + edgeY
+      const style = getComputedStyle(element)
+      const width = Number.parseFloat(style.width)
+      const left = Number.parseFloat(style.left)
+      const top = Number.parseFloat(style.top)
+      const halfHeight = Number.parseFloat(style.height) / 2
+      const matrix = new DOMMatrix(style.transform)
+      const axisLength = Math.hypot(matrix.a, matrix.b)
+      const directionX = axisLength > 0 ? matrix.a / axisLength : Number.NaN
+      const directionY = axisLength > 0 ? matrix.b / axisLength : Number.NaN
+      const actualStart = {x: left, y: top + halfHeight}
+      const actualEnd = {
+        x: actualStart.x + width * directionX,
+        y: actualStart.y + width * directionY,
+      }
+      const finiteGeometry = [
+        width,
+        left,
+        top,
+        halfHeight,
+        directionX,
+        directionY,
+        actualStart.x,
+        actualStart.y,
+        actualEnd.x,
+        actualEnd.y,
+      ].every(Number.isFinite)
+      const candidates = finiteGeometry
+        ? projectedEdges
+            .filter((edge) => edge.side === side)
+            .map((edge) => ({...edge, error: edgeError(actualStart, actualEnd, edge)}))
+            .filter((edge) => Number.isFinite(edge.error))
+            .sort((leftEdge, rightEdge) => leftEdge.error - rightEdge.error)
+        : []
+      const best = candidates[0]
       return {
         side,
-        dx: rect.left + rect.width / 2 - expectedX,
-        dy: rect.top + rect.height / 2 - expectedY,
+        finiteGeometry,
+        raw: {
+          width: style.width,
+          left: style.left,
+          top: style.top,
+          height: style.height,
+          transform: style.transform,
+        },
+        matchedEdge: best?.id ?? null,
+        edgeError: best?.error ?? null,
       }
     })
   })()`)
@@ -252,11 +376,19 @@ try {
       throw new Error(`Expected ${expectedCount} ${side} fence segments, found ${count}`)
     }
   }
-  const misplaced = geometry.filter(
-    (segment) => Math.abs(segment.dx) > 1.5 || Math.abs(segment.dy) > 1.5,
+  const invalid = geometry.filter(
+    (segment) => !segment.finiteGeometry || segment.matchedEdge === null || segment.edgeError === null,
   )
+  if (invalid.length > 0) {
+    throw new Error(`Projected fence proof could not resolve finite rail geometry: ${JSON.stringify(invalid)}`)
+  }
+  const misplaced = geometry.filter((segment) => segment.edgeError > 3)
   if (misplaced.length > 0) {
-    throw new Error(`Fence rails are off their tile edges: ${JSON.stringify(misplaced)}`)
+    throw new Error(`Projected fence rails are off rendered tile edges: ${JSON.stringify(misplaced)}`)
+  }
+  const distinctEdges = new Set(geometry.map((segment) => segment.matchedEdge))
+  if (distinctEdges.size !== geometry.length) {
+    throw new Error(`Projected fence rails do not map one-to-one to rendered tile edges: ${JSON.stringify(geometry)}`)
   }
 
   const clip = await evaluate(`(() => {
@@ -280,7 +412,7 @@ try {
   writeFileSync("test-results/fence-rendering.png", Buffer.from(screenshot.data, "base64"))
 
   console.log(
-    "Fence browser dogfood passed: touch drag previews a 4×3 enclosure, commits only on release, and renders 14 aligned perimeter rails.",
+    "Fence browser dogfood passed: touch drag previews projected 4×3 geometry, commits only on release, and renders 14 rails one-to-one on projected tile edges.",
   )
 } finally {
   cdp?.close()

@@ -4,16 +4,20 @@
 //! management-game policy needed to frame and manipulate a Zoo park view.
 
 use core::fmt;
+use serde::Serialize;
 use three_d_camera::{CameraError, OrthographicCamera};
 use three_d_core::Vec3;
+use wasm_bindgen::prelude::*;
 
 const DEFAULT_YAW_DEGREES: f32 = 45.0;
-const DEFAULT_PITCH_DEGREES: f32 = 35.0;
+const DEFAULT_PITCH_DEGREES: f32 = 31.15;
 const MIN_PITCH_DEGREES: f32 = 20.0;
 const MAX_PITCH_DEGREES: f32 = 70.0;
 const MIN_ZOOM: f32 = 0.35;
 const MAX_ZOOM: f32 = 4.0;
 const ORBIT_STEP_DEGREES: f32 = 45.0;
+const PARK_FRAMING_HALF_HEIGHT_FACTOR: f32 = 0.439;
+const PARK_FRAMING_PADDING: f32 = 1.02;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParkCameraError {
@@ -51,6 +55,8 @@ impl From<CameraError> for ParkCameraError {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParkCameraRig {
     target: Vec3,
+    park_width: f32,
+    park_depth: f32,
     park_span: f32,
     yaw_degrees: f32,
     pitch_degrees: f32,
@@ -67,8 +73,14 @@ impl ParkCameraRig {
             return Err(ParkCameraError::InvalidParkExtent);
         }
 
+        // Zoo's legacy isometric DOM grid anchors each tile at its left diamond vertex. The
+        // reusable renderer uses the tile's actual 3D center at (x + 1, z), so the scene center
+        // is shifted by (+0.5, -0.5) relative to width/2, depth/2. Keeping that mapping here
+        // lets the migration preserve existing hit targets while projection itself stays shared.
         Ok(Self {
-            target: Vec3::new(park_width * 0.5, 0.0, park_depth * 0.5),
+            target: Vec3::new((park_width + 1.0) * 0.5, 0.0, (park_depth - 1.0) * 0.5),
+            park_width,
+            park_depth,
             park_span: park_width.max(park_depth),
             yaw_degrees: DEFAULT_YAW_DEGREES,
             pitch_degrees: DEFAULT_PITCH_DEGREES,
@@ -111,6 +123,27 @@ impl ParkCameraRig {
         Ok(())
     }
 
+    fn framing_half_height(self, aspect: f32) -> f32 {
+        let half_park_width = self.park_width * 0.5;
+        let half_park_depth = self.park_depth * 0.5;
+        let yaw = self.yaw_degrees.to_radians();
+        let pitch = self.pitch_degrees.to_radians();
+        let yaw_sin = yaw.sin().abs();
+        let yaw_cos = yaw.cos().abs();
+
+        // Framing is Zoo policy over its axis-aligned ground rectangle. `three-d-camera` remains
+        // authoritative for the actual view/projection matrices. The support extents below only
+        // determine how much of that shared orthographic volume Zoo needs for this orientation.
+        let projected_half_width = half_park_width * yaw_cos + half_park_depth * yaw_sin;
+        let projected_half_height =
+            pitch.sin().abs() * (half_park_width * yaw_sin + half_park_depth * yaw_cos);
+        let required_half_height =
+            projected_half_height.max(projected_half_width / aspect) * PARK_FRAMING_PADDING;
+        let preferred_half_height = self.park_span * PARK_FRAMING_HALF_HEIGHT_FACTOR;
+
+        preferred_half_height.max(required_half_height)
+    }
+
     pub fn camera(self, aspect: f32) -> Result<OrthographicCamera, ParkCameraError> {
         if !aspect.is_finite() || aspect <= 0.0 {
             return Err(ParkCameraError::InvalidAspect);
@@ -125,7 +158,7 @@ impl ParkCameraRig {
             self.target.y + distance * pitch.sin(),
             self.target.z + horizontal_distance * yaw.cos(),
         );
-        let half_height = self.park_span * 0.75 / self.zoom;
+        let half_height = self.framing_half_height(aspect) / self.zoom;
         let half_width = half_height * aspect;
         let near = 0.1;
         let far = distance * 4.0 + self.park_span;
@@ -144,9 +177,99 @@ impl ParkCameraRig {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserCameraFrame {
+    view_matrix: [f32; 16],
+    projection_matrix: [f32; 16],
+    yaw_degrees: f32,
+    pitch_degrees: f32,
+    zoom: f32,
+}
+
+impl BrowserCameraFrame {
+    fn from_rig(rig: ParkCameraRig, aspect: f32) -> Result<Self, ParkCameraError> {
+        let camera = rig.camera(aspect)?;
+        Ok(Self {
+            view_matrix: camera.view_matrix().elements,
+            projection_matrix: camera.projection_matrix().elements,
+            yaw_degrees: rig.yaw_degrees(),
+            pitch_degrees: rig.pitch_degrees(),
+            zoom: rig.zoom(),
+        })
+    }
+}
+
+fn js_error(error: impl fmt::Display) -> JsValue {
+    JsValue::from_str(&error.to_string())
+}
+
+#[wasm_bindgen]
+pub struct ParkCameraBridge {
+    rig: ParkCameraRig,
+}
+
+#[wasm_bindgen]
+impl ParkCameraBridge {
+    #[wasm_bindgen(constructor)]
+    pub fn new(park_width: f32, park_depth: f32) -> Result<ParkCameraBridge, JsValue> {
+        Ok(Self {
+            rig: ParkCameraRig::new(park_width, park_depth).map_err(js_error)?,
+        })
+    }
+
+    pub fn rotate_steps(&mut self, steps: i32) {
+        self.rig.rotate_steps(steps);
+    }
+
+    pub fn tilt_by_degrees(&mut self, delta_degrees: f32) {
+        self.rig.tilt_by_degrees(delta_degrees);
+    }
+
+    pub fn zoom_by_factor(&mut self, factor: f32) -> Result<(), JsValue> {
+        self.rig.zoom_by_factor(factor).map_err(js_error)
+    }
+
+    pub fn frame_json(&self, aspect: f32) -> Result<String, JsValue> {
+        let frame = BrowserCameraFrame::from_rig(self.rig, aspect).map_err(js_error)?;
+        serde_json::to_string(&frame).map_err(js_error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_park_footprint_inside_camera(
+        rig: ParkCameraRig,
+        park_width: f32,
+        park_depth: f32,
+        aspect: f32,
+    ) {
+        let camera = rig.camera(aspect).expect("camera is valid");
+        let matrix = camera.view_projection_matrix();
+        let target = rig.target();
+        let half_width = park_width * 0.5;
+        let half_depth = park_depth * 0.5;
+
+        for x_offset in [-half_width, half_width] {
+            for z_offset in [-half_depth, half_depth] {
+                let projected = matrix.transform_point(Vec3::new(
+                    target.x + x_offset,
+                    0.0,
+                    target.z + z_offset,
+                ));
+                assert!(
+                    projected.x.abs() <= 1.0 && projected.y.abs() <= 1.0,
+                    "park corner escaped shared clip volume at yaw {} pitch {}: ({}, {})",
+                    rig.yaw_degrees(),
+                    rig.pitch_degrees(),
+                    projected.x,
+                    projected.y
+                );
+            }
+        }
+    }
 
     #[test]
     fn rejects_invalid_park_extent() {
@@ -158,6 +281,27 @@ mod tests {
             ParkCameraRig::new(20.0, f32::NAN),
             Err(ParkCameraError::InvalidParkExtent)
         );
+    }
+
+    #[test]
+    fn centers_scene_on_renderer_tile_coordinates() {
+        let rig = ParkCameraRig::new(20.0, 14.0).expect("park extent is valid");
+        assert_eq!(rig.target(), Vec3::new(10.5, 0.0, 6.5));
+    }
+
+    #[test]
+    fn canonical_view_preserves_legacy_grid_axes() {
+        let rig = ParkCameraRig::new(20.0, 14.0).expect("park extent is valid");
+        let camera = rig.camera(1240.0 / 720.0).expect("camera is valid");
+        let matrix = camera.view_projection_matrix();
+        let center = matrix.transform_point(Vec3::new(2.0, 0.0, 8.0));
+        let plus_x = matrix.transform_point(Vec3::new(3.0, 0.0, 8.0));
+        let plus_z = matrix.transform_point(Vec3::new(2.0, 0.0, 9.0));
+
+        assert!(plus_x.x > center.x);
+        assert!(plus_x.y < center.y);
+        assert!(plus_z.x < center.x);
+        assert!(plus_z.y < center.y);
     }
 
     #[test]
@@ -179,6 +323,17 @@ mod tests {
 
         rig.tilt_by_degrees(-200.0);
         assert_eq!(rig.pitch_degrees(), MIN_PITCH_DEGREES);
+    }
+
+    #[test]
+    fn maximum_tilt_keeps_full_park_inside_shared_frustum_through_orbit() {
+        let mut rig = ParkCameraRig::new(20.0, 14.0).expect("park extent is valid");
+        rig.tilt_by_degrees(100.0);
+
+        for _ in 0..8 {
+            assert_park_footprint_inside_camera(rig, 20.0, 14.0, 1240.0 / 720.0);
+            rig.rotate_steps(1);
+        }
     }
 
     #[test]
@@ -205,5 +360,18 @@ mod tests {
             rig.zoom_by_factor(f32::INFINITY),
             Err(ParkCameraError::InvalidZoomFactor)
         );
+    }
+
+    #[test]
+    fn browser_frame_uses_shared_camera_matrices() {
+        let rig = ParkCameraRig::new(20.0, 14.0).expect("park extent is valid");
+        let shared = rig.camera(16.0 / 9.0).expect("shared camera is valid");
+        let frame = BrowserCameraFrame::from_rig(rig, 16.0 / 9.0).expect("frame is valid");
+
+        assert_eq!(frame.view_matrix, shared.view_matrix().elements);
+        assert_eq!(frame.projection_matrix, shared.projection_matrix().elements);
+        assert_eq!(frame.yaw_degrees, DEFAULT_YAW_DEGREES);
+        assert_eq!(frame.pitch_degrees, DEFAULT_PITCH_DEGREES);
+        assert_eq!(frame.zoom, 1.0);
     }
 }
