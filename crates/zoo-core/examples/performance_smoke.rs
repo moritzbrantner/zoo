@@ -8,7 +8,11 @@ const SIMULATED_MINUTES: u32 = 240;
 
 fn require_ok(result: String) {
     let value: Value = serde_json::from_str(&result).expect("action result must be JSON");
-    assert_eq!(value.get("ok").and_then(Value::as_bool), Some(true), "{value}");
+    assert_eq!(
+        value.get("ok").and_then(Value::as_bool),
+        Some(true),
+        "{value}"
+    );
 }
 
 fn configured_game() -> ZooGame {
@@ -42,7 +46,10 @@ fn main() {
 
         let snapshot = game.snapshot_json();
         if let Some(expected) = &expected_snapshot {
-            assert_eq!(&snapshot, expected, "zoo performance journey became nondeterministic");
+            assert_eq!(
+                &snapshot, expected,
+                "zoo performance journey became nondeterministic"
+            );
         } else {
             expected_snapshot = Some(snapshot);
         }
@@ -51,7 +58,10 @@ fn main() {
     elapsed_ns.sort_unstable();
     let snapshot = expected_snapshot.expect("at least one run");
     let value: Value = serde_json::from_str(&snapshot).expect("snapshot must be JSON");
-    let guest_count = value.get("guest_count").and_then(Value::as_u64).unwrap_or(0);
+    let guest_count = value
+        .get("guest_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let habitat_count = value
         .get("habitats")
         .and_then(Value::as_array)
