@@ -200,33 +200,24 @@ try {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     previewState = await evaluate(`(() => {
       const canvas = document.querySelector('.park-three-renderer-canvas')
-      const rails = [...document.querySelectorAll('.fence-preview')]
-      const ghosts = [...document.querySelectorAll('.placement-ghost')]
       return {
-        semanticRails: rails.length,
-        semanticGhosts: ghosts.length,
         rendererPreviewRails: Number(canvas?.dataset.sharedRendererPreviewFenceNodes),
         rendererPlacementTiles: Number(canvas?.dataset.sharedRendererPlacementNodes),
-        legacyRailOpacity: rails[0] ? getComputedStyle(rails[0]).opacity : null,
-        legacyGhostOpacity: ghosts[0] ? getComputedStyle(ghosts[0]).opacity : null,
+        legacyPreviewElements: document.querySelectorAll('.fence-preview, .placement-ghost').length,
       }
     })()`)
     if (
-      previewState.semanticRails === 14 &&
-      previewState.semanticGhosts === 12 &&
       previewState.rendererPreviewRails === 28 &&
-      previewState.rendererPlacementTiles === 12
+      previewState.rendererPlacementTiles === 12 &&
+      previewState.legacyPreviewElements === 0
     ) break
     await sleep(50)
   }
 
   if (
-    previewState?.semanticRails !== 14 ||
-    previewState?.semanticGhosts !== 12 ||
     previewState?.rendererPreviewRails !== 28 ||
     previewState?.rendererPlacementTiles !== 12 ||
-    previewState?.legacyRailOpacity !== "0" ||
-    previewState?.legacyGhostOpacity !== "0"
+    previewState?.legacyPreviewElements !== 0
   ) {
     throw new Error(
       `Touch drag did not move the 4×3 preview into renderer-owned 3D geometry: ${JSON.stringify(previewState)}`,
@@ -249,28 +240,28 @@ try {
       const canvas = document.querySelector('.park-three-renderer-canvas')
       return {
         built: document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false,
-        semanticRails: document.querySelectorAll('.fence-segment:not(.fence-preview)').length,
         rendererHabitatRails: Number(canvas?.dataset.sharedRendererHabitatFenceNodes),
+        legacyFenceElements: document.querySelectorAll('.fence-segment').length,
         rendererPreviewRails: Number(canvas?.dataset.sharedRendererPreviewFenceNodes),
         rendererPlacementTiles: Number(canvas?.dataset.sharedRendererPlacementNodes),
       }
     })()`)
     if (
       committedState.built &&
-      committedState.semanticRails === 14 &&
       committedState.rendererHabitatRails === 28 &&
       committedState.rendererPreviewRails === 0 &&
-      committedState.rendererPlacementTiles === 0
+      committedState.rendererPlacementTiles === 0 &&
+      committedState.legacyFenceElements === 0
     ) break
     await sleep(100)
   }
 
   if (
     !committedState?.built ||
-    committedState?.semanticRails !== 14 ||
     committedState?.rendererHabitatRails !== 28 ||
     committedState?.rendererPreviewRails !== 0 ||
-    committedState?.rendererPlacementTiles !== 0
+    committedState?.rendererPlacementTiles !== 0 ||
+    committedState?.legacyFenceElements !== 0
   ) {
     throw new Error(`Committed habitat did not settle into real 3D fence geometry: ${JSON.stringify(committedState)}`)
   }
