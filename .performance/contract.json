@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "suite": "zoo/management-journey-smoke",
+  "description": "Product-level Zoo simulation journey. The public core API is authoritative; repeated final snapshots prove deterministic behavior while timing is advisory until domain work counters are exposed.",
+  "scenarios": [
+    {
+      "id": "staffed-habitat-operations",
+      "kind": "journey",
+      "description": "Operate a staffed habitat with animals, concessions, janitor and mechanic systems for four simulated hours.",
+      "dimensions": {
+        "simulated_minutes": 240,
+        "habitats": 1,
+        "animals": 2,
+        "concessions": 2,
+        "keepers": 1,
+        "janitors": 1,
+        "mechanics": 1,
+        "runs": 3
+      },
+      "correctnessEvidence": [
+        "all setup actions succeed through ZooGame public API",
+        "final snapshot is byte-identical across repeated runs",
+        "snapshot remains valid JSON"
+      ],
+      "metrics": [
+        {
+          "name": "median_elapsed_ns",
+          "unit": "ns",
+          "direction": "lower",
+          "signal": "wall-clock",
+          "blocking": false
+        },
+        {
+          "name": "snapshot_bytes",
+          "unit": "bytes",
+          "direction": "lower",
+          "signal": "size",
+          "blocking": false
+        },
+        {
+          "name": "guest_updates",
+          "unit": "updates",
+          "direction": "lower",
+          "signal": "operation-count",
+          "blocking": false,
+          "notes": "Planned deterministic counter: expose product-level guest update work before making this a blocking budget."
+        },
+        {
+          "name": "path_searches",
+          "unit": "searches",
+          "direction": "lower",
+          "signal": "operation-count",
+          "blocking": false,
+          "notes": "Planned deterministic counter: path search counts should become the portable blocking signal for guest/staff scaling."
+        }
+      ]
+    },
+    {
+      "id": "quiescent-park",
+      "kind": "idle",
+      "description": "A future idle scenario must prove that an unchanged park avoids unnecessary simulation and presentation work.",
+      "dimensions": {
+        "simulated_minutes": 0
+      },
+      "correctnessEvidence": [
+        "unchanged snapshot"
+      ],
+      "metrics": [
+        {
+          "name": "simulation_work",
+          "unit": "operations",
+          "direction": "lower",
+          "signal": "operation-count",
+          "blocking": false,
+          "notes": "Instrumentation prerequisite: expose deterministic zero/no-op work counters before enabling a blocking idle budget."
+        }
+      ]
+    }
+  ]
+}
