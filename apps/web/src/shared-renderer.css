@@ -31,6 +31,14 @@
   transform: none;
 }
 
+.park.shared-three-renderer .fence-segment:not(.fence-preview),
+.park.shared-three-renderer .park-boundary-fence,
+.park.shared-three-renderer .park-entrance-building,
+.park.shared-three-renderer .entrance-gate,
+.park.shared-three-renderer .care-depot {
+  opacity: 0;
+}
+
 .park.shared-three-renderer .park-entrance-base {
   display: none;
 }

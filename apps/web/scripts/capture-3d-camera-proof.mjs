@@ -114,6 +114,8 @@ try {
     ready = await evaluate(`Boolean(
       document.querySelector('.park.shared-three-renderer') &&
       document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"]') &&
+      Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererFenceNodes) > 0 &&
+      Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererBuildingNodes) > 0 &&
       document.querySelector('.camera-orbit-controls') &&
       document.querySelector('[aria-label="grass tile 1, 8"]')
     )`)
@@ -134,9 +136,17 @@ try {
       tileHeight: tile?.style.height,
       tileClipPath: tile?.style.clipPath,
       renderer: document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRenderer,
+      fenceNodes: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererFenceNodes),
+      buildingNodes: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererBuildingNodes),
     }
   })()`)
-  if (baseline.yaw !== "0" || baseline.pitch !== "0" || baseline.renderer !== "ready") {
+  if (
+    baseline.yaw !== "0" ||
+    baseline.pitch !== "0" ||
+    baseline.renderer !== "ready" ||
+    !(baseline.fenceNodes > 0) ||
+    !(baseline.buildingNodes > 0)
+  ) {
     throw new Error(`Unexpected default shared 3D camera: ${JSON.stringify(baseline)}`)
   }
   if (!baseline.tileClipPath?.startsWith("polygon(")) {
@@ -206,6 +216,7 @@ try {
     const tile = document.querySelector('[aria-label="grass tile 1, 8"]')
     const border = document.querySelector('.park-border-tile')
     const boundaryFence = document.querySelector('.park-boundary-fence')
+    const entranceBuilding = document.querySelector('.park-entrance-building')
     const entranceBase = document.querySelector('.park-entrance-base')
     const depthEntries = [...document.querySelectorAll('[data-shared-renderer-depth]')]
       .map((element) => ({
@@ -236,6 +247,9 @@ try {
       borderHeight: border?.style.height,
       boundaryFenceTransform: boundaryFence?.style.transform,
       boundaryFenceWidth: boundaryFence?.style.width,
+      boundaryFenceOpacity: boundaryFence ? getComputedStyle(boundaryFence).opacity : null,
+      depotOpacity: depot ? getComputedStyle(depot).opacity : null,
+      entranceBuildingOpacity: entranceBuilding ? getComputedStyle(entranceBuilding).opacity : null,
       entranceBaseDisplay: entranceBase ? getComputedStyle(entranceBase).display : null,
       depthSamples: depthEntries.length,
       depthOrderValid,
@@ -251,6 +265,9 @@ try {
     !(Number.parseFloat(projectedPresentation.borderHeight) > 0) ||
     !projectedPresentation.boundaryFenceTransform?.startsWith("rotate(") ||
     !(Number.parseFloat(projectedPresentation.boundaryFenceWidth) > 0) ||
+    projectedPresentation.boundaryFenceOpacity !== "0" ||
+    projectedPresentation.depotOpacity !== "0" ||
+    projectedPresentation.entranceBuildingOpacity !== "0" ||
     projectedPresentation.entranceBaseDisplay !== "none" ||
     projectedPresentation.depthSamples < 4 ||
     !projectedPresentation.depthOrderValid
@@ -364,7 +381,7 @@ try {
   if (!restored) throw new Error("Shared 3D camera did not return to the default isometric view")
 
   console.log(
-    "Shared 3D camera dogfood passed: 3d-lab rendering, projected geometry/depth order, screen-space overlays, orbit/tilt, existing resets, and visual proof are coherent.",
+    "Shared 3D camera dogfood passed: 3d-lab terrain, renderer-owned fences/buildings, projected interaction geometry/depth order, orbit/tilt, existing resets, and visual proof are coherent.",
   )
 } finally {
   cdp?.close()
