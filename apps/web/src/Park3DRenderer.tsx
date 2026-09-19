@@ -759,7 +759,7 @@ export default function Park3DRenderer({
     bridgeRef.current?.free()
     bridgeRef.current = new ParkCameraBridge(snapshot.width, snapshot.height)
     renderCurrent()
-  }, [renderCurrent, snapshot.height, snapshot.width])
+  }, [snapshot.height, snapshot.width])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -780,7 +780,8 @@ export default function Park3DRenderer({
           pixelRatioLimit: 2,
         })
         rendererRef.current.setSize(RENDER_WIDTH, RENDER_HEIGHT, window.devicePixelRatio || 1)
-        renderCurrent()
+        park.classList.add("shared-three-renderer")
+        setReady(true)
       })
       .catch((error) => {
         console.error("Shared 3d-lab perspective renderer failed to initialize", error)
