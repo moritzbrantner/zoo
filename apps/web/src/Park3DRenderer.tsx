@@ -749,6 +749,27 @@ export default function Park3DRenderer({
             node.id.startsWith("mechanic:"),
         ).length,
       )
+      canvas.dataset.sharedRendererGuestNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("guest:")).length,
+      )
+      canvas.dataset.sharedRendererAnimalNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("animal:")).length,
+      )
+      canvas.dataset.sharedRendererJanitorNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("janitor:")).length,
+      )
+      canvas.dataset.sharedRendererMechanicNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("mechanic:")).length,
+      )
+      canvas.dataset.sharedRendererConcessionNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("concession:")).length,
+      )
+      canvas.dataset.sharedRendererMaintenanceNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("maintenance:")).length,
+      )
+      canvas.dataset.sharedRendererLitterNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("litter:")).length,
+      )
       canvas.dataset.sharedRendererProjection = "perspective"
       setCameraLabel((current) =>
         current.yaw === yaw && current.pitch === pitch ? current : {yaw, pitch},
