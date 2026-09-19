@@ -15,7 +15,7 @@ type SpeciesKey = "capybara" | "flamingo" | "zebra" | "giraffe" | "elephant" | "
 type ConcessionKind = "food" | "drink"
 type FenceSide = "north" | "east" | "south" | "west"
 
-export type Point = {
+type Point = {
   x: number
   y: number
 }
@@ -680,7 +680,6 @@ export default function App() {
             <Park3DRenderer
               snapshot={snapshot}
               placement={placement}
-              hoveredTile={hoveredTile}
               selectedTileIds={selectedTileIds}
             />
             {snapshot.tiles
