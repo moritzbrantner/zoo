@@ -114,9 +114,7 @@ try {
     ready = await evaluate(`Boolean(
       document.querySelector('.park.shared-three-renderer') &&
       document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"][data-shared-renderer-projection="perspective"]') &&
-      document.querySelector('.park-entrance-building') &&
-      document.querySelector('.park-border-tile') &&
-      document.querySelector('.park-boundary-fence')
+      document.querySelector('[aria-label="grass tile 1, 8"]')
     )`)
     if (ready) break
     await sleep(250)
@@ -132,11 +130,6 @@ try {
     const width = Math.max(...tiles.map((tile) => tile.x)) + 1
     const height = Math.max(...tiles.map((tile) => tile.y)) + 1
     const canvas = document.querySelector('.park-three-renderer-canvas')
-    const base = document.querySelector('.park-entrance-base')
-    const building = document.querySelector('.park-entrance-building')
-    const oldGate = document.querySelector('.entrance-gate')
-    const oldBoundary = document.querySelector('.park-boundary-fence')
-    const oldBorder = document.querySelector('.park-border-tile')
     const viewportRect = document.querySelector('.viewport').getBoundingClientRect()
     return {
       width,
@@ -145,11 +138,9 @@ try {
       boundaryNodes: Number(canvas?.dataset.sharedRendererBoundaryFenceNodes),
       buildingNodes: Number(canvas?.dataset.sharedRendererBuildingNodes),
       nodeCount: Number(canvas?.dataset.sharedRendererNodeCount),
-      legacyBaseOpacity: base ? getComputedStyle(base).opacity : null,
-      legacyBuildingOpacity: building ? getComputedStyle(building).opacity : null,
-      legacyGateOpacity: oldGate ? getComputedStyle(oldGate).opacity : null,
-      legacyBoundaryOpacity: oldBoundary ? getComputedStyle(oldBoundary).opacity : null,
-      legacyBorderOpacity: oldBorder ? getComputedStyle(oldBorder).opacity : null,
+      legacyFrameElements: document.querySelectorAll(
+        '.park-entrance-building, .park-entrance-base, .entrance-gate, .park-boundary-fence, .park-border-tile'
+      ).length,
       viewport: {
         x: viewportRect.left,
         y: viewportRect.top,
@@ -173,16 +164,10 @@ try {
     throw new Error(`3D park scene is missing expected terrain/building geometry: ${JSON.stringify(frame)}`)
   }
 
-  for (const [name, opacity] of Object.entries({
-    entranceBase: frame.legacyBaseOpacity,
-    entranceBuilding: frame.legacyBuildingOpacity,
-    entranceGate: frame.legacyGateOpacity,
-    boundaryFence: frame.legacyBoundaryOpacity,
-    borderTile: frame.legacyBorderOpacity,
-  })) {
-    if (opacity !== "0") {
-      throw new Error(`Legacy ${name} is still visible over the 3D scene: opacity=${opacity}`)
-    }
+  if (frame.legacyFrameElements !== 0) {
+    throw new Error(
+      `Legacy 2D park frame elements are still mounted over the renderer: ${frame.legacyFrameElements}`,
+    )
   }
 
   const screenshot = await cdp.send("Page.captureScreenshot", {
