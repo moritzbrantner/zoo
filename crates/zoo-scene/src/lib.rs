@@ -229,6 +229,20 @@ impl ParkCameraBridge {
 mod tests {
     use super::*;
 
+    fn project_ndc(camera: PerspectiveCamera, point: Vec3) -> Vec3 {
+        let matrix = camera.view_projection_matrix().elements;
+        let clip_x =
+            matrix[0] * point.x + matrix[4] * point.y + matrix[8] * point.z + matrix[12];
+        let clip_y =
+            matrix[1] * point.x + matrix[5] * point.y + matrix[9] * point.z + matrix[13];
+        let clip_z =
+            matrix[2] * point.x + matrix[6] * point.y + matrix[10] * point.z + matrix[14];
+        let clip_w =
+            matrix[3] * point.x + matrix[7] * point.y + matrix[11] * point.z + matrix[15];
+
+        Vec3::new(clip_x / clip_w, clip_y / clip_w, clip_z / clip_w)
+    }
+
     fn assert_scene_inside_camera(
         rig: ParkCameraRig,
         park_width: f32,
@@ -236,12 +250,11 @@ mod tests {
         aspect: f32,
     ) {
         let camera = rig.camera(aspect).expect("camera is valid");
-        let matrix = camera.view_projection_matrix();
 
         for x in [0.0, park_width] {
             for z in [0.0, park_depth] {
                 for y in [0.0, SCENE_MAX_HEIGHT] {
-                    let projected = matrix.transform_point(Vec3::new(x, y, z));
+                    let projected = project_ndc(camera, Vec3::new(x, y, z));
                     assert!(
                         projected.x.abs() <= 1.0 && projected.y.abs() <= 1.0,
                         "scene corner escaped shared clip volume at yaw {} pitch {}: ({}, {})",
@@ -277,10 +290,9 @@ mod tests {
     fn canonical_view_preserves_grid_axes() {
         let rig = ParkCameraRig::new(20.0, 14.0).expect("park extent is valid");
         let camera = rig.camera(1240.0 / 720.0).expect("camera is valid");
-        let matrix = camera.view_projection_matrix();
-        let center = matrix.transform_point(Vec3::new(2.5, 0.0, 8.5));
-        let plus_x = matrix.transform_point(Vec3::new(3.5, 0.0, 8.5));
-        let plus_z = matrix.transform_point(Vec3::new(2.5, 0.0, 9.5));
+        let center = project_ndc(camera, Vec3::new(2.5, 0.0, 8.5));
+        let plus_x = project_ndc(camera, Vec3::new(3.5, 0.0, 8.5));
+        let plus_z = project_ndc(camera, Vec3::new(2.5, 0.0, 9.5));
 
         assert!(plus_x.x > center.x);
         assert!(plus_z.x < center.x);
