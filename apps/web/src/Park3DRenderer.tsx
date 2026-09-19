@@ -8,7 +8,7 @@ import {
 } from "@moritzbrantner/three-d-renderer"
 import {useCallback, useEffect, useRef, useState} from "react"
 import {createPortal} from "react-dom"
-import type {PlacementEvaluation, Point, Snapshot} from "./App"
+import type {PlacementEvaluation, Snapshot} from "./App"
 import initScene, {ParkCameraBridge} from "./scene-wasm/zoo_scene"
 
 const RENDER_WIDTH = 1240
@@ -33,7 +33,6 @@ type CameraFrame = RendererCamera & {
 type Props = {
   snapshot: Snapshot
   placement: PlacementEvaluation | null
-  hoveredTile: Point | null
   selectedTileIds: ReadonlySet<number>
 }
 
@@ -693,7 +692,6 @@ function projectInteractionOverlay(park: HTMLElement, camera: RendererCamera) {
 export default function Park3DRenderer({
   snapshot,
   placement,
-  hoveredTile: _hoveredTile,
   selectedTileIds,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
