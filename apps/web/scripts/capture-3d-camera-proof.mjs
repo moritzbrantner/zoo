@@ -148,8 +148,9 @@ try {
       viewportPerspective: getComputedStyle(document.querySelector('.viewport')).perspective,
       canvasTransform: getComputedStyle(canvas).transform,
       depotOpacity: getComputedStyle(document.querySelector('.care-depot')).opacity,
-      entranceOpacity: getComputedStyle(document.querySelector('.park-entrance-building')).opacity,
-      borderOpacity: getComputedStyle(document.querySelector('.park-border-tile')).opacity,
+      legacyFrameElements: document.querySelectorAll(
+        '.park-entrance-building, .park-border-tile, .park-boundary-fence, .entrance-gate, .fence-segment, .placement-ghost'
+      ).length,
     }
   })()`)
 
@@ -165,8 +166,7 @@ try {
     baseline.viewportPerspective !== "none" ||
     baseline.canvasTransform !== "none" ||
     baseline.depotOpacity !== "0" ||
-    baseline.entranceOpacity !== "0" ||
-    baseline.borderOpacity !== "0"
+    baseline.legacyFrameElements !== 0
   ) {
     throw new Error(`Default view is not a clean renderer-owned perspective scene: ${JSON.stringify(baseline)}`)
   }
