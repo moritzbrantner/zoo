@@ -166,16 +166,26 @@ try {
       count: document.querySelectorAll('.concession').length,
       food: Boolean(document.querySelector('.concession-food')),
       drink: Boolean(document.querySelector('.concession-drink')),
+      rendererNodes: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererConcessionNodes),
+      hiddenLegacyButtons: [...document.querySelectorAll('.concession')].every(
+        (element) => getComputedStyle(element).opacity === '0',
+      ),
     })`),
   )
-  if (finalState.count !== 2 || !finalState.food || !finalState.drink) {
+  if (
+    finalState.count !== 2 ||
+    !finalState.food ||
+    !finalState.drink ||
+    finalState.rendererNodes !== 8 ||
+    !finalState.hiddenLegacyButtons
+  ) {
     throw new Error(`Expected two rendered stands, got ${JSON.stringify(finalState)}`)
   }
 
   mkdirSync("test-results", {recursive: true})
   const screenshot = await cdp.send("Page.captureScreenshot", {format: "png", fromSurface: true})
   writeFileSync("test-results/concessions.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Concession dogfood passed: food + drink stands placed beside the starter path")
+  console.log("Concession dogfood passed: food + drink stand controls remain interactive while all visible stand geometry is renderer-owned 3D")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")
