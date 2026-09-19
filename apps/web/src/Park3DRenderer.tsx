@@ -107,6 +107,271 @@ function renderNodes(tiles: TileDescriptor[]): RendererSceneNode[] {
   }))
 }
 
+
+type HexColor = `#${string}`
+
+type FenceModelSegment = {
+  id: string
+  start: WorldPoint
+  end: WorldPoint
+  boundary: boolean
+}
+
+function sceneBox(
+  id: string,
+  translation: WorldPoint,
+  size: WorldPoint,
+  color: HexColor,
+  rotationQuaternion?: [number, number, number, number],
+): RendererSceneNode {
+  return {
+    id,
+    transform:
+      rotationQuaternion === undefined
+        ? {translation}
+        : {translation, rotationQuaternion},
+    geometry: {kind: "box", size},
+    color,
+  }
+}
+
+function sceneCylinder(
+  id: string,
+  translation: WorldPoint,
+  radius: number,
+  height: number,
+  color: HexColor,
+): RendererSceneNode {
+  return {
+    id,
+    transform: {translation},
+    geometry: {kind: "cylinder", radius, height},
+    color,
+  }
+}
+
+function worldPointKey([x, , z]: WorldPoint) {
+  return `${x.toFixed(3)}:${z.toFixed(3)}`
+}
+
+function fenceEdgeKey(start: WorldPoint, end: WorldPoint) {
+  const keys = [worldPointKey(start), worldPointKey(end)].sort()
+  return `${keys[0]}--${keys[1]}`
+}
+
+function collectFenceModelSegments(park: HTMLElement) {
+  const edges = new Map<string, FenceModelSegment>()
+  const elements = park.querySelectorAll<HTMLElement>(
+    ".fence-segment:not(.fence-preview), .park-boundary-fence",
+  )
+
+  for (const element of elements) {
+    const canonical = captureCanonicalPosition(element)
+    const side = readFenceSide(element)
+    if (!canonical || !side) continue
+
+    const tile = canonicalWorldTile(canonical)
+    const [start, end] = fenceEndpoints(tile.x, tile.z, side)
+    const id = fenceEdgeKey(start, end)
+    const boundary = element.classList.contains("park-boundary-fence")
+    const existing = edges.get(id)
+    if (!existing || boundary) {
+      edges.set(id, {id, start, end, boundary})
+    }
+  }
+
+  return [...edges.values()].sort((left, right) => left.id.localeCompare(right.id))
+}
+
+function renderFenceNodes(park: HTMLElement): RendererSceneNode[] {
+  const segments = collectFenceModelSegments(park)
+  const nodes: RendererSceneNode[] = []
+  const posts = new Map<string, {point: WorldPoint; boundary: boolean}>()
+
+  for (const segment of segments) {
+    const deltaX = segment.end[0] - segment.start[0]
+    const deltaZ = segment.end[2] - segment.start[2]
+    const length = Math.hypot(deltaX, deltaZ)
+    const alongX = Math.abs(deltaX) >= Math.abs(deltaZ)
+    const centerX = (segment.start[0] + segment.end[0]) * 0.5
+    const centerZ = (segment.start[2] + segment.end[2]) * 0.5
+    const color: HexColor = segment.boundary ? "#29463d" : "#38513c"
+    const railSize: WorldPoint = alongX ? [length, 0.07, 0.075] : [0.075, 0.07, length]
+
+    nodes.push(
+      sceneBox(
+        `fence:${segment.id}:rail:lower`,
+        [centerX, 0.27, centerZ],
+        railSize,
+        color,
+      ),
+      sceneBox(
+        `fence:${segment.id}:rail:upper`,
+        [centerX, 0.51, centerZ],
+        railSize,
+        color,
+      ),
+    )
+
+    for (const point of [segment.start, segment.end]) {
+      const key = worldPointKey(point)
+      const existing = posts.get(key)
+      if (!existing || segment.boundary) {
+        posts.set(key, {point, boundary: segment.boundary || existing?.boundary === true})
+      }
+    }
+  }
+
+  for (const [key, post] of [...posts.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const color: HexColor = post.boundary ? "#243f38" : "#314937"
+    nodes.push(
+      sceneBox(
+        `fence:post:${key}`,
+        [post.point[0], 0.36, post.point[2]],
+        [0.11, 0.72, 0.11],
+        color,
+      ),
+      sceneCylinder(
+        `fence:post-cap:${key}`,
+        [post.point[0], 0.745, post.point[2]],
+        0.075,
+        0.05,
+        "#8a876f",
+      ),
+    )
+  }
+
+  return nodes
+}
+
+function entranceBuildingSide(element: HTMLElement): FenceSide {
+  for (const side of ["north", "east", "south", "west"] as const) {
+    if (element.classList.contains(`park-entrance-building-${side}`)) return side
+  }
+  return "south"
+}
+
+function yawForSide(side: FenceSide) {
+  switch (side) {
+    case "south":
+      return 0
+    case "east":
+      return Math.PI / 2
+    case "north":
+      return Math.PI
+    case "west":
+      return -Math.PI / 2
+  }
+}
+
+function yawQuaternion(yaw: number): [number, number, number, number] {
+  return [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)]
+}
+
+function rotateLocalOffset(x: number, z: number, yaw: number) {
+  const cosine = Math.cos(yaw)
+  const sine = Math.sin(yaw)
+  return {
+    x: x * cosine + z * sine,
+    z: -x * sine + z * cosine,
+  }
+}
+
+function buildingBox(
+  id: string,
+  origin: {x: number; z: number},
+  local: WorldPoint,
+  size: WorldPoint,
+  color: HexColor,
+  yaw = 0,
+) {
+  const offset = rotateLocalOffset(local[0], local[2], yaw)
+  return sceneBox(
+    id,
+    [origin.x + offset.x, local[1], origin.z + offset.z],
+    size,
+    color,
+    yawQuaternion(yaw),
+  )
+}
+
+function buildingCylinder(
+  id: string,
+  origin: {x: number; z: number},
+  local: WorldPoint,
+  radius: number,
+  height: number,
+  color: HexColor,
+  yaw = 0,
+) {
+  const offset = rotateLocalOffset(local[0], local[2], yaw)
+  return sceneCylinder(
+    id,
+    [origin.x + offset.x, local[1], origin.z + offset.z],
+    radius,
+    height,
+    color,
+  )
+}
+
+function renderEntranceBuildingNodes(element: HTMLElement): RendererSceneNode[] {
+  const canonical = captureCanonicalPosition(element)
+  const rule = overlayRule(element)
+  if (!canonical || !rule) return []
+
+  const [anchorX, , anchorZ] = inferWorldAnchor(canonical, rule)
+  const origin = {x: anchorX + 1, z: anchorZ}
+  const yaw = yawForSide(entranceBuildingSide(element))
+  const wall: HexColor = "#d8c79d"
+  const trim: HexColor = "#eadfbf"
+  const roof: HexColor = "#9d4937"
+  const door: HexColor = "#244d45"
+
+  return [
+    buildingBox("building:entrance:plinth", origin, [0, 0.06, 0], [1.72, 0.12, 0.94], "#b7aa88", yaw),
+    buildingBox("building:entrance:left-wing", origin, [-0.56, 0.49, 0.01], [0.5, 0.86, 0.68], wall, yaw),
+    buildingBox("building:entrance:right-wing", origin, [0.56, 0.49, 0.01], [0.5, 0.86, 0.68], wall, yaw),
+    buildingBox("building:entrance:center", origin, [0, 0.62, -0.02], [0.58, 1.12, 0.74], wall, yaw),
+    buildingBox("building:entrance:left-roof", origin, [-0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
+    buildingBox("building:entrance:right-roof", origin, [0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
+    buildingCylinder("building:entrance:tower-roof", origin, [0, 1.22, -0.03], 0.42, 0.18, roof, yaw),
+    buildingBox("building:entrance:door", origin, [0, 0.39, 0.39], [0.28, 0.54, 0.06], door, yaw),
+    buildingBox("building:entrance:sign", origin, [0, 0.88, 0.405], [0.64, 0.18, 0.05], "#e0bf65", yaw),
+    buildingBox("building:entrance:left-column", origin, [-0.23, 0.46, 0.405], [0.09, 0.68, 0.07], trim, yaw),
+    buildingBox("building:entrance:right-column", origin, [0.23, 0.46, 0.405], [0.09, 0.68, 0.07], trim, yaw),
+  ]
+}
+
+function renderDepotBuildingNodes(element: HTMLElement): RendererSceneNode[] {
+  const canonical = captureCanonicalPosition(element)
+  const rule = overlayRule(element)
+  if (!canonical || !rule) return []
+
+  const [anchorX, , anchorZ] = inferWorldAnchor(canonical, rule)
+  const origin = {x: anchorX + 1, z: anchorZ}
+
+  return [
+    buildingBox("building:depot:plinth", origin, [0, 0.06, 0], [1.3, 0.12, 1.02], "#a9a68f"),
+    buildingBox("building:depot:shell", origin, [0, 0.49, 0], [1.18, 0.86, 0.9], "#c9c4ae"),
+    buildingBox("building:depot:roof", origin, [0, 0.98, 0], [1.32, 0.12, 1.04], "#5c716f"),
+    buildingBox("building:depot:garage-door", origin, [0, 0.39, 0.475], [0.72, 0.56, 0.05], "#42695f"),
+    buildingBox("building:depot:door-lintel", origin, [0, 0.7, 0.49], [0.82, 0.08, 0.06], "#786f59"),
+    buildingBox("building:depot:sign", origin, [0, 0.84, 0.495], [0.62, 0.17, 0.05], "#d7c891"),
+    buildingBox("building:depot:side-door", origin, [0.615, 0.37, -0.18], [0.05, 0.5, 0.28], "#315c58"),
+    buildingBox("building:depot:hvac", origin, [0.28, 1.12, -0.14], [0.3, 0.16, 0.3], "#8b9692"),
+    buildingCylinder("building:depot:roof-vent", origin, [-0.28, 1.16, -0.08], 0.075, 0.22, "#6f7e7b"),
+  ]
+}
+
+function renderBuildingNodes(park: HTMLElement): RendererSceneNode[] {
+  const nodes: RendererSceneNode[] = []
+  const entrance = park.querySelector<HTMLElement>(".park-entrance-building")
+  const depot = park.querySelector<HTMLElement>(".care-depot")
+  if (entrance) nodes.push(...renderEntranceBuildingNodes(entrance))
+  if (depot) nodes.push(...renderDepotBuildingNodes(depot))
+  return nodes
+}
+
 function relativeYaw(yawDegrees: number) {
   return ((yawDegrees - DEFAULT_SHARED_YAW) % 360 + 360) % 360
 }
@@ -463,11 +728,18 @@ export default function Park3DRenderer() {
       if (tiles.length === 0) return false
 
       const camera = parseCameraFrame(bridgeRef.current)
+      const tileNodes = renderNodes(tiles)
+      const fenceNodes = renderFenceNodes(targets.park)
+      const buildingNodes = renderBuildingNodes(targets.park)
       const frame: RendererFrame = {
         camera,
-        nodes: renderNodes(tiles),
+        nodes: [...tileNodes, ...fenceNodes, ...buildingNodes],
       }
       rendererRef.current.render(frame)
+      if (canvasRef.current) {
+        canvasRef.current.dataset.sharedRendererFenceNodes = String(fenceNodes.length)
+        canvasRef.current.dataset.sharedRendererBuildingNodes = String(buildingNodes.length)
+      }
       projectDomOverlay(targets.park, camera)
 
       const yaw = relativeYaw(camera.yawDegrees)
@@ -615,6 +887,8 @@ export default function Park3DRenderer() {
       targets.park.style.removeProperty("visibility")
       delete targets.park.dataset.sharedRendererFailure
       canvas.style.removeProperty("visibility")
+      delete canvas.dataset.sharedRendererFenceNodes
+      delete canvas.dataset.sharedRendererBuildingNodes
       restoreDomOverlay(targets.park)
       targets.park.classList.remove("shared-three-renderer")
       setReady(false)
