@@ -77,11 +77,7 @@ impl ParkCameraRig {
         Ok(Self {
             // Zoo world coordinates now use real tile centers: tile (x, z) occupies
             // [x, x + 1] × [z, z + 1]. There is no legacy isometric anchor offset.
-            target: Vec3::new(
-                park_width * 0.5,
-                SCENE_TARGET_HEIGHT,
-                park_depth * 0.5,
-            ),
+            target: Vec3::new(park_width * 0.5, SCENE_TARGET_HEIGHT, park_depth * 0.5),
             park_width,
             park_depth,
             yaw_degrees: DEFAULT_YAW_DEGREES,
@@ -340,17 +336,13 @@ mod tests {
         assert_eq!(rig.target(), initial_target);
         assert_eq!(initial.target, zoomed.target);
 
-        let initial_distance = (
-            (initial.eye.x - initial.target.x).powi(2)
-                + (initial.eye.y - initial.target.y).powi(2)
-                + (initial.eye.z - initial.target.z).powi(2)
-        )
+        let initial_distance = ((initial.eye.x - initial.target.x).powi(2)
+            + (initial.eye.y - initial.target.y).powi(2)
+            + (initial.eye.z - initial.target.z).powi(2))
         .sqrt();
-        let zoomed_distance = (
-            (zoomed.eye.x - zoomed.target.x).powi(2)
-                + (zoomed.eye.y - zoomed.target.y).powi(2)
-                + (zoomed.eye.z - zoomed.target.z).powi(2)
-        )
+        let zoomed_distance = ((zoomed.eye.x - zoomed.target.x).powi(2)
+            + (zoomed.eye.y - zoomed.target.y).powi(2)
+            + (zoomed.eye.z - zoomed.target.z).powi(2))
         .sqrt();
 
         assert!(zoomed_distance < initial_distance);
