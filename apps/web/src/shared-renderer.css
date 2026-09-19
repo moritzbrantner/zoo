@@ -1,7 +1,6 @@
 .park-three-renderer-canvas {
   position: absolute;
-  left: 116px;
-  top: -37px;
+  inset: 0;
   z-index: 0;
   display: block;
   width: 1240px;
@@ -9,45 +8,47 @@
   pointer-events: none;
 }
 
+.park.shared-three-renderer {
+  background: transparent;
+}
+
 .park.shared-three-renderer .tile {
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 1;
+  transform: none;
+}
+
+.park.shared-three-renderer .tile::before,
+.park.shared-three-renderer .tile::after {
+  display: none;
+}
+
+.park.shared-three-renderer .tile:hover {
+  background: rgb(255 255 255 / 7%);
+  box-shadow: inset 0 0 0 2px rgb(246 211 111 / 48%);
+  transform: none;
+}
+
+.park.shared-three-renderer .tile.selected {
   background: transparent;
   box-shadow: none;
   transform: none;
 }
 
-.park.shared-three-renderer .tile::after {
-  border-color: transparent;
-}
-
-.park.shared-three-renderer .tile:hover {
-  background: rgb(255 255 255 / 10%);
-  box-shadow: 0 0 0 2px rgb(246 211 111 / 55%);
-  transform: none;
-}
-
-.park.shared-three-renderer .tile.selected {
-  background: rgb(246 211 111 / 16%);
-  box-shadow: 0 0 0 4px #f6d36f;
-  transform: none;
-}
-
-.park.shared-three-renderer .fence-segment:not(.fence-preview),
+.park.shared-three-renderer .park-border-tile,
 .park.shared-three-renderer .park-boundary-fence,
 .park.shared-three-renderer .park-entrance-building,
+.park.shared-three-renderer .park-entrance-base,
 .park.shared-three-renderer .entrance-gate,
-.park.shared-three-renderer .care-depot {
-  opacity: 0;
-}
-
-.park.shared-three-renderer .park-entrance-base {
-  display: none;
-}
-
+.park.shared-three-renderer .fence-segment,
 .park.shared-three-renderer .placement-ghost,
-.park.shared-three-renderer .park-border-tile,
-.park.shared-three-renderer .placement-price,
 .park.shared-three-renderer .park-label,
-.park.shared-three-renderer .entrance-gate,
 .park.shared-three-renderer .care-depot,
 .park.shared-three-renderer .concession,
 .park.shared-three-renderer .litter,
@@ -57,117 +58,128 @@
 .park.shared-three-renderer .animal,
 .park.shared-three-renderer .empty-habitat-marker,
 .park.shared-three-renderer .guest {
+  opacity: 0;
+  box-shadow: none;
+  filter: none;
   transform: none;
+  animation: none;
 }
 
-.park.shared-three-renderer .care-depot:hover,
-.park.shared-three-renderer .concession:hover {
+.park.shared-three-renderer .park-border-tile,
+.park.shared-three-renderer .park-boundary-fence,
+.park.shared-three-renderer .park-entrance-building,
+.park.shared-three-renderer .park-entrance-base,
+.park.shared-three-renderer .entrance-gate,
+.park.shared-three-renderer .fence-segment,
+.park.shared-three-renderer .placement-ghost,
+.park.shared-three-renderer .litter,
+.park.shared-three-renderer .janitor,
+.park.shared-three-renderer .maintenance-alert,
+.park.shared-three-renderer .mechanic,
+.park.shared-three-renderer .park-label {
+  pointer-events: none;
+}
+
+.park.shared-three-renderer .care-depot,
+.park.shared-three-renderer .concession,
+.park.shared-three-renderer .animal,
+.park.shared-three-renderer .empty-habitat-marker,
+.park.shared-three-renderer .guest {
+  border: 0;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.park.shared-three-renderer .placement-price {
+  min-width: 190px;
   transform: none;
+  pointer-events: none;
 }
 
-.park.shared-three-renderer .animal-capybara {
-  animation-name: shared-animal-amble;
+.renderer-failure {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  z-index: 10000000;
+  translate: -50% 0;
+  padding: 10px 14px;
+  border: 1px solid #8d3c34;
+  border-radius: 5px;
+  color: #fff6e8;
+  background: rgb(121 43 37 / 94%);
+  font-weight: 800;
+  pointer-events: none;
 }
 
-.park.shared-three-renderer .animal-flamingo {
-  animation-name: shared-animal-sway;
+.camera-orbit-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: auto repeat(5, 38px);
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  color: #eef5f1;
+  background: rgb(24 66 57 / 92%);
+  backdrop-filter: blur(6px);
 }
 
-.park.shared-three-renderer .animal-zebra {
-  animation-name: shared-animal-trot;
+.camera-orbit-controls button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid #123c34;
+  border-radius: 4px;
+  color: #edf5f1;
+  background: #1e5548;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 900;
 }
 
-.park.shared-three-renderer .animal-giraffe {
-  animation-name: shared-animal-browse;
+.camera-orbit-controls button:hover,
+.camera-orbit-controls button:focus-visible {
+  color: #1d3028;
+  background: #f2d274;
 }
 
-.park.shared-three-renderer .animal-elephant {
-  animation-name: shared-animal-lumber;
+.camera-orbit-label {
+  padding: 0 5px 0 3px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.park.shared-three-renderer .animal-penguin {
-  animation-name: shared-animal-waddle;
+.camera-orbit-controls small {
+  grid-column: 1 / -1;
+  color: #bfd9d0;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: right;
 }
 
-.park.shared-three-renderer .guest-arriving {
-  animation-name: shared-guest-arrive;
-}
+@media (max-width: 900px) {
+  .camera-orbit-controls {
+    top: 8px;
+    right: 8px;
+    grid-template-columns: repeat(5, 44px);
+    max-width: calc(100% - 16px);
+  }
 
-@keyframes shared-animal-amble {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-2deg);
+  .camera-orbit-controls button {
+    width: 44px;
+    height: 44px;
   }
-  50% {
-    transform: translateY(-3px) rotate(2deg);
-  }
-}
 
-@keyframes shared-animal-sway {
-  0%,
-  100% {
-    transform: rotate(-4deg);
+  .camera-orbit-label {
+    display: none;
   }
-  50% {
-    transform: rotate(5deg) translateY(-2px);
-  }
-}
 
-@keyframes shared-animal-trot {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-2deg);
-  }
-  50% {
-    transform: translateY(-5px) rotate(2deg);
-  }
-}
-
-@keyframes shared-animal-browse {
-  0%,
-  100% {
-    transform: rotate(-1deg) translateY(0);
-  }
-  45% {
-    transform: rotate(6deg) translateY(1px);
-  }
-  65% {
-    transform: rotate(2deg) translateY(-3px);
-  }
-}
-
-@keyframes shared-animal-lumber {
-  0%,
-  100% {
-    transform: translateX(-2px) rotate(-2deg);
-  }
-  50% {
-    transform: translateX(2px) rotate(2deg);
-  }
-}
-
-@keyframes shared-animal-waddle {
-  0%,
-  100% {
-    transform: rotate(-8deg) translateY(0);
-  }
-  50% {
-    transform: rotate(8deg) translateY(-2px);
-  }
-}
-
-@keyframes shared-guest-arrive {
-  from {
-    transform: translateY(-3px);
-  }
-  to {
-    transform: translateY(1px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .park.shared-three-renderer .animal,
-  .park.shared-three-renderer .guest-arriving {
-    animation: none;
+  .camera-orbit-controls small {
+    grid-column: 1 / -1;
   }
 }
