@@ -113,37 +113,34 @@ try {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     ready = await evaluate(`Boolean(
       document.querySelector('.park.shared-three-renderer') &&
-      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"]') &&
-      document.querySelector('.park-entrance-building') &&
-      document.querySelector('.park-entrance-base') &&
-      document.querySelector('.park-border-tile') &&
-      document.querySelector('.park-boundary-fence')
+      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"][data-shared-renderer-projection="perspective"]') &&
+      document.querySelector('[aria-label="grass tile 1, 8"]')
     )`)
     if (ready) break
     await sleep(250)
   }
-  if (!ready) throw new Error("Park frame did not become ready")
+  if (!ready) throw new Error("Perspective park scene did not become ready")
 
   const frame = await evaluate(`(() => {
     const tileElements = [...document.querySelectorAll('.tile[aria-label]')]
     const tiles = tileElements.map((element) => {
       const match = element.getAttribute('aria-label')?.match(/tile (\\d+), (\\d+)$/)
-      return match ? {x: Number(match[1]), y: Number(match[2]), element} : null
+      return match ? {x: Number(match[1]), y: Number(match[2])} : null
     }).filter(Boolean)
     const width = Math.max(...tiles.map((tile) => tile.x)) + 1
     const height = Math.max(...tiles.map((tile) => tile.y)) + 1
-    const base = document.querySelector('.park-entrance-base')
-    const building = document.querySelector('.park-entrance-building')
+    const canvas = document.querySelector('.park-three-renderer-canvas')
     const viewportRect = document.querySelector('.viewport').getBoundingClientRect()
     return {
       width,
       height,
-      borderCount: document.querySelectorAll('.park-border-tile').length,
-      fenceCount: document.querySelectorAll('.park-boundary-fence').length,
-      approachCount: document.querySelectorAll('.park-border-approach').length,
-      baseDisplay: base ? getComputedStyle(base).display : null,
-      buildingDisplay: building ? getComputedStyle(building).display : null,
-      oldGateVisible: getComputedStyle(document.querySelector('.entrance-gate')).display !== 'none',
+      projection: canvas?.dataset.sharedRendererProjection,
+      boundaryNodes: Number(canvas?.dataset.sharedRendererBoundaryFenceNodes),
+      buildingNodes: Number(canvas?.dataset.sharedRendererBuildingNodes),
+      nodeCount: Number(canvas?.dataset.sharedRendererNodeCount),
+      legacyFrameElements: document.querySelectorAll(
+        '.park-entrance-building, .park-entrance-base, .entrance-gate, .park-boundary-fence, .park-border-tile'
+      ).length,
       viewport: {
         x: viewportRect.left,
         y: viewportRect.top,
@@ -153,25 +150,25 @@ try {
     }
   })()`)
 
-  const expectedBorderCount = (frame.width + 8) * (frame.height + 8) - frame.width * frame.height
-  if (frame.borderCount !== expectedBorderCount) {
-    throw new Error(`Expected ${expectedBorderCount} four-tile border tiles, found ${frame.borderCount}`)
+  const expectedBoundarySegments = frame.width * 2 + frame.height * 2 - 1
+  const expectedBoundaryRailNodes = expectedBoundarySegments * 2
+  if (frame.projection !== "perspective") {
+    throw new Error(`Park frame is not using perspective projection: ${JSON.stringify(frame)}`)
+  }
+  if (frame.boundaryNodes !== expectedBoundaryRailNodes) {
+    throw new Error(
+      `Expected ${expectedBoundaryRailNodes} renderer-owned boundary rail nodes, found ${frame.boundaryNodes}`,
+    )
+  }
+  if (frame.buildingNodes < 10 || frame.nodeCount <= frame.boundaryNodes + frame.buildingNodes) {
+    throw new Error(`3D park scene is missing expected terrain/building geometry: ${JSON.stringify(frame)}`)
   }
 
-  const expectedFenceCount = frame.width * 2 + frame.height * 2 - 1
-  if (frame.fenceCount !== expectedFenceCount) {
-    throw new Error(`Expected ${expectedFenceCount} park fence segments with one entrance gap, found ${frame.fenceCount}`)
+  if (frame.legacyFrameElements !== 0) {
+    throw new Error(
+      `Legacy 2D park frame elements are still mounted over the renderer: ${frame.legacyFrameElements}`,
+    )
   }
-  if (frame.approachCount !== 4) {
-    throw new Error(`Expected a four-tile entrance approach, found ${frame.approachCount}`)
-  }
-  if (frame.baseDisplay !== "none") {
-    throw new Error(`Legacy entrance ground diamond is still visible in shared-renderer mode: ${frame.baseDisplay}`)
-  }
-  if (frame.buildingDisplay === "none") {
-    throw new Error("Entrance building disappeared with its legacy ground diamond")
-  }
-  if (frame.oldGateVisible) throw new Error("Legacy floating entrance gate is still visible")
 
   const screenshot = await cdp.send("Page.captureScreenshot", {
     format: "png",
@@ -183,7 +180,7 @@ try {
   writeFileSync("test-results/park-frame.png", Buffer.from(screenshot.data, "base64"))
 
   console.log(
-    `Park-frame browser dogfood passed: ${frame.width}×${frame.height} buildable area, ${frame.borderCount} projected outer tiles, ${frame.fenceCount} projected fence segments, and renderer-owned entrance ground.`,
+    `Park-frame browser dogfood passed: ${frame.width}×${frame.height} world, ${expectedBoundarySegments} boundary segments and buildings are real renderer-owned 3D geometry; legacy frame visuals are hidden.`,
   )
 } finally {
   cdp?.close()

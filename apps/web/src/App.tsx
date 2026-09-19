@@ -6,6 +6,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react"
+import Park3DRenderer from "./Park3DRenderer"
 import init, {ZooGame} from "./wasm/zoo_core"
 
 type Tool = "select" | "pan" | "path" | "habitat" | "food" | "drink" | "bulldoze"
@@ -175,7 +176,7 @@ type FinanceDay = {
   breakdown: FinanceBreakdown
 }
 
-type Snapshot = {
+export type Snapshot = {
   width: number
   height: number
   day: number
@@ -226,7 +227,7 @@ type ActionResult = {
   message: string
 }
 
-type PlacementEvaluation = {
+export type PlacementEvaluation = {
   ok: boolean
   message: string
   x: number
@@ -265,23 +266,6 @@ function clock(minutes: number) {
   return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`
 }
 
-function speciesGlyph(species: SpeciesKey) {
-  switch (species) {
-    case "flamingo":
-      return "🦩"
-    case "zebra":
-      return "🦓"
-    case "giraffe":
-      return "🦒"
-    case "elephant":
-      return "🐘"
-    case "penguin":
-      return "🐧"
-    default:
-      return "C"
-  }
-}
-
 function speciesLabel(species: SpeciesKey | null, catalog: SpeciesOffer[]) {
   if (!species) return "Empty habitat"
   return catalog.find((offer) => offer.key === species)?.label ?? species
@@ -317,23 +301,6 @@ function toolHint(tool: Tool) {
     default:
       return "Click a habitat, guest, animal, or ground tile to inspect it."
   }
-}
-
-function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot) {
-  if (!start || !end) return []
-  const left = Math.min(start.x, end.x)
-  const right = Math.max(start.x, end.x)
-  const top = Math.min(start.y, end.y)
-  const bottom = Math.max(start.y, end.y)
-  const tiles: Point[] = []
-  for (let y = top; y <= bottom; y += 1) {
-    for (let x = left; x <= right; x += 1) {
-      if (x >= 0 && y >= 0 && x < snapshot.width && y < snapshot.height) {
-        tiles.push({x, y})
-      }
-    }
-  }
-  return tiles
 }
 
 export default function App() {
@@ -637,9 +604,6 @@ export default function App() {
           .map((tile) => tile.y * snapshot.width + tile.x)
       : [],
   )
-  const ghostTiles = previewTiles(fenceStart, fenceEnd, snapshot)
-  const entrancePosition = isoPosition(snapshot.entrance.x, snapshot.entrance.y)
-
   return (
     <main className="game-shell">
       <header className="topbar bevel">
@@ -713,8 +677,11 @@ export default function App() {
             onPointerCancel={endPan}
             onPointerLeave={() => setHoveredTile(null)}
           >
-            <div className="park-label">Starter Meadow</div>
-
+            <Park3DRenderer
+              snapshot={snapshot}
+              placement={placement}
+              selectedTileIds={selectedTileIds}
+            />
             {snapshot.tiles
               .slice()
               .sort((a, b) => a.x + a.y - (b.x + b.y))
@@ -741,56 +708,14 @@ export default function App() {
                 )
               })}
 
-            {snapshot.habitats.flatMap((habitat) =>
-              habitat.fence_segments.map((segment, index) => {
-                const position = isoPosition(segment.x, segment.y)
-                return (
-                  <span
-                    className={`fence-segment fence-${segment.side}`}
-                    key={`fence:${habitat.id}:${segment.x}:${segment.y}:${segment.side}:${index}`}
-                    style={{
-                      left: position.left,
-                      top: position.top,
-                      zIndex: 340 + segment.x + segment.y,
-                    }}
-                  />
-                )
-              }),
-            )}
-
-            {ghostTiles.map((tile) => {
-              const position = isoPosition(tile.x, tile.y)
-              return (
-                <div
-                  className={`placement-ghost ${placement?.ok ? "valid" : "invalid"}`}
-                  key={`ghost:${tile.x}:${tile.y}`}
-                  style={{
-                    left: position.left,
-                    top: position.top,
-                    zIndex: 300 + tile.x + tile.y,
-                  }}
-                />
-              )
-            })}
-
-            {placement?.fence_segments.map((segment, index) => {
-              const position = isoPosition(segment.x, segment.y)
-              return (
-                <span
-                  className={`fence-segment fence-${segment.side} fence-preview`}
-                  key={`preview-fence:${segment.x}:${segment.y}:${segment.side}:${index}`}
-                  style={{
-                    left: position.left,
-                    top: position.top,
-                    zIndex: 360 + segment.x + segment.y,
-                  }}
-                />
-              )
-            })}
-
             {placement && hoveredTile && (
               <div
                 className={`placement-price bevel ${placement.ok ? "valid" : "invalid"}`}
+                data-world-x={hoveredTile.x + 0.5}
+                data-world-y={1.2}
+                data-world-z={hoveredTile.y + 0.5}
+                data-hit-width={220}
+                data-hit-height={64}
                 style={{
                   left: isoPosition(hoveredTile.x, hoveredTile.y).left + 24,
                   top: isoPosition(hoveredTile.x, hoveredTile.y).top - 52,
@@ -805,23 +730,6 @@ export default function App() {
               </div>
             )}
 
-            <div
-              className="entrance-gate"
-              style={{
-                left: entrancePosition.left - 24,
-                top: entrancePosition.top - 48,
-                zIndex: 760,
-              }}
-              title={`${snapshot.entrance.arrivals_total} guests have entered here`}
-              aria-label="Zoo entrance gate"
-            >
-              <span className="gate-roof" />
-              <span className="gate-sign">ZOO</span>
-              <span className="gate-post gate-post-left" />
-              <span className="gate-post gate-post-right" />
-              <span className="turnstile" />
-            </div>
-
             {(() => {
               const depot = snapshot.animal_care_depot
               const position = isoPosition(depot.x, depot.y)
@@ -829,6 +737,11 @@ export default function App() {
                 <button
                   type="button"
                   className="care-depot"
+                  data-world-x={depot.x + 0.5}
+                  data-world-y={0.72}
+                  data-world-z={depot.y + 0.5}
+                  data-hit-width={62}
+                  data-hit-height={62}
                   style={{
                     left: position.left + 4,
                     top: position.top - 54,
@@ -868,6 +781,11 @@ export default function App() {
                   type="button"
                   className={`concession concession-${stand.kind} concession-${stand.service_state}`}
                   key={`concession:${stand.id}`}
+                  data-world-x={stand.x + 0.5}
+                  data-world-y={0.62}
+                  data-world-z={stand.y + 0.5}
+                  data-hit-width={54}
+                  data-hit-height={54}
                   style={{
                     left: position.left + 8,
                     top: position.top - 42,
@@ -907,86 +825,6 @@ export default function App() {
               )
             })}
 
-            {snapshot.litter.map((task) => {
-              const position = isoPosition(task.x, task.y)
-              return (
-                <span
-                  className={`litter ${task.assigned_janitor_id === null ? "waiting" : "assigned"}`}
-                  key={`litter:${task.id}`}
-                  style={{
-                    left: position.left + 20,
-                    top: position.top + 8,
-                    zIndex: 700 + task.x + task.y,
-                  }}
-                  title={`Litter #${task.id} · ${task.age_minutes} min · ${task.status}`}
-                  aria-label={`Litter task ${task.id}: ${task.status}`}
-                />
-              )
-            })}
-
-            {snapshot.animal_care_depot.janitors.map((janitor) => {
-              const position = isoPosition(janitor.x, janitor.y)
-              return (
-                <span
-                  className="janitor"
-                  key={`janitor:${janitor.id}`}
-                  style={{
-                    left: position.left + 22,
-                    top: position.top - 8,
-                    zIndex: 820 + janitor.x + janitor.y,
-                  }}
-                  title={`Janitor #${janitor.id} · ${janitor.status}`}
-                  aria-label={`Janitor ${janitor.id}: ${janitor.status}`}
-                >
-                  <i />
-                  <b />
-                </span>
-              )
-            })}
-
-
-
-            {snapshot.maintenance.map((task) => {
-              const position = isoPosition(task.x, task.y)
-              return (
-                <span
-                  className={`maintenance-alert ${
-                    task.assigned_mechanic_id === null ? "waiting" : "assigned"
-                  }`}
-                  key={`maintenance:${task.id}`}
-                  style={{
-                    left: position.left + 38,
-                    top: position.top - 50,
-                    zIndex: 850 + task.x + task.y,
-                  }}
-                  title={`Stand #${task.concession_id} maintenance · ${task.age_minutes} min · ${task.status}`}
-                  aria-label={`Maintenance task ${task.id}: ${task.status}`}
-                >
-                  !
-                </span>
-              )
-            })}
-
-            {snapshot.animal_care_depot.mechanics.map((mechanic) => {
-              const position = isoPosition(mechanic.x, mechanic.y)
-              return (
-                <span
-                  className="mechanic"
-                  key={`mechanic:${mechanic.id}`}
-                  style={{
-                    left: position.left + 18,
-                    top: position.top - 9,
-                    zIndex: 825 + mechanic.x + mechanic.y,
-                  }}
-                  title={`Mechanic #${mechanic.id} · ${mechanic.status}`}
-                  aria-label={`Mechanic ${mechanic.id}: ${mechanic.status}`}
-                >
-                  <i />
-                  <b />
-                </span>
-              )
-            })}
-
             {snapshot.animals.map((animal) => {
               const position = isoPosition(animal.x, animal.y)
               const offset = (animal.slot % 3) - 1
@@ -995,6 +833,11 @@ export default function App() {
                   type="button"
                   className={`animal animal-${animal.species}`}
                   key={animal.id}
+                  data-world-x={animal.x + 0.5 + offset * 0.12}
+                  data-world-y={0.62}
+                  data-world-z={animal.y + 0.5 + (animal.slot % 2) * 0.12}
+                  data-hit-width={46}
+                  data-hit-height={46}
                   style={{
                     left: position.left + 14 + offset * 6,
                     top: position.top - 16 + (animal.slot % 2) * 5,
@@ -1011,9 +854,7 @@ export default function App() {
                     setSelectedDepot(false)
                     setTool("select")
                   }}
-                >
-                  <span>{speciesGlyph(animal.species)}</span>
-                </button>
+                />
               )
             })}
 
@@ -1029,6 +870,11 @@ export default function App() {
                     type="button"
                     className="empty-habitat-marker"
                     key={`empty:${habitat.id}`}
+                    data-world-x={habitat.x + habitat.width / 2}
+                    data-world-y={0.45}
+                    data-world-z={habitat.y + habitat.height / 2}
+                    data-hit-width={48}
+                    data-hit-height={48}
                     style={{
                       left: center.left + 15,
                       top: center.top - 10,
@@ -1057,6 +903,11 @@ export default function App() {
                     selectedGuestId === guest.id ? "selected" : ""
                   }`}
                   key={guest.id}
+                  data-world-x={guest.x + 0.5}
+                  data-world-y={0.7}
+                  data-world-z={guest.y + 0.5}
+                  data-hit-width={44}
+                  data-hit-height={44}
                   style={{
                     left: position.left + 24,
                     top: position.top - 4,

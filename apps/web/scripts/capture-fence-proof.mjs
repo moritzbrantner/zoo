@@ -112,11 +112,31 @@ try {
 
   let ready = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    ready = await evaluate(`Boolean(document.querySelector('[aria-label="grass tile 1, 8"]'))`)
+    ready = await evaluate(`Boolean(
+      document.querySelector('[aria-label="grass tile 1, 8"]') &&
+      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"][data-shared-renderer-projection="perspective"]')
+    )`)
     if (ready) break
     await sleep(250)
   }
-  if (!ready) throw new Error("Zoo did not become interactive")
+  if (!ready) throw new Error("Perspective Zoo renderer did not become interactive")
+
+  const ownership = await evaluate(`(() => {
+    const viewport = document.querySelector('.viewport')
+    const canvas = document.querySelector('.park-three-renderer-canvas')
+    return {
+      viewportPerspective: viewport ? getComputedStyle(viewport).perspective : null,
+      canvasTransform: canvas ? getComputedStyle(canvas).transform : null,
+      boundaryNodes: Number(canvas?.dataset.sharedRendererBoundaryFenceNodes),
+    }
+  })()`)
+  if (
+    ownership.viewportPerspective !== "none" ||
+    ownership.canvasTransform !== "none" ||
+    !(ownership.boundaryNodes > 0)
+  ) {
+    throw new Error(`Fence visualization is not owned exclusively by the real 3D scene: ${JSON.stringify(ownership)}`)
+  }
 
   const toolsReady = await evaluate(`(() => {
     document.querySelector('button[title="Pause"]')?.click()
@@ -129,8 +149,6 @@ try {
   })()`)
   if (!toolsReady) throw new Error("Could not activate the habitat drawing tool")
 
-  // The starter path occupies x=1..4 at y=7. This clear 4×3 rectangle sits
-  // immediately below it, so Rust's path-adjacency rule makes it a valid enclosure.
   const points = await evaluate(`(() => {
     const center = (label) => {
       const element = document.querySelector('[aria-label="' + label + '"]')
@@ -143,7 +161,7 @@ try {
       end: center('grass tile 4, 10'),
     }
   })()`)
-  if (!points.start || !points.end) throw new Error("Could not resolve fence drag coordinates")
+  if (!points.start || !points.end) throw new Error("Could not resolve 3D tile drag coordinates")
 
   const touchPoint = (point) => [
     {
@@ -165,9 +183,7 @@ try {
   const builtOnPress = await evaluate(
     `document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`,
   )
-  if (builtOnPress) {
-    throw new Error("Touch press committed the habitat before the finger was released")
-  }
+  if (builtOnPress) throw new Error("Touch press committed the habitat before release")
 
   for (let step = 1; step <= 12; step += 1) {
     const progress = step / 12
@@ -181,225 +197,84 @@ try {
   }
 
   let previewState = null
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
     previewState = await evaluate(`(() => {
-      const rails = [...document.querySelectorAll('.fence-preview')]
-      const ghosts = [...document.querySelectorAll('.placement-ghost')]
+      const canvas = document.querySelector('.park-three-renderer-canvas')
       return {
-        rails: rails.length,
-        projectedRails: rails.filter((element) =>
-          element.style.transform.startsWith('rotate(') && Number.parseFloat(element.style.width) > 0,
-        ).length,
-        ghosts: ghosts.length,
-        projectedGhosts: ghosts.filter((element) =>
-          element.style.clipPath.startsWith('polygon(') &&
-          Number.parseFloat(element.style.width) > 0 &&
-          Number.parseFloat(element.style.height) > 0,
-        ).length,
+        rendererPreviewRails: Number(canvas?.dataset.sharedRendererPreviewFenceNodes),
+        rendererPlacementTiles: Number(canvas?.dataset.sharedRendererPlacementNodes),
+        legacyPreviewElements: document.querySelectorAll('.fence-preview, .placement-ghost').length,
       }
     })()`)
     if (
-      previewState.rails === 14 &&
-      previewState.projectedRails === 14 &&
-      previewState.ghosts === 12 &&
-      previewState.projectedGhosts === 12
+      previewState.rendererPreviewRails === 28 &&
+      previewState.rendererPlacementTiles === 12 &&
+      previewState.legacyPreviewElements === 0
     ) break
     await sleep(50)
   }
+
   if (
-    previewState?.rails !== 14 ||
-    previewState?.projectedRails !== 14 ||
-    previewState?.ghosts !== 12 ||
-    previewState?.projectedGhosts !== 12
+    previewState?.rendererPreviewRails !== 28 ||
+    previewState?.rendererPlacementTiles !== 12 ||
+    previewState?.legacyPreviewElements !== 0
   ) {
     throw new Error(
-      `Touch drag did not expose projected 4×3 placement geometry: ${JSON.stringify(previewState)}`,
+      `Touch drag did not move the 4×3 preview into renderer-owned 3D geometry: ${JSON.stringify(previewState)}`,
     )
   }
 
   const builtBeforeRelease = await evaluate(
     `document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`,
   )
-  if (builtBeforeRelease) {
-    throw new Error("Touch drag committed the habitat before touchEnd")
-  }
+  if (builtBeforeRelease) throw new Error("Touch drag committed the habitat before touchEnd")
 
   await cdp.send("Input.dispatchTouchEvent", {
     type: "touchEnd",
     touchPoints: [],
   })
 
-  let built = false
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    built = await evaluate(
-      `document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`,
-    )
-    if (built) break
-    await sleep(100)
-  }
-  if (!built) {
-    const message = await evaluate(`document.querySelector('.message')?.textContent ?? 'No message'`)
-    throw new Error(`The 4×3 habitat was not created on touch release during browser dogfood: ${message}`)
-  }
-
-  let committedProjection = null
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    committedProjection = await evaluate(`(() => {
-      const rails = [...document.querySelectorAll('.fence-segment:not(.fence-preview)')]
-      const projected = rails.filter((element) =>
-        element.style.transform.startsWith('rotate(') &&
-        Number.parseFloat(element.style.width) > 0 &&
-        element.style.left === element.dataset.sharedRendererAppliedLeft &&
-        element.style.top === element.dataset.sharedRendererAppliedTop &&
-        Boolean(element.dataset.sharedRendererDepth),
-      )
+  let committedState = null
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    committedState = await evaluate(`(() => {
+      const canvas = document.querySelector('.park-three-renderer-canvas')
       return {
-        rails: rails.length,
-        projected: projected.length,
-        samples: rails.slice(0, 2).map((element) => ({
-          left: element.style.left,
-          appliedLeft: element.dataset.sharedRendererAppliedLeft ?? null,
-          top: element.style.top,
-          appliedTop: element.dataset.sharedRendererAppliedTop ?? null,
-          transform: element.style.transform,
-          depth: element.dataset.sharedRendererDepth ?? null,
-        })),
+        built: document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false,
+        rendererHabitatRails: Number(canvas?.dataset.sharedRendererHabitatFenceNodes),
+        legacyFenceElements: document.querySelectorAll('.fence-segment').length,
+        rendererPreviewRails: Number(canvas?.dataset.sharedRendererPreviewFenceNodes),
+        rendererPlacementTiles: Number(canvas?.dataset.sharedRendererPlacementNodes),
       }
     })()`)
-    if (committedProjection.rails === 14 && committedProjection.projected === 14) break
-    await sleep(50)
-  }
-  if (committedProjection?.rails !== 14 || committedProjection?.projected !== 14) {
-    throw new Error(
-      `Committed habitat rails did not settle on shared projected geometry: ${JSON.stringify(committedProjection)}`,
-    )
+    if (
+      committedState.built &&
+      committedState.rendererHabitatRails === 28 &&
+      committedState.rendererPreviewRails === 0 &&
+      committedState.rendererPlacementTiles === 0 &&
+      committedState.legacyFenceElements === 0
+    ) break
+    await sleep(100)
   }
 
-  const geometry = await evaluate(`(() => {
-    const polygonPoints = (tile) => {
-      const style = getComputedStyle(tile)
-      const left = Number.parseFloat(style.left)
-      const top = Number.parseFloat(style.top)
-      const width = Number.parseFloat(style.width)
-      const height = Number.parseFloat(style.height)
-      const matches = [...style.clipPath.matchAll(/(-?[\\d.]+)%\\s+(-?[\\d.]+)%/g)]
-      if (matches.length !== 4 || ![left, top, width, height].every(Number.isFinite)) return null
-      return matches.map((match) => ({
-        x: left + width * Number.parseFloat(match[1]) / 100,
-        y: top + height * Number.parseFloat(match[2]) / 100,
-      }))
-    }
-    const edgeIndices = {
-      north: [0, 1],
-      east: [1, 2],
-      south: [3, 2],
-      west: [0, 3],
-    }
-    const projectedEdges = [...document.querySelectorAll('button.tile')].flatMap((tile) => {
-      const points = polygonPoints(tile)
-      if (!points) return []
-      const label = tile.getAttribute('aria-label') ?? 'unknown tile'
-      return Object.entries(edgeIndices).map(([side, indices]) => ({
-        id: label + ':' + side,
-        side,
-        start: points[indices[0]],
-        end: points[indices[1]],
-      }))
-    })
-    const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y)
-    const edgeError = (actualStart, actualEnd, edge) => Math.min(
-      distance(actualStart, edge.start) + distance(actualEnd, edge.end),
-      distance(actualStart, edge.end) + distance(actualEnd, edge.start),
-    )
-
-    return [...document.querySelectorAll('.fence-segment:not(.fence-preview)')].map((element) => {
-      const side = ['north', 'east', 'south', 'west'].find((candidate) =>
-        element.classList.contains('fence-' + candidate),
-      )
-      const style = getComputedStyle(element)
-      const width = Number.parseFloat(style.width)
-      const left = Number.parseFloat(style.left)
-      const top = Number.parseFloat(style.top)
-      const halfHeight = Number.parseFloat(style.height) / 2
-      const matrix = new DOMMatrix(style.transform)
-      const axisLength = Math.hypot(matrix.a, matrix.b)
-      const directionX = axisLength > 0 ? matrix.a / axisLength : Number.NaN
-      const directionY = axisLength > 0 ? matrix.b / axisLength : Number.NaN
-      const actualStart = {x: left, y: top + halfHeight}
-      const actualEnd = {
-        x: actualStart.x + width * directionX,
-        y: actualStart.y + width * directionY,
-      }
-      const finiteGeometry = [
-        width,
-        left,
-        top,
-        halfHeight,
-        directionX,
-        directionY,
-        actualStart.x,
-        actualStart.y,
-        actualEnd.x,
-        actualEnd.y,
-      ].every(Number.isFinite)
-      const candidates = finiteGeometry
-        ? projectedEdges
-            .filter((edge) => edge.side === side)
-            .map((edge) => ({...edge, error: edgeError(actualStart, actualEnd, edge)}))
-            .filter((edge) => Number.isFinite(edge.error))
-            .sort((leftEdge, rightEdge) => leftEdge.error - rightEdge.error)
-        : []
-      const best = candidates[0]
-      return {
-        side,
-        finiteGeometry,
-        raw: {
-          width: style.width,
-          left: style.left,
-          top: style.top,
-          height: style.height,
-          transform: style.transform,
-        },
-        matchedEdge: best?.id ?? null,
-        edgeError: best?.error ?? null,
-      }
-    })
-  })()`)
-
-  if (geometry.length !== 14) {
-    throw new Error(`Expected 14 fence segments for a 4×3 habitat, found ${geometry.length}`)
-  }
-  const expectedSideCounts = {north: 4, east: 3, south: 4, west: 3}
-  for (const [side, expectedCount] of Object.entries(expectedSideCounts)) {
-    const count = geometry.filter((segment) => segment.side === side).length
-    if (count !== expectedCount) {
-      throw new Error(`Expected ${expectedCount} ${side} fence segments, found ${count}`)
-    }
-  }
-  const invalid = geometry.filter(
-    (segment) => !segment.finiteGeometry || segment.matchedEdge === null || segment.edgeError === null,
-  )
-  if (invalid.length > 0) {
-    throw new Error(`Projected fence proof could not resolve finite rail geometry: ${JSON.stringify(invalid)}`)
-  }
-  const misplaced = geometry.filter((segment) => segment.edgeError > 3)
-  if (misplaced.length > 0) {
-    throw new Error(`Projected fence rails are off rendered tile edges: ${JSON.stringify(misplaced)}`)
-  }
-  const distinctEdges = new Set(geometry.map((segment) => segment.matchedEdge))
-  if (distinctEdges.size !== geometry.length) {
-    throw new Error(`Projected fence rails do not map one-to-one to rendered tile edges: ${JSON.stringify(geometry)}`)
+  if (
+    !committedState?.built ||
+    committedState?.rendererHabitatRails !== 28 ||
+    committedState?.rendererPreviewRails !== 0 ||
+    committedState?.rendererPlacementTiles !== 0 ||
+    committedState?.legacyFenceElements !== 0
+  ) {
+    throw new Error(`Committed habitat did not settle into real 3D fence geometry: ${JSON.stringify(committedState)}`)
   }
 
   const clip = await evaluate(`(() => {
-    const rects = [...document.querySelectorAll('.fence-segment:not(.fence-preview)')].map((element) =>
-      element.getBoundingClientRect(),
-    )
-    const left = Math.max(0, Math.min(...rects.map((rect) => rect.left)) - 70)
-    const top = Math.max(0, Math.min(...rects.map((rect) => rect.top)) - 70)
-    const right = Math.min(window.innerWidth, Math.max(...rects.map((rect) => rect.right)) + 70)
-    const bottom = Math.min(window.innerHeight, Math.max(...rects.map((rect) => rect.bottom)) + 70)
-    return {x: left, y: top, width: right - left, height: bottom - top, scale: 1}
+    const rect = document.querySelector('.viewport').getBoundingClientRect()
+    return {
+      x: Math.max(0, rect.left),
+      y: Math.max(0, rect.top),
+      width: Math.min(rect.width, window.innerWidth - Math.max(0, rect.left)),
+      height: Math.min(rect.height, window.innerHeight - Math.max(0, rect.top)),
+      scale: 1,
+    }
   })()`)
 
   const screenshot = await cdp.send("Page.captureScreenshot", {
@@ -412,7 +287,7 @@ try {
   writeFileSync("test-results/fence-rendering.png", Buffer.from(screenshot.data, "base64"))
 
   console.log(
-    "Fence browser dogfood passed: touch drag previews projected 4×3 geometry, commits only on release, and renders 14 rails one-to-one on projected tile edges.",
+    "Fence browser dogfood passed: touch preview and committed enclosure are renderer-owned perspective 3D geometry, while DOM fence elements remain invisible semantics only.",
   )
 } finally {
   cdp?.close()

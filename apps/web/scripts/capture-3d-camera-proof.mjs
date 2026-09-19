@@ -2,7 +2,7 @@ import {spawn} from "node:child_process"
 import {existsSync, mkdirSync, rmSync, writeFileSync} from "node:fs"
 
 const previewUrl = "http://127.0.0.1:4173/"
-const debuggingPort = 9226
+const debuggingPort = 9227
 const chromeCandidates = [
   process.env.CHROME_PATH,
   "/usr/bin/google-chrome",
@@ -113,7 +113,7 @@ try {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     ready = await evaluate(`Boolean(
       document.querySelector('.park.shared-three-renderer') &&
-      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"]') &&
+      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"][data-shared-renderer-projection="perspective"]') &&
       Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererFenceNodes) > 0 &&
       Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererBuildingNodes) > 0 &&
       document.querySelector('.camera-orbit-controls') &&
@@ -122,11 +122,15 @@ try {
     if (ready) break
     await sleep(250)
   }
-  if (!ready) throw new Error("Shared 3d-lab camera/renderer did not become interactive")
+  if (!ready) throw new Error("Shared perspective 3D camera/renderer did not become interactive")
 
   const baseline = await evaluate(`(() => {
     const park = document.querySelector('.park')
+    const canvas = document.querySelector('.park-three-renderer-canvas')
     const tile = document.querySelector('[aria-label="grass tile 1, 8"]')
+    const widths = [...document.querySelectorAll('button.tile')]
+      .map((element) => Number.parseFloat(element.style.width))
+      .filter(Number.isFinite)
     return {
       yaw: park?.dataset.cameraYaw,
       pitch: park?.dataset.cameraPitch,
@@ -135,22 +139,39 @@ try {
       tileWidth: tile?.style.width,
       tileHeight: tile?.style.height,
       tileClipPath: tile?.style.clipPath,
-      renderer: document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRenderer,
-      fenceNodes: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererFenceNodes),
-      buildingNodes: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererBuildingNodes),
+      renderer: canvas?.dataset.sharedRenderer,
+      projection: canvas?.dataset.sharedRendererProjection,
+      nodeCount: Number(canvas?.dataset.sharedRendererNodeCount),
+      fenceNodes: Number(canvas?.dataset.sharedRendererFenceNodes),
+      buildingNodes: Number(canvas?.dataset.sharedRendererBuildingNodes),
+      perspectiveWidthSpread: widths.length > 0 ? Math.max(...widths) - Math.min(...widths) : 0,
+      viewportPerspective: getComputedStyle(document.querySelector('.viewport')).perspective,
+      canvasTransform: getComputedStyle(canvas).transform,
+      depotOpacity: getComputedStyle(document.querySelector('.care-depot')).opacity,
+      legacyFrameElements: document.querySelectorAll(
+        '.park-entrance-building, .park-border-tile, .park-boundary-fence, .entrance-gate, .fence-segment, .placement-ghost'
+      ).length,
     }
   })()`)
+
   if (
     baseline.yaw !== "0" ||
     baseline.pitch !== "0" ||
     baseline.renderer !== "ready" ||
+    baseline.projection !== "perspective" ||
+    !(baseline.nodeCount > 0) ||
     !(baseline.fenceNodes > 0) ||
-    !(baseline.buildingNodes > 0)
+    !(baseline.buildingNodes > 0) ||
+    !(baseline.perspectiveWidthSpread > 0.25) ||
+    baseline.viewportPerspective !== "none" ||
+    baseline.canvasTransform !== "none" ||
+    baseline.depotOpacity !== "0" ||
+    baseline.legacyFrameElements !== 0
   ) {
-    throw new Error(`Unexpected default shared 3D camera: ${JSON.stringify(baseline)}`)
+    throw new Error(`Default view is not a clean renderer-owned perspective scene: ${JSON.stringify(baseline)}`)
   }
   if (!baseline.tileClipPath?.startsWith("polygon(")) {
-    throw new Error(`Default tile hit geometry is not projected: ${JSON.stringify(baseline)}`)
+    throw new Error(`3D tile hit geometry is not projected from the shared camera: ${JSON.stringify(baseline)}`)
   }
 
   const activated = await evaluate(`(() => {
@@ -162,7 +183,7 @@ try {
     tilt.click()
     return true
   })()`)
-  if (!activated) throw new Error("Could not activate shared 3D camera controls")
+  if (!activated) throw new Error("Could not activate perspective camera controls")
 
   let moved = null
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -196,6 +217,7 @@ try {
     ) break
     await sleep(50)
   }
+
   if (
     moved?.yaw !== "45" ||
     moved?.pitch !== "12" ||
@@ -206,75 +228,7 @@ try {
       moved.tileWidth === baseline.tileWidth &&
       moved.tileHeight === baseline.tileHeight)
   ) {
-    throw new Error(`Shared 3D camera/hit projection did not move coherently: ${JSON.stringify(moved)}`)
-  }
-
-  const projectedPresentation = await evaluate(`(() => {
-    const park = document.querySelector('.park')
-    const label = document.querySelector('.park-label')
-    const depot = document.querySelector('.care-depot')
-    const tile = document.querySelector('[aria-label="grass tile 1, 8"]')
-    const border = document.querySelector('.park-border-tile')
-    const boundaryFence = document.querySelector('.park-boundary-fence')
-    const entranceBuilding = document.querySelector('.park-entrance-building')
-    const entranceBase = document.querySelector('.park-entrance-base')
-    const depthEntries = [...document.querySelectorAll('[data-shared-renderer-depth]')]
-      .map((element) => ({
-        depth: Number(element.dataset.sharedRendererDepth),
-        zIndex: Number(element.style.zIndex),
-      }))
-      .filter((entry) => Number.isFinite(entry.depth) && Number.isFinite(entry.zIndex))
-      .sort((left, right) => left.depth - right.depth)
-    let depthOrderValid = true
-    for (let index = 1; index < depthEntries.length; index += 1) {
-      const nearer = depthEntries[index - 1]
-      const farther = depthEntries[index]
-      if (farther.depth - nearer.depth > 0.000002 && farther.zIndex >= nearer.zIndex) {
-        depthOrderValid = false
-        break
-      }
-    }
-    tile?.classList.add('selected')
-    const selectedTileTransform = tile ? getComputedStyle(tile).transform : null
-    tile?.classList.remove('selected')
-    return {
-      inverseYaw: park?.style.getPropertyValue('--zoo-camera-yaw-inverse').trim(),
-      labelTransform: label ? getComputedStyle(label).transform : null,
-      depotTransform: depot ? getComputedStyle(depot).transform : null,
-      selectedTileTransform,
-      borderClipPath: border?.style.clipPath,
-      borderWidth: border?.style.width,
-      borderHeight: border?.style.height,
-      boundaryFenceTransform: boundaryFence?.style.transform,
-      boundaryFenceWidth: boundaryFence?.style.width,
-      boundaryFenceOpacity: boundaryFence ? getComputedStyle(boundaryFence).opacity : null,
-      depotOpacity: depot ? getComputedStyle(depot).opacity : null,
-      entranceBuildingOpacity: entranceBuilding ? getComputedStyle(entranceBuilding).opacity : null,
-      entranceBaseDisplay: entranceBase ? getComputedStyle(entranceBase).display : null,
-      depthSamples: depthEntries.length,
-      depthOrderValid,
-    }
-  })()`)
-  if (
-    projectedPresentation.inverseYaw !== "-45deg" ||
-    projectedPresentation.labelTransform !== "none" ||
-    projectedPresentation.depotTransform !== "none" ||
-    projectedPresentation.selectedTileTransform !== "none" ||
-    !projectedPresentation.borderClipPath?.startsWith("polygon(") ||
-    !(Number.parseFloat(projectedPresentation.borderWidth) > 0) ||
-    !(Number.parseFloat(projectedPresentation.borderHeight) > 0) ||
-    !projectedPresentation.boundaryFenceTransform?.startsWith("rotate(") ||
-    !(Number.parseFloat(projectedPresentation.boundaryFenceWidth) > 0) ||
-    projectedPresentation.boundaryFenceOpacity !== "0" ||
-    projectedPresentation.depotOpacity !== "0" ||
-    projectedPresentation.entranceBuildingOpacity !== "0" ||
-    projectedPresentation.entranceBaseDisplay !== "none" ||
-    projectedPresentation.depthSamples < 4 ||
-    !projectedPresentation.depthOrderValid
-  ) {
-    throw new Error(
-      `Projected DOM presentation is not coherent with shared camera geometry/depth: ${JSON.stringify(projectedPresentation)}`,
-    )
+    throw new Error(`Perspective camera and projected hit targets diverged: ${JSON.stringify(moved)}`)
   }
 
   const viewport = await evaluate(`(() => {
@@ -305,7 +259,7 @@ try {
     button.click()
     return true
   })()`)
-  if (!newParkReset) throw new Error("Could not start a new park during shared 3D camera dogfood")
+  if (!newParkReset) throw new Error("Could not start a new park during perspective camera dogfood")
 
   let restored = false
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -316,7 +270,7 @@ try {
     if (restored) break
     await sleep(50)
   }
-  if (!restored) throw new Error("Starting a new park did not reset the shared 3D camera")
+  if (!restored) throw new Error("Starting a new park did not reset the perspective camera")
 
   const rotatedAgain = await evaluate(`(() => {
     const button = document.querySelector('.camera-orbit-right')
@@ -324,7 +278,7 @@ try {
     button.click()
     return true
   })()`)
-  if (!rotatedAgain) throw new Error("Could not rotate the shared 3D camera after new-park reset")
+  if (!rotatedAgain) throw new Error("Could not rotate perspective camera after new-park reset")
 
   let rotated = false
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -332,7 +286,7 @@ try {
     if (rotated) break
     await sleep(50)
   }
-  if (!rotated) throw new Error("Shared 3D camera did not rotate after new-park reset")
+  if (!rotated) throw new Error("Perspective camera did not rotate after new-park reset")
 
   const topBarReset = await evaluate(`(() => {
     const button = document.querySelector('.camera-reset')
@@ -351,37 +305,10 @@ try {
     if (restored) break
     await sleep(50)
   }
-  if (!restored) throw new Error("Top-bar camera reset did not restore the shared 3D rig")
-
-  const rotatedForSharedReset = await evaluate(`(() => {
-    const button = document.querySelector('.camera-orbit-left')
-    if (!button) return false
-    button.click()
-    return true
-  })()`)
-  if (!rotatedForSharedReset) throw new Error("Could not rotate before testing the shared reset control")
-
-  const sharedReset = await evaluate(`(() => {
-    const button = document.querySelector('.camera-orbit-reset')
-    if (!button) return false
-    button.click()
-    return true
-  })()`)
-  if (!sharedReset) throw new Error("Could not reset shared 3D camera")
-
-  restored = false
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    restored = await evaluate(`(() => {
-      const park = document.querySelector('.park')
-      return park?.dataset.cameraYaw === '0' && park?.dataset.cameraPitch === '0'
-    })()`)
-    if (restored) break
-    await sleep(50)
-  }
-  if (!restored) throw new Error("Shared 3D camera did not return to the default isometric view")
+  if (!restored) throw new Error("Top-bar camera reset did not restore the perspective rig")
 
   console.log(
-    "Shared 3D camera dogfood passed: 3d-lab terrain, renderer-owned fences/buildings, projected interaction geometry/depth order, orbit/tilt, existing resets, and visual proof are coherent.",
+    "Perspective 3D camera dogfood passed: WebGL scene owns park visuals, perspective foreshortening is measurable, orbit/tilt reprojects interaction targets, and legacy CSS perspective is absent.",
   )
 } finally {
   cdp?.close()

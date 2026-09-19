@@ -157,7 +157,10 @@ try {
   let failed = false
   for (let attempt = 0; attempt < 160; attempt += 1) {
     failed = await evaluate(
-      `Boolean(document.querySelector('.concession-failed') && document.querySelector('.maintenance-alert'))`,
+      `Boolean(
+        document.querySelector('.concession-failed') &&
+        Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererMaintenanceNodes) > 0
+      )`,
     )
     if (failed) break
     await sleep(250)
@@ -178,7 +181,10 @@ try {
   let repaired = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
     repaired = await evaluate(
-      `Boolean(document.querySelector('.concession-healthy') && !document.querySelector('.maintenance-alert'))`,
+      `Boolean(
+        document.querySelector('.concession-healthy') &&
+        Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererMaintenanceNodes) === 0
+      )`,
     )
     if (repaired) break
     await sleep(250)
@@ -187,20 +193,27 @@ try {
 
   const finalState = JSON.parse(
     await evaluate(`JSON.stringify({
-      mechanic: Boolean(document.querySelector('.mechanic')),
+      mechanicNodes: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererMechanicNodes),
       healthy: Boolean(document.querySelector('.concession-healthy')),
-      noTask: !document.querySelector('.maintenance-alert'),
+      maintenanceNodes: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererMaintenanceNodes),
+      legacyOperationsSprites: document.querySelectorAll('.mechanic, .maintenance-alert').length,
       panel: document.body.textContent.includes('Repairs'),
     })`),
   )
-  if (!finalState.mechanic || !finalState.healthy || !finalState.noTask || !finalState.panel) {
+  if (
+    !(finalState.mechanicNodes > 0) ||
+    !finalState.healthy ||
+    finalState.maintenanceNodes !== 0 ||
+    finalState.legacyOperationsSprites !== 0 ||
+    !finalState.panel
+  ) {
     throw new Error(`Maintenance proof ended in unexpected state: ${JSON.stringify(finalState)}`)
   }
 
   mkdirSync("test-results", {recursive: true})
   const screenshot = await cdp.send("Page.captureScreenshot", {format: "png", fromSurface: true})
   writeFileSync("test-results/maintenance.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Maintenance dogfood passed: stand failed visibly and mechanic repaired it by path")
+  console.log("Maintenance dogfood passed: failed-stand work and mechanic presentation stay in the renderer-owned 3D scene")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")
