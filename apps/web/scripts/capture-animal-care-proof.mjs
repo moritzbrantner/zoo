@@ -144,10 +144,11 @@ try {
       hasAvailable: document.body.textContent.includes('Available for assignment'),
       hasJanitor: document.body.textContent.includes('Janitor #1'),
       janitorIdle: document.body.textContent.includes('Idle · park paths are clean'),
-      janitorRendered: Boolean(document.querySelector('.janitor')),
+      janitorNodes: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererJanitorNodes),
       hasMechanic: document.body.textContent.includes('Mechanic #1'),
       mechanicIdle: document.body.textContent.includes('Idle · facilities are maintained'),
-      mechanicRendered: Boolean(document.querySelector('.mechanic')),
+      mechanicNodes: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererMechanicNodes),
+      legacyStaffSprites: document.querySelectorAll('.janitor, .mechanic').length,
     })`),
   )
   if (
@@ -157,10 +158,11 @@ try {
     !finalState.hasAvailable ||
     !finalState.hasJanitor ||
     !finalState.janitorIdle ||
-    !finalState.janitorRendered ||
+    !(finalState.janitorNodes > 0) ||
     !finalState.hasMechanic ||
     !finalState.mechanicIdle ||
-    !finalState.mechanicRendered
+    !(finalState.mechanicNodes > 0) ||
+    finalState.legacyStaffSprites !== 0
   ) {
     throw new Error(`Animal-care depot did not reach expected state: ${JSON.stringify(finalState)}`)
   }
@@ -168,7 +170,7 @@ try {
   mkdirSync("test-results", {recursive: true})
   const screenshot = await cdp.send("Page.captureScreenshot", {format: "png", fromSurface: true})
   writeFileSync("test-results/animal-care-depot.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Operations-depot dogfood passed: feed purchased and keeper + janitor + mechanic hired centrally")
+  console.log("Operations-depot dogfood passed: staff state remains in Zoo while janitor and mechanic presentation is renderer-owned 3D geometry")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")
