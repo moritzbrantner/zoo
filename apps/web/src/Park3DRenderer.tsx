@@ -792,7 +792,7 @@ export default function Park3DRenderer({
     bridgeRef.current?.free()
     bridgeRef.current = new ParkCameraBridge(snapshot.width, snapshot.height)
     renderCurrent()
-  }, [snapshot.height, snapshot.width])
+  }, [renderCurrent, snapshot.height, snapshot.width])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -835,7 +835,7 @@ export default function Park3DRenderer({
       parkRef.current = null
       setReady(false)
     }
-  }, [renderCurrent, snapshot.height, snapshot.width])
+  }, [snapshot.height, snapshot.width])
 
   useEffect(() => {
     if (ready) renderCurrent()
