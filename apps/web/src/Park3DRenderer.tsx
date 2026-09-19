@@ -728,6 +728,18 @@ export default function Park3DRenderer({
       canvas.dataset.sharedRendererBuildingNodes = String(
         frame.nodes.filter((node) => node.id.startsWith("building:")).length,
       )
+      canvas.dataset.sharedRendererBoundaryFenceNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("fence:boundary:")).length,
+      )
+      canvas.dataset.sharedRendererHabitatFenceNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("fence:habitat:")).length,
+      )
+      canvas.dataset.sharedRendererPreviewFenceNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("fence:preview:")).length,
+      )
+      canvas.dataset.sharedRendererPlacementNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("placement:")).length,
+      )
       canvas.dataset.sharedRendererActorNodes = String(
         frame.nodes.filter(
           (node) =>
