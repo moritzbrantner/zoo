@@ -6,6 +6,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react"
+import Park3DRenderer from "./Park3DRenderer"
 import init, {ZooGame} from "./wasm/zoo_core"
 
 type Tool = "select" | "pan" | "path" | "habitat" | "food" | "drink" | "bulldoze"
@@ -14,7 +15,7 @@ type SpeciesKey = "capybara" | "flamingo" | "zebra" | "giraffe" | "elephant" | "
 type ConcessionKind = "food" | "drink"
 type FenceSide = "north" | "east" | "south" | "west"
 
-type Point = {
+export type Point = {
   x: number
   y: number
 }
@@ -175,7 +176,7 @@ type FinanceDay = {
   breakdown: FinanceBreakdown
 }
 
-type Snapshot = {
+export type Snapshot = {
   width: number
   height: number
   day: number
@@ -226,7 +227,7 @@ type ActionResult = {
   message: string
 }
 
-type PlacementEvaluation = {
+export type PlacementEvaluation = {
   ok: boolean
   message: string
   x: number
@@ -713,6 +714,12 @@ export default function App() {
             onPointerCancel={endPan}
             onPointerLeave={() => setHoveredTile(null)}
           >
+            <Park3DRenderer
+              snapshot={snapshot}
+              placement={placement}
+              hoveredTile={hoveredTile}
+              selectedTileIds={selectedTileIds}
+            />
             <div className="park-label">Starter Meadow</div>
 
             {snapshot.tiles
@@ -791,6 +798,11 @@ export default function App() {
             {placement && hoveredTile && (
               <div
                 className={`placement-price bevel ${placement.ok ? "valid" : "invalid"}`}
+                data-world-x={hoveredTile.x + 0.5}
+                data-world-y={1.2}
+                data-world-z={hoveredTile.y + 0.5}
+                data-hit-width={220}
+                data-hit-height={64}
                 style={{
                   left: isoPosition(hoveredTile.x, hoveredTile.y).left + 24,
                   top: isoPosition(hoveredTile.x, hoveredTile.y).top - 52,
@@ -829,6 +841,11 @@ export default function App() {
                 <button
                   type="button"
                   className="care-depot"
+                  data-world-x={depot.x + 0.5}
+                  data-world-y={0.72}
+                  data-world-z={depot.y + 0.5}
+                  data-hit-width={62}
+                  data-hit-height={62}
                   style={{
                     left: position.left + 4,
                     top: position.top - 54,
@@ -868,6 +885,11 @@ export default function App() {
                   type="button"
                   className={`concession concession-${stand.kind} concession-${stand.service_state}`}
                   key={`concession:${stand.id}`}
+                  data-world-x={stand.x + 0.5}
+                  data-world-y={0.62}
+                  data-world-z={stand.y + 0.5}
+                  data-hit-width={54}
+                  data-hit-height={54}
                   style={{
                     left: position.left + 8,
                     top: position.top - 42,
@@ -995,6 +1017,11 @@ export default function App() {
                   type="button"
                   className={`animal animal-${animal.species}`}
                   key={animal.id}
+                  data-world-x={animal.x + 0.5 + offset * 0.12}
+                  data-world-y={0.62}
+                  data-world-z={animal.y + 0.5 + (animal.slot % 2) * 0.12}
+                  data-hit-width={46}
+                  data-hit-height={46}
                   style={{
                     left: position.left + 14 + offset * 6,
                     top: position.top - 16 + (animal.slot % 2) * 5,
@@ -1029,6 +1056,11 @@ export default function App() {
                     type="button"
                     className="empty-habitat-marker"
                     key={`empty:${habitat.id}`}
+                    data-world-x={habitat.x + habitat.width / 2}
+                    data-world-y={0.45}
+                    data-world-z={habitat.y + habitat.height / 2}
+                    data-hit-width={48}
+                    data-hit-height={48}
                     style={{
                       left: center.left + 15,
                       top: center.top - 10,
@@ -1057,6 +1089,11 @@ export default function App() {
                     selectedGuestId === guest.id ? "selected" : ""
                   }`}
                   key={guest.id}
+                  data-world-x={guest.x + 0.5}
+                  data-world-y={0.7}
+                  data-world-z={guest.y + 0.5}
+                  data-hit-width={44}
+                  data-hit-height={44}
                   style={{
                     left: position.left + 24,
                     top: position.top - 4,
