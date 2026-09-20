@@ -266,6 +266,23 @@ function clock(minutes: number) {
   return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`
 }
 
+function speciesGlyph(species: SpeciesKey) {
+  switch (species) {
+    case "flamingo":
+      return "🦩"
+    case "zebra":
+      return "🦓"
+    case "giraffe":
+      return "🦒"
+    case "elephant":
+      return "🐘"
+    case "penguin":
+      return "🐧"
+    default:
+      return "C"
+  }
+}
+
 function speciesLabel(species: SpeciesKey | null, catalog: SpeciesOffer[]) {
   if (!species) return "Empty habitat"
   return catalog.find((offer) => offer.key === species)?.label ?? species
