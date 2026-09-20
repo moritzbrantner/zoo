@@ -231,14 +231,10 @@ mod tests {
 
     fn project_ndc(camera: PerspectiveCamera, point: Vec3) -> Vec3 {
         let matrix = camera.view_projection_matrix().elements;
-        let clip_x =
-            matrix[0] * point.x + matrix[4] * point.y + matrix[8] * point.z + matrix[12];
-        let clip_y =
-            matrix[1] * point.x + matrix[5] * point.y + matrix[9] * point.z + matrix[13];
-        let clip_z =
-            matrix[2] * point.x + matrix[6] * point.y + matrix[10] * point.z + matrix[14];
-        let clip_w =
-            matrix[3] * point.x + matrix[7] * point.y + matrix[11] * point.z + matrix[15];
+        let clip_x = matrix[0] * point.x + matrix[4] * point.y + matrix[8] * point.z + matrix[12];
+        let clip_y = matrix[1] * point.x + matrix[5] * point.y + matrix[9] * point.z + matrix[13];
+        let clip_z = matrix[2] * point.x + matrix[6] * point.y + matrix[10] * point.z + matrix[14];
+        let clip_w = matrix[3] * point.x + matrix[7] * point.y + matrix[11] * point.z + matrix[15];
 
         Vec3::new(clip_x / clip_w, clip_y / clip_w, clip_z / clip_w)
     }
