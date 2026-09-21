@@ -1,4 +1,4 @@
-.PHONY: test wasm web verify
+.PHONY: test wasm web verify assets assets-development assets-production assets-validate
 
 test:
 	cargo test --workspace
@@ -9,6 +9,17 @@ wasm:
 
 web: wasm
 	cd apps/web && bun install && bun run build
+
+assets-development:
+	blender --background --python tools/build_assets.py -- --stage development
+
+assets-production:
+	blender --background --python tools/build_assets.py -- --stage production
+
+assets: assets-development assets-production
+
+assets-validate:
+	blender --background --python tools/build_assets.py -- --validate
 
 verify:
 	cargo fmt --all --check
