@@ -341,6 +341,7 @@ export default function App() {
   const paintingRef = useRef(false)
   const paintedTilesRef = useRef(new Set<string>())
   const drawingFenceRef = useRef(false)
+  const fencePointerIdRef = useRef<number | null>(null)
   const fenceStartRef = useRef<Point | null>(null)
   const fenceEndRef = useRef<Point | null>(null)
   const panSessionRef = useRef<{
@@ -365,6 +366,15 @@ export default function App() {
   const [fenceEnd, setFenceEnd] = useState<Point | null>(null)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState<Point>({x: 0, y: 0})
+
+  const clearFenceGesture = useCallback(() => {
+    drawingFenceRef.current = false
+    fencePointerIdRef.current = null
+    fenceStartRef.current = null
+    fenceEndRef.current = null
+    setFenceStart(null)
+    setFenceEnd(null)
+  }, [])
 
   const refresh = useCallback(() => {
     const game = gameRef.current
@@ -405,40 +415,48 @@ export default function App() {
   }, [refresh, snapshot !== null, speed])
 
   useEffect(() => {
-    const finishGesture = () => {
+    const finishGesture = (event: PointerEvent) => {
       paintingRef.current = false
       paintedTilesRef.current.clear()
+
+      if (!drawingFenceRef.current || fencePointerIdRef.current !== event.pointerId) return
 
       const game = gameRef.current
       const start = fenceStartRef.current
       const end = fenceEndRef.current
-      if (drawingFenceRef.current && game && start && end) {
+      if (game && start && end) {
         perform(() => game.place_habitat_rect(start.x, start.y, end.x, end.y))
       }
 
-      drawingFenceRef.current = false
-      fenceStartRef.current = null
-      fenceEndRef.current = null
-      setFenceStart(null)
-      setFenceEnd(null)
+      clearFenceGesture()
+    }
+
+    const cancelGesture = (event: PointerEvent) => {
+      paintingRef.current = false
+      paintedTilesRef.current.clear()
+
+      if (drawingFenceRef.current && fencePointerIdRef.current === event.pointerId) {
+        clearFenceGesture()
+      }
     }
 
     window.addEventListener("pointerup", finishGesture)
-    window.addEventListener("pointercancel", finishGesture)
+    window.addEventListener("pointercancel", cancelGesture)
     return () => {
       window.removeEventListener("pointerup", finishGesture)
-      window.removeEventListener("pointercancel", finishGesture)
+      window.removeEventListener("pointercancel", cancelGesture)
     }
-  }, [perform])
+  }, [clearFenceGesture, perform])
 
   useEffect(() => {
-    if (tool === "habitat") return
-    drawingFenceRef.current = false
-    fenceStartRef.current = null
-    fenceEndRef.current = null
-    setFenceStart(null)
-    setFenceEnd(null)
-  }, [tool])
+    if (tool !== "path") {
+      paintingRef.current = false
+      paintedTilesRef.current.clear()
+    }
+    if (tool !== "habitat") {
+      clearFenceGesture()
+    }
+  }, [clearFenceGesture, tool])
 
   const selectedHabitat = useMemo(
     () => snapshot?.habitats.find((habitat) => habitat.id === selectedHabitatId) ?? null,
@@ -483,8 +501,11 @@ export default function App() {
     if (tool === "habitat") {
       event.preventDefault()
       event.stopPropagation()
+      if (drawingFenceRef.current) return
+
       const point = {x: tile.x, y: tile.y}
       drawingFenceRef.current = true
+      fencePointerIdRef.current = event.pointerId
       fenceStartRef.current = point
       fenceEndRef.current = point
       setFenceStart(point)
@@ -492,13 +513,17 @@ export default function App() {
     }
   }
 
-  const onTilePointerEnter = (tile: Tile) => {
+  const onTilePointerEnter = (event: ReactPointerEvent<HTMLButtonElement>, tile: Tile) => {
     const point = {x: tile.x, y: tile.y}
     setHoveredTile(point)
     if (tool === "path" && paintingRef.current) {
       paintPath(tile)
     }
-    if (tool === "habitat" && drawingFenceRef.current) {
+    if (
+      tool === "habitat" &&
+      drawingFenceRef.current &&
+      fencePointerIdRef.current === event.pointerId
+    ) {
       fenceEndRef.current = point
       setFenceEnd(point)
     }
@@ -607,14 +632,17 @@ export default function App() {
   }
 
   const reset = () => {
+    paintingRef.current = false
+    paintedTilesRef.current.clear()
+    clearFenceGesture()
+    panSessionRef.current = null
+
     gameRef.current?.reset()
     setTool("select")
     setSelectedHabitatId(null)
     setSelectedGuestId(null)
     setSelectedDepot(false)
     setHoveredTile(null)
-    setFenceStart(null)
-    setFenceEnd(null)
     setZoom(1)
     setPan({x: 0, y: 0})
     setMessage("New park started.")
@@ -733,7 +761,7 @@ export default function App() {
                       zIndex: tile.x + tile.y,
                     }}
                     onPointerDown={(event) => onTilePointerDown(event, tile)}
-                    onPointerEnter={() => onTilePointerEnter(tile)}
+                    onPointerEnter={(event) => onTilePointerEnter(event, tile)}
                     onClick={() => onTileClick(tile)}
                     title={`${tile.kind} (${tile.x}, ${tile.y})`}
                     aria-label={`${tile.kind} tile ${tile.x}, ${tile.y}`}

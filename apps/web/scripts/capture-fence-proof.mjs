@@ -156,6 +156,93 @@ try {
     },
   ]
 
+  const readBuildState = () =>
+    evaluate(`(() => {
+      const cashStat = [...document.querySelectorAll('.stat')].find(
+        (element) => element.querySelector('span')?.textContent === 'Cash',
+      )
+      return {
+        cash: cashStat?.querySelector('strong')?.textContent ?? null,
+        message: document.querySelector('.message')?.textContent ?? '',
+        previewRails: document.querySelectorAll('.fence-preview').length,
+        ghosts: document.querySelectorAll('.placement-ghost').length,
+        committedRails: document.querySelectorAll('.fence-segment:not(.fence-preview)').length,
+      }
+    })()`)
+
+  const moveTouch = async (from, to) => {
+    for (let step = 1; step <= 12; step += 1) {
+      const progress = step / 12
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: touchPoint({
+          x: from.x + (to.x - from.x) * progress,
+          y: from.y + (to.y - from.y) * progress,
+        }),
+      })
+    }
+  }
+
+  const dispatchTilePointer = (label, type, pointerId) =>
+    evaluate(`(() => {
+      const target = document.querySelector('[aria-label="' + ${JSON.stringify(label)} + '"]')
+      if (!target) return false
+      const rect = target.getBoundingClientRect()
+      target.dispatchEvent(
+        new PointerEvent(${JSON.stringify(type)}, {
+          bubbles: true,
+          cancelable: true,
+          pointerId: ${pointerId},
+          pointerType: 'touch',
+          isPrimary: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        }),
+      )
+      return true
+    })()`)
+
+  const dispatchWindowPointer = (type, pointerId) =>
+    evaluate(`(() => {
+      window.dispatchEvent(
+        new PointerEvent(${JSON.stringify(type)}, {
+          bubbles: true,
+          cancelable: true,
+          pointerId: ${pointerId},
+          pointerType: 'touch',
+          isPrimary: true,
+        }),
+      )
+      return true
+    })()`)
+
+  const initialState = await readBuildState()
+  if (!initialState.cash) throw new Error("Could not read initial Zoo cash before gesture tests")
+
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: touchPoint(points.start),
+  })
+  await moveTouch(points.start, points.end)
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchCancel",
+    touchPoints: [],
+  })
+  await sleep(100)
+
+  const cancelledState = await readBuildState()
+  if (
+    cancelledState.cash !== initialState.cash ||
+    cancelledState.committedRails !== 0 ||
+    cancelledState.previewRails !== 0 ||
+    cancelledState.ghosts !== 0 ||
+    cancelledState.message.includes("Habitat #1 fenced")
+  ) {
+    throw new Error(
+      `Cancelled touch gesture mutated habitat state: ${JSON.stringify({initialState, cancelledState})}`,
+    )
+  }
+
   await cdp.send("Input.dispatchTouchEvent", {
     type: "touchStart",
     touchPoints: touchPoint(points.start),
@@ -169,16 +256,7 @@ try {
     throw new Error("Touch press committed the habitat before the finger was released")
   }
 
-  for (let step = 1; step <= 12; step += 1) {
-    const progress = step / 12
-    await cdp.send("Input.dispatchTouchEvent", {
-      type: "touchMove",
-      touchPoints: touchPoint({
-        x: points.start.x + (points.end.x - points.start.x) * progress,
-        y: points.start.y + (points.end.y - points.start.y) * progress,
-      }),
-    })
-  }
+  await moveTouch(points.start, points.end)
 
   let previewState = null
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -222,6 +300,22 @@ try {
   )
   if (builtBeforeRelease) {
     throw new Error("Touch drag committed the habitat before touchEnd")
+  }
+
+  await dispatchWindowPointer("pointerup", 999)
+  await sleep(50)
+  const unrelatedReleaseState = await readBuildState()
+  if (
+    unrelatedReleaseState.cash !== initialState.cash ||
+    unrelatedReleaseState.committedRails !== 0 ||
+    unrelatedReleaseState.previewRails !== 14 ||
+    unrelatedReleaseState.ghosts !== 12
+  ) {
+    throw new Error(
+      `Unrelated pointer release stole or committed the active habitat gesture: ${JSON.stringify(
+        unrelatedReleaseState,
+      )}`,
+    )
   }
 
   await cdp.send("Input.dispatchTouchEvent", {
@@ -411,8 +505,129 @@ try {
   mkdirSync("test-results", {recursive: true})
   writeFileSync("test-results/fence-rendering.png", Buffer.from(screenshot.data, "base64"))
 
+  await cdp.send("Emulation.setDeviceMetricsOverride", {
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 1,
+    mobile: true,
+  })
+  await cdp.send("Emulation.setTouchEmulationEnabled", {enabled: true, maxTouchPoints: 2})
+  await evaluate(`window.__zooFenceProofBeforePhoneReload = true`)
+  await cdp.send("Page.reload", {ignoreCache: true})
+
+  let phoneReady = false
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    try {
+      phoneReady = await evaluate(
+        `!window.__zooFenceProofBeforePhoneReload && Boolean(document.querySelector('[aria-label="grass tile 1, 8"]'))`,
+      )
+    } catch {
+      phoneReady = false
+    }
+    if (phoneReady) break
+    await sleep(250)
+  }
+  if (!phoneReady) throw new Error("Zoo did not become interactive at the phone-sized viewport")
+
+  const phoneToolsReady = await evaluate(`(() => {
+    document.querySelector('button[title="Pause"]')?.click()
+    const drawHabitat = [...document.querySelectorAll('button.tool')].find((button) =>
+      button.textContent?.includes('Draw habitat'),
+    )
+    if (!drawHabitat) return false
+    drawHabitat.click()
+    return true
+  })()`)
+  if (!phoneToolsReady) {
+    throw new Error("Could not activate the habitat drawing tool at the phone-sized viewport")
+  }
+
+  const phoneInitialState = await readBuildState()
+  if (!(await dispatchTilePointer("grass tile 1, 8", "pointerdown", 31))) {
+    throw new Error("Could not start phone-sized habitat gesture")
+  }
+  await dispatchTilePointer("grass tile 4, 10", "pointerover", 32)
+  await sleep(50)
+
+  const unrelatedMoveState = await readBuildState()
+  if (
+    unrelatedMoveState.cash !== phoneInitialState.cash ||
+    unrelatedMoveState.committedRails !== 0 ||
+    unrelatedMoveState.ghosts !== 1
+  ) {
+    throw new Error(
+      `Unrelated pointer move changed the phone-sized habitat preview: ${JSON.stringify(
+        unrelatedMoveState,
+      )}`,
+    )
+  }
+
+  await dispatchTilePointer("grass tile 4, 10", "pointerover", 31)
+  await sleep(50)
+  const owningMoveState = await readBuildState()
+  if (owningMoveState.ghosts !== 12 || owningMoveState.committedRails !== 0) {
+    throw new Error(
+      `Owning pointer did not update the phone-sized 4×3 preview: ${JSON.stringify(
+        owningMoveState,
+      )}`,
+    )
+  }
+
+  await dispatchWindowPointer("pointerup", 32)
+  await sleep(50)
+  const phoneUnrelatedReleaseState = await readBuildState()
+  if (
+    phoneUnrelatedReleaseState.cash !== phoneInitialState.cash ||
+    phoneUnrelatedReleaseState.committedRails !== 0 ||
+    phoneUnrelatedReleaseState.ghosts !== 12
+  ) {
+    throw new Error(
+      `Unrelated pointer release stole the phone-sized habitat gesture: ${JSON.stringify(
+        phoneUnrelatedReleaseState,
+      )}`,
+    )
+  }
+
+  await dispatchWindowPointer("pointercancel", 31)
+  await sleep(50)
+  const phoneCancelledState = await readBuildState()
+  if (
+    phoneCancelledState.cash !== phoneInitialState.cash ||
+    phoneCancelledState.committedRails !== 0 ||
+    phoneCancelledState.previewRails !== 0 ||
+    phoneCancelledState.ghosts !== 0
+  ) {
+    throw new Error(
+      `Owning pointer cancellation mutated the phone-sized habitat state: ${JSON.stringify(
+        phoneCancelledState,
+      )}`,
+    )
+  }
+
+  await dispatchTilePointer("grass tile 1, 8", "pointerdown", 41)
+  await dispatchTilePointer("grass tile 4, 10", "pointerover", 41)
+  await dispatchWindowPointer("pointerup", 41)
+
+  let phoneCommittedState = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    phoneCommittedState = await readBuildState()
+    if (phoneCommittedState.committedRails === 14) break
+    await sleep(50)
+  }
+  if (
+    phoneCommittedState?.committedRails !== 14 ||
+    phoneCommittedState.cash === phoneInitialState.cash ||
+    !phoneCommittedState.message.includes("Habitat #1 fenced")
+  ) {
+    throw new Error(
+      `Owning pointer release did not commit exactly one phone-sized habitat: ${JSON.stringify(
+        phoneCommittedState,
+      )}`,
+    )
+  }
+
   console.log(
-    "Fence browser dogfood passed: touch drag previews projected 4×3 geometry, commits only on release, and renders 14 rails one-to-one on projected tile edges.",
+    "Fence browser dogfood passed: cancellation is non-mutating, unrelated pointers cannot update or commit habitat gestures, owning touch release commits once on desktop and phone-sized viewports, and the committed fence renders 14 rails one-to-one on projected tile edges.",
   )
 } finally {
   cdp?.close()
