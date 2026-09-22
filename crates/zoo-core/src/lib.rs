@@ -597,6 +597,19 @@ struct Guest {
 
 impl Guest {
     fn thought(&self) -> &'static str {
+        if self.route.is_empty()
+            && matches!(
+                self.state,
+                GuestState::Arriving | GuestState::WalkingToHabitat
+            )
+        {
+            return "The path to the animals is blocked.";
+        }
+        if (self.route.is_empty() && self.state == GuestState::WalkingToExit)
+            || (self.state == GuestState::Viewing && self.viewing_minutes == 0)
+        {
+            return "The path to the exit is blocked.";
+        }
         if self.thirst >= 60 {
             "I'm getting thirsty."
         } else if self.hunger >= 60 {
@@ -843,6 +856,7 @@ impl GameState {
             Some(TileKind::Grass) => match self.spend(PATH_COST, ExpenseCategory::Construction) {
                 Ok(()) => {
                     self.set_tile(x, y, TileKind::Path);
+                    self.refresh_guest_routes();
                     ActionResult::ok("Path built")
                 }
                 Err(message) => ActionResult::error(message),
@@ -1088,6 +1102,9 @@ impl GameState {
                 ActionResult::error("The park entrance cannot be demolished")
             }
             Some(TileKind::Path) => {
+                if self.guests.iter().any(|guest| guest.x == x && guest.y == y) {
+                    return ActionResult::error("A guest is standing on that path tile");
+                }
                 if self
                     .janitors
                     .iter()
@@ -1118,6 +1135,7 @@ impl GameState {
                     }
                 }
                 self.set_tile(x, y, TileKind::Grass);
+                self.refresh_guest_routes();
                 self.release_unreachable_mechanic_assignments();
                 ActionResult::ok("Path removed")
             }
@@ -1231,18 +1249,24 @@ impl GameState {
     }
 
     fn depot_staff_spawn(&self) -> Option<Position> {
-        self.neighbors(Position {
+        let access_tiles = self.neighbors(Position {
             x: ANIMAL_CARE_DEPOT_X,
             y: ANIMAL_CARE_DEPOT_Y,
-        })
-        .into_iter()
-        .find(|position| self.is_walkable(*position))
+        });
+        self.path_to_any(
+            Position {
+                x: ENTRANCE_X,
+                y: ENTRANCE_Y,
+            },
+            &access_tiles,
+        )
+        .and_then(|route| route.last().copied())
     }
 
     fn hire_janitor(&mut self) -> ActionResult {
         let Some(spawn) = self.depot_staff_spawn() else {
             return ActionResult::error(
-                "Connect the central operations depot to a path before hiring janitors",
+                "Connect the central operations depot to the park entrance before hiring janitors",
             );
         };
         if let Err(message) = self.spend(JANITOR_HIRE_COST, ExpenseCategory::JanitorHiring) {
@@ -1265,7 +1289,7 @@ impl GameState {
     fn hire_mechanic(&mut self) -> ActionResult {
         let Some(spawn) = self.depot_staff_spawn() else {
             return ActionResult::error(
-                "Connect the central operations depot to a path before hiring mechanics",
+                "Connect the central operations depot to the park entrance before hiring mechanics",
             );
         };
         if let Err(message) = self.spend(MECHANIC_HIRE_COST, ExpenseCategory::MechanicHiring) {
@@ -1530,25 +1554,26 @@ impl GameState {
     }
 
     fn try_spawn_guest(&mut self) {
-        let candidates: Vec<(u32, Position)> = self
+        let start = Position {
+            x: ENTRANCE_X,
+            y: ENTRANCE_Y,
+        };
+        let mut candidates: Vec<(u32, Vec<Position>)> = self
             .habitats
             .iter()
             .filter(|habitat| habitat.animals > 0)
-            .filter_map(|habitat| self.viewing_tile(habitat).map(|tile| (habitat.id, tile)))
+            .filter_map(|habitat| {
+                self.viewing_route(habitat, start)
+                    .map(|route| (habitat.id, route))
+            })
             .collect();
         if candidates.is_empty() {
             return;
         }
 
+        // Choose only among reachable attractions and reuse the selected search result.
         let choice = (self.next_guest_id as usize) % candidates.len();
-        let (target_habitat, target_tile) = candidates[choice];
-        let start = Position {
-            x: ENTRANCE_X,
-            y: ENTRANCE_Y,
-        };
-        let Some(route) = self.path_between(start, target_tile) else {
-            return;
-        };
+        let (target_habitat, route) = candidates.swap_remove(choice);
 
         self.earn(ADMISSION_PRICE, IncomeCategory::Admissions);
         self.guests.push(Guest {
@@ -1605,6 +1630,50 @@ impl GameState {
             })
     }
 
+    fn refresh_guest_routes(&mut self) {
+        // Topology edits, not simulation ticks, retry blocked routes. Preserve valid
+        // cached routes so unrelated construction does not restart guest journeys.
+        for index in 0..self.guests.len() {
+            let guest = &self.guests[index];
+            if guest.state == GuestState::Viewing {
+                continue;
+            }
+            let still_walkable = guest
+                .route
+                .get(guest.route_index..)
+                .is_some_and(|remaining| {
+                    !remaining.is_empty()
+                        && remaining.iter().all(|position| self.is_walkable(*position))
+                });
+            if still_walkable {
+                continue;
+            }
+            let start = Position {
+                x: guest.x,
+                y: guest.y,
+            };
+            let route = match guest.state {
+                GuestState::Arriving | GuestState::WalkingToHabitat => self
+                    .habitats
+                    .iter()
+                    .find(|habitat| habitat.id == guest.target_habitat)
+                    .and_then(|habitat| self.viewing_route(habitat, start)),
+                GuestState::WalkingToExit => self.path_between(
+                    start,
+                    Position {
+                        x: ENTRANCE_X,
+                        y: ENTRANCE_Y,
+                    },
+                ),
+                GuestState::Viewing => unreachable!("viewing guests have no active walking route"),
+            };
+            let guest = &mut self.guests[index];
+            // An empty route means waiting in place, never having arrived.
+            guest.route = route.unwrap_or_default();
+            guest.route_index = 0;
+        }
+    }
+
     fn advance_guest_movement(&mut self) {
         let mut leave_ids = Vec::new();
 
@@ -1622,9 +1691,17 @@ impl GameState {
                 continue;
             }
 
+            if self.guests[index].route.is_empty() {
+                continue;
+            }
             let next_index = self.guests[index].route_index + 1;
             if next_index < self.guests[index].route.len() {
                 let position = self.guests[index].route[next_index];
+                if !self.is_walkable(position) {
+                    self.guests[index].route.clear();
+                    self.guests[index].route_index = 0;
+                    continue;
+                }
                 self.guests[index].route_index = next_index;
                 self.guests[index].x = position.x;
                 self.guests[index].y = position.y;
@@ -2286,21 +2363,29 @@ impl GameState {
         )
     }
 
-    fn viewing_tile(&self, habitat: &Habitat) -> Option<Position> {
+    fn viewing_route(&self, habitat: &Habitat, start: Position) -> Option<Vec<Position>> {
+        let mut goals = Vec::new();
         for y in habitat.y..habitat.y + habitat.height {
             for x in habitat.x..habitat.x + habitat.width {
                 for neighbor in self.neighbors(Position { x, y }) {
-                    if self.is_walkable(neighbor) {
-                        return Some(neighbor);
+                    if self.is_walkable(neighbor) && !goals.contains(&neighbor) {
+                        goals.push(neighbor);
                     }
                 }
             }
         }
-        None
+        self.path_to_any(start, &goals)
     }
 
     fn path_between(&self, start: Position, goal: Position) -> Option<Vec<Position>> {
-        if !self.is_walkable(start) || !self.is_walkable(goal) {
+        if !self.is_walkable(goal) {
+            return None;
+        }
+        self.path_to_any(start, &[goal])
+    }
+
+    fn path_to_any(&self, start: Position, goals: &[Position]) -> Option<Vec<Position>> {
+        if !self.is_walkable(start) || goals.is_empty() {
             return None;
         }
 
@@ -2308,8 +2393,10 @@ impl GameState {
         let mut previous: HashMap<(u32, u32), Option<Position>> =
             HashMap::from([((start.x, start.y), None)]);
 
+        // One BFS considers all access points. Equal-length routes follow the
+        // existing neighbor order; randomized HashMap iteration is never used.
         while let Some(current) = queue.pop_front() {
-            if current == goal {
+            if goals.contains(&current) {
                 let mut route = vec![current];
                 let mut cursor = current;
                 while let Some(Some(parent)) = previous.get(&(cursor.x, cursor.y)) {
