@@ -512,11 +512,18 @@ try {
     mobile: true,
   })
   await cdp.send("Emulation.setTouchEmulationEnabled", {enabled: true, maxTouchPoints: 2})
+  await evaluate(`window.__zooFenceProofBeforePhoneReload = true`)
   await cdp.send("Page.reload", {ignoreCache: true})
 
   let phoneReady = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    phoneReady = await evaluate(`Boolean(document.querySelector('[aria-label="grass tile 1, 8"]'))`)
+    try {
+      phoneReady = await evaluate(
+        `!window.__zooFenceProofBeforePhoneReload && Boolean(document.querySelector('[aria-label="grass tile 1, 8"]'))`,
+      )
+    } catch {
+      phoneReady = false
+    }
     if (phoneReady) break
     await sleep(250)
   }
