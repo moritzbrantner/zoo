@@ -369,6 +369,41 @@ try {
     )
   }
 
+  let rendererFenceState = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    rendererFenceState = JSON.parse(
+      await evaluate(`JSON.stringify((() => {
+        const canvas = document.querySelector('.park-three-renderer-canvas')
+        const committed = [...document.querySelectorAll('.fence-segment:not(.fence-preview)')]
+        return {
+          ready: canvas?.dataset.sharedRenderer === 'ready',
+          habitatSegments: Number(canvas?.dataset.sharedRendererHabitatFenceSegments ?? 0),
+          previewSegments: Number(canvas?.dataset.sharedRendererPreviewFenceSegments ?? 0),
+          legacyVisible: committed.filter((rail) => getComputedStyle(rail).opacity !== '0').length,
+        }
+      })())`),
+    )
+    if (
+      rendererFenceState.ready &&
+      rendererFenceState.habitatSegments === 14 &&
+      rendererFenceState.previewSegments === 0 &&
+      rendererFenceState.legacyVisible === 0
+    ) {
+      break
+    }
+    await sleep(50)
+  }
+  if (
+    !rendererFenceState?.ready ||
+    rendererFenceState.habitatSegments !== 14 ||
+    rendererFenceState.previewSegments !== 0 ||
+    rendererFenceState.legacyVisible !== 0
+  ) {
+    throw new Error(
+      `Committed fences are not exclusively renderer-owned: ${JSON.stringify(rendererFenceState)}`,
+    )
+  }
+
   const geometry = await evaluate(`(() => {
     const polygonPoints = (tile) => {
       const style = getComputedStyle(tile)
@@ -627,7 +662,7 @@ try {
   }
 
   console.log(
-    "Fence browser dogfood passed: cancellation is non-mutating, unrelated pointers cannot update or commit habitat gestures, owning touch release commits once on desktop and phone-sized viewports, and the committed fence renders 14 rails one-to-one on projected tile edges.",
+    "Fence browser dogfood passed: cancellation is non-mutating, unrelated pointers cannot update or commit habitat gestures, owning touch release commits once on desktop and phone-sized viewports, and 14 authoritative fence segments render in 3D while legacy rails remain hidden.",
   )
 } finally {
   cdp?.close()
