@@ -203,10 +203,10 @@ try {
         }
       })())`),
     )
-    if (rendererState.ready && rendererState.nodeCount === 16 && rendererState.artworkHidden) break
+    if (rendererState.ready && rendererState.nodeCount === 27 && rendererState.artworkHidden) break
     await sleep(50)
   }
-  if (!rendererState?.ready || rendererState.nodeCount !== 16 || !rendererState.artworkHidden) {
+  if (!rendererState?.ready || rendererState.nodeCount !== 27 || !rendererState.artworkHidden) {
     throw new Error(
       `Concessions did not settle as renderer-owned 3D models: ${JSON.stringify(rendererState)}`,
     )
