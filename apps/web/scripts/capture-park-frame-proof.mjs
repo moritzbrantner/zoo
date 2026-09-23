@@ -204,7 +204,7 @@ try {
     if (
       rendererFrame.ready &&
       rendererFrame.boundarySegments === expectedFenceCount &&
-      rendererFrame.buildingNodes === 20 &&
+      rendererFrame.buildingNodes === 24 &&
       rendererFrame.legacyBoundaryVisible === 0 &&
       !rendererFrame.legacyEntranceVisible &&
       rendererFrame.depotArtworkHidden
@@ -217,7 +217,7 @@ try {
   if (
     !rendererFrame?.ready ||
     rendererFrame.boundarySegments !== expectedFenceCount ||
-    rendererFrame.buildingNodes !== 20 ||
+    rendererFrame.buildingNodes !== 24 ||
     rendererFrame.legacyBoundaryVisible !== 0 ||
     rendererFrame.legacyEntranceVisible ||
     !rendererFrame.depotArtworkHidden
