@@ -403,9 +403,17 @@ function renderEntranceBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
   ]
 }
 
-function renderDepotBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
+function depotOrigin(snapshot: Snapshot) {
   const depot = snapshot.animal_care_depot
-  const origin = {x: depot.x + 1, z: depot.y}
+  return {x: depot.x + 1, z: depot.y}
+}
+
+function concessionOrigin(stand: Snapshot["concessions"][number]) {
+  return {x: stand.x + 1, z: stand.y}
+}
+
+function renderDepotBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
+  const origin = depotOrigin(snapshot)
 
   return [
     buildingBox("building:depot:plinth", origin, [0, 0.06, 0], [1.3, 0.12, 1.02], "#a9a68f"),
@@ -424,7 +432,7 @@ function renderConcessionNodes(snapshot: Snapshot): RendererSceneNode[] {
   const nodes: RendererSceneNode[] = []
 
   for (const stand of snapshot.concessions) {
-    const origin = {x: stand.x + 1, z: stand.y}
+    const origin = concessionOrigin(stand)
     const body: HexColor = stand.kind === "food" ? "#c87842" : "#4f8298"
     const awning: HexColor =
       stand.service_state === "failed"
@@ -683,6 +691,30 @@ function inferWorldAnchor(canonical: {left: number; top: number}, rule: OverlayR
   return [snap(rawX, rule.snap), 0, snap(rawZ, rule.snap)] as WorldPoint
 }
 
+function projectWorldHitTarget(
+  element: HTMLElement,
+  anchor: WorldPoint,
+  camera: RendererCamera,
+  width: number,
+  height: number,
+) {
+  const projected = projectWorldPoint(camera, anchor, PROJECTION_VIEWPORT)
+  const left = `${Number((projected.x - width * 0.5).toFixed(3))}px`
+  const top = `${Number((projected.y - height * 0.5).toFixed(3))}px`
+
+  element.dataset.sharedRendererAppliedLeft = left
+  element.dataset.sharedRendererAppliedTop = top
+  element.dataset.sharedRendererWorldX = String(anchor[0])
+  element.dataset.sharedRendererWorldY = String(anchor[1])
+  element.dataset.sharedRendererWorldZ = String(anchor[2])
+  applyStyle(element, "left", left)
+  applyStyle(element, "top", top)
+  applyStyle(element, "width", `${width}px`)
+  applyStyle(element, "height", `${height}px`)
+  applyStyle(element, "clipPath", "none")
+  applyProjectedDepth(element, projected.depth)
+}
+
 function projectOverlay(element: HTMLElement, canonical: {left: number; top: number}, camera: RendererCamera) {
   const rule = overlayRule(element)
   if (!rule) return
@@ -701,11 +733,27 @@ function projectOverlay(element: HTMLElement, canonical: {left: number; top: num
   applyProjectedDepth(element, projected.depth)
 }
 
-function projectDomOverlay(park: HTMLElement, camera: RendererCamera) {
+function projectDomOverlay(park: HTMLElement, camera: RendererCamera, snapshot: Snapshot) {
   for (const element of park.querySelectorAll<HTMLElement>("[style]")) {
     if (element.classList.contains("park-three-renderer-canvas")) continue
     const canonical = captureCanonicalPosition(element)
     if (!canonical) continue
+
+    if (element.classList.contains("concession")) {
+      const concessionId = Number(element.dataset.concessionId)
+      const stand = snapshot.concessions.find((candidate) => candidate.id === concessionId)
+      if (stand) {
+        const origin = concessionOrigin(stand)
+        projectWorldHitTarget(element, [origin.x, 0.48, origin.z], camera, 54, 54)
+        continue
+      }
+    }
+
+    if (element.classList.contains("care-depot")) {
+      const origin = depotOrigin(snapshot)
+      projectWorldHitTarget(element, [origin.x, 0.5, origin.z], camera, 62, 62)
+      continue
+    }
 
     const tile = parseTile(element)
     if (tile) {
@@ -740,7 +788,9 @@ function restoreDomOverlay(park: HTMLElement) {
     if (
       element.classList.contains("tile") ||
       element.classList.contains("placement-ghost") ||
-      element.classList.contains("park-border-tile")
+      element.classList.contains("park-border-tile") ||
+      element.classList.contains("concession") ||
+      element.classList.contains("care-depot")
     ) {
       element.style.removeProperty("width")
       element.style.removeProperty("height")
@@ -767,6 +817,9 @@ function restoreDomOverlay(park: HTMLElement) {
     delete element.dataset.sharedRendererAppliedLeft
     delete element.dataset.sharedRendererAppliedTop
     delete element.dataset.sharedRendererAppliedZIndex
+    delete element.dataset.sharedRendererWorldX
+    delete element.dataset.sharedRendererWorldY
+    delete element.dataset.sharedRendererWorldZ
     delete element.dataset.sharedRendererDepth
   }
 }
@@ -830,7 +883,7 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
         canvasRef.current.dataset.sharedRendererBuildingNodes = String(buildingNodes.length)
         canvasRef.current.dataset.sharedRendererConcessionNodes = String(concessionNodes.length)
       }
-      projectDomOverlay(targets.park, camera)
+      projectDomOverlay(targets.park, camera, currentSnapshot)
 
       const yaw = relativeYaw(camera.yawDegrees)
       const pitch = relativePitch(camera.pitchDegrees)
