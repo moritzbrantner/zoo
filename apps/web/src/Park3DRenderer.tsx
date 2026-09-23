@@ -126,6 +126,39 @@ type RendererInputs = {
 
 type Props = RendererInputs
 
+function sceneBox(
+  id: string,
+  translation: WorldPoint,
+  size: WorldPoint,
+  color: HexColor,
+  rotationQuaternion?: [number, number, number, number],
+): RendererSceneNode {
+  return {
+    id,
+    transform:
+      rotationQuaternion === undefined
+        ? {translation}
+        : {translation, rotationQuaternion},
+    geometry: {kind: "box", size},
+    color,
+  }
+}
+
+function sceneCylinder(
+  id: string,
+  translation: WorldPoint,
+  radius: number,
+  height: number,
+  color: HexColor,
+): RendererSceneNode {
+  return {
+    id,
+    transform: {translation},
+    geometry: {kind: "cylinder", radius, height},
+    color,
+  }
+}
+
 function worldPointKey([x, , z]: WorldPoint) {
   return `${x.toFixed(3)}:${z.toFixed(3)}`
 }
@@ -421,7 +454,7 @@ function renderBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
   return [...renderEntranceBuildingNodes(snapshot), ...renderDepotBuildingNodes(snapshot)]
 }
 
-function relativeYaw(function relativeYaw(yawDegrees: number) {
+function relativeYaw(yawDegrees: number) {
   return ((yawDegrees - DEFAULT_SHARED_YAW) % 360 + 360) % 360
 }
 
