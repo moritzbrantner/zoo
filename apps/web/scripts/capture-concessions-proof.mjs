@@ -121,6 +121,15 @@ try {
       return Boolean(button)
     })()`)
     if (!ok) throw new Error(`Missing tool: ${label}`)
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const active = await evaluate(
+        `Boolean(document.querySelector('.tool.active')?.textContent?.includes(${JSON.stringify(label)}))`,
+      )
+      if (active) return
+      await sleep(50)
+    }
+    throw new Error(`Tool did not become active: ${label}`)
   }
   const clickTile = async (x, y) => {
     const point = JSON.parse(await evaluate(`JSON.stringify(
