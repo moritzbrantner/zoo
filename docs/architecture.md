@@ -26,8 +26,8 @@ The migration therefore proceeds upstream-first:
 1. The missing orthographic/isometric-capable camera primitive was added to `3d-lab` rather than extending Zoo's CSS camera math.
 2. `zoo-scene` is the thin Zoo-owned adapter over one exact pinned `3d-lab` revision. It owns park framing, orbit steps, pitch bounds, and zoom policy while returning shared camera matrices.
 3. `3d-lab` now also owns the reusable concrete Three.js renderer. Zoo consumes it at the same exact accepted revision; React does not instantiate its own generic renderer.
-4. The first migration slice renders terrain through the shared renderer, removes the Zoo-local CSS camera implementation, and keeps existing DOM tiles temporarily as transparent interaction targets. Those targets are reprojected with `3d-lab`'s shared world-to-screen helper, so rotation does not require local matrix math.
-5. Boundary/habitat fences plus the entrance and operations-depot buildings now render as real shared-renderer 3D geometry. Their projected DOM counterparts remain temporarily as invisible interaction/proof targets; concessions, actors, and other pseudo-3D objects migrate incrementally into shared scene nodes until renderer picking/interaction reaches parity.
+4. The park world is rendered exclusively by the shared 3D renderer: terrain, paths, selection/placement feedback, boundary and habitat fences, entrance/depot/concessions, animals, guests, staff, litter, and maintenance markers all come directly from authoritative snapshot/placement state.
+5. Pointer picking is canvas/world-space interaction derived from the shared camera. React retains HUD/windows/toolbars plus off-screen semantic controls for accessibility and browser-command dogfood; it no longer positions, styles, or projects a parallel DOM park scene.
 6. Durable 3D assets move through `asset-tooling`; renderer-independent mesh/material/LOD semantics remain in `3d-lab`.
 7. Path construction, habitat ownership, guest choices, welfare, economy, staff tasks, and other game-specific rules remain in `zoo-core`.
 8. `physics-engine` is added only for interactions whose gameplay semantics require physical collision/motion truth. Tile occupancy and ordinary park pathfinding do not become physics problems merely because the game is rendered in 3D.
@@ -51,7 +51,7 @@ A local substitute is acceptable only when all of the following hold:
 
 Camera orbit, zoom gestures, framing targets, and persistence are Zoo interaction policy. Projection/view math and concrete rendering are shared 3D infrastructure. Selection and placement intent may originate in the presentation layer, but final validity remains a `zoo-core` decision.
 
-The current DOM tile layer is explicitly transitional: while terrain has moved to the shared renderer, transparent DOM controls remain for the already-proven mouse/touch placement commands. Their positions are derived through the shared projection helper rather than a second camera implementation. They should disappear once shared renderer picking can preserve equivalent desktop and phone-sized interaction.
+The renderer canvas is the only visual park surface. Tile and entity picking projects authoritative world geometry through the shared camera, so camera rotation, placement, selection, and rendering share one coordinate authority. Off-screen semantic controls may mirror commands for accessibility/testability, but they must never carry world-space CSS or become a second visual scene.
 
 Mobile and desktop inputs must converge on the same commands. Touch-specific gesture handling is presentation state and must not create a second rules path.
 
