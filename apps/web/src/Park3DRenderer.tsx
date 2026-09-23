@@ -149,7 +149,19 @@ type RendererInputs = {
   placement: PlacementEvaluation | null
 }
 
-type Props = RendererInputs
+type Props = RendererInputs & {
+  tool: Tool
+  selectedHabitatId: number | null
+  selectedGuestId: number | null
+  selectedDepot: boolean
+  hoveredTile: TilePoint | null
+  onTilePointerDown(pointerId: number, tile: Snapshot["tiles"][number]): void
+  onTilePointerMove(pointerId: number, tile: Snapshot["tiles"][number]): void
+  onTileClick(tile: Snapshot["tiles"][number]): void
+  onHoverTile(tile: TilePoint | null): void
+  onGuestClick(guestId: number): void
+  onDepotClick(): void
+}
 
 function sceneBox(
   id: string,
@@ -956,221 +968,296 @@ function parseCameraFrame(bridge: ParkCameraBridge): CameraFrame {
   return JSON.parse(bridge.frame_json(RENDER_ASPECT)) as CameraFrame
 }
 
-export default function Park3DRenderer({snapshot, placement}: Props) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+export default function Park3DRenderer({
+  snapshot,
+  placement,
+  tool,
+  selectedHabitatId,
+  selectedGuestId,
+  selectedDepot,
+  hoveredTile,
+  onTilePointerDown,
+  onTilePointerMove,
+  onTileClick,
+  onHoverTile,
+  onGuestClick,
+  onDepotClick,
+}: Props) {
+  const canvasRef = useRef<WorldCanvas | null>(null)
   const rendererRef = useRef<ThreeSceneRenderer | null>(null)
   const bridgeRef = useRef<ParkCameraBridge | null>(null)
-  const renderRequestRef = useRef<number | null>(null)
-  const renderInputsRef = useRef<RendererInputs>({snapshot, placement})
-  renderInputsRef.current = {snapshot, placement}
-  const [targets, setTargets] = useState<Targets | null>(null)
+  const cameraRef = useRef<CameraFrame | null>(null)
+  const lastHoverKeyRef = useRef<string | null>(null)
   const [cameraLabel, setCameraLabel] = useState({yaw: 0, pitch: 0})
   const [ready, setReady] = useState(false)
-
-  useEffect(() => {
-    const root = document.getElementById("root")
-    if (!root) return
-
-    const sync = () => {
-      const park = root.querySelector<HTMLElement>(".park")
-      const viewport = root.querySelector<HTMLElement>(".viewport")
-      if (!park || !viewport) return
-      setTargets((current) =>
-        current?.park === park && current.viewport === viewport ? current : {park, viewport},
-      )
-    }
-
-    sync()
-    const observer = new MutationObserver(sync)
-    observer.observe(root, {childList: true, subtree: true})
-    return () => observer.disconnect()
-  }, [])
+  const [failed, setFailed] = useState(false)
 
   const renderCurrent = useCallback(() => {
-    if (!targets || !rendererRef.current || !bridgeRef.current) return false
-    try {
-      const tiles = collectTiles(targets.park)
-      if (tiles.length === 0) return false
+    const canvas = canvasRef.current
+    const renderer = rendererRef.current
+    const bridge = bridgeRef.current
+    if (!canvas || !renderer || !bridge) return false
 
-      const camera = parseCameraFrame(bridgeRef.current)
-      const {snapshot: currentSnapshot, placement: currentPlacement} = renderInputsRef.current
-      const tileNodes = renderNodes(tiles)
-      const fenceFrame = renderFenceNodes(currentSnapshot, currentPlacement)
-      const buildingNodes = renderBuildingNodes(currentSnapshot)
-      const concessionNodes = renderConcessionNodes(currentSnapshot)
+    try {
+      const camera = parseCameraFrame(bridge)
+      cameraRef.current = camera
+
+      const terrainNodes = renderTerrainNodes(
+        snapshot,
+        selectedHabitatId,
+        placement,
+        hoveredTile,
+        tool,
+      )
+      const fenceFrame = renderFenceNodes(snapshot, placement)
+      const buildingNodes = renderBuildingNodes(snapshot)
+      const concessionNodes = renderConcessionNodes(snapshot)
+      const animalNodes = renderAnimalNodes(snapshot)
+      const peopleNodes = renderPeopleNodes(snapshot, selectedGuestId)
+      const operationsNodes = renderOperationsNodes(snapshot)
+      const selectionNodes = renderSelectionNodes(snapshot, selectedDepot)
+
       const frame: RendererFrame = {
         camera,
-        nodes: [...tileNodes, ...fenceFrame.nodes, ...buildingNodes, ...concessionNodes],
+        nodes: [
+          ...terrainNodes,
+          ...fenceFrame.nodes,
+          ...buildingNodes,
+          ...concessionNodes,
+          ...animalNodes,
+          ...peopleNodes,
+          ...operationsNodes,
+          ...selectionNodes,
+        ],
       }
-      rendererRef.current.render(frame)
-      if (canvasRef.current) {
-        canvasRef.current.dataset.sharedRendererFenceNodes = String(fenceFrame.nodes.length)
-        canvasRef.current.dataset.sharedRendererBoundaryFenceSegments = String(fenceFrame.counts.boundary)
-        canvasRef.current.dataset.sharedRendererHabitatFenceSegments = String(fenceFrame.counts.habitat)
-        canvasRef.current.dataset.sharedRendererPreviewFenceSegments = String(fenceFrame.counts.preview)
-        canvasRef.current.dataset.sharedRendererBuildingNodes = String(buildingNodes.length)
-        canvasRef.current.dataset.sharedRendererConcessionNodes = String(concessionNodes.length)
-      }
-      projectDomOverlay(targets.park, camera, currentSnapshot)
+      renderer.render(frame)
 
+      canvas.dataset.sharedRenderer = "ready"
+      canvas.dataset.worldRenderer = "exclusive"
+      canvas.dataset.sharedRendererNodeCount = String(frame.nodes.length)
+      canvas.dataset.sharedRendererTileNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("tile:")).length,
+      )
+      canvas.dataset.sharedRendererFenceNodes = String(fenceFrame.nodes.length)
+      canvas.dataset.sharedRendererBoundaryFenceSegments = String(fenceFrame.counts.boundary)
+      canvas.dataset.sharedRendererHabitatFenceSegments = String(fenceFrame.counts.habitat)
+      canvas.dataset.sharedRendererPreviewFenceSegments = String(fenceFrame.counts.preview)
+      canvas.dataset.sharedRendererBuildingNodes = String(buildingNodes.length)
+      canvas.dataset.sharedRendererConcessionNodes = String(concessionNodes.length)
+      canvas.dataset.sharedRendererAnimalNodes = String(animalNodes.length)
+      canvas.dataset.sharedRendererGuestCount = String(snapshot.guests.length)
+      canvas.dataset.sharedRendererJanitorCount = String(snapshot.animal_care_depot.janitors.length)
+      canvas.dataset.sharedRendererMechanicCount = String(snapshot.animal_care_depot.mechanics.length)
+      canvas.dataset.sharedRendererLitterCount = String(snapshot.litter.length)
+      canvas.dataset.sharedRendererMaintenanceCount = String(snapshot.maintenance.length)
+
+      const park = canvas.parentElement
       const yaw = relativeYaw(camera.yawDegrees)
       const pitch = relativePitch(camera.pitchDegrees)
-      targets.park.dataset.cameraYaw = String(yaw)
-      targets.park.dataset.cameraPitch = String(pitch)
-      const inverseYaw = `${-yaw}deg`
-      const inversePitch = `${-pitch}deg`
-      if (targets.park.style.getPropertyValue("--zoo-camera-yaw-inverse").trim() !== inverseYaw) {
-        targets.park.style.setProperty("--zoo-camera-yaw-inverse", inverseYaw)
-      }
-      if (targets.park.style.getPropertyValue("--zoo-camera-pitch-inverse").trim() !== inversePitch) {
-        targets.park.style.setProperty("--zoo-camera-pitch-inverse", inversePitch)
+      if (park instanceof HTMLElement) {
+        park.dataset.cameraYaw = String(yaw)
+        park.dataset.cameraPitch = String(pitch)
       }
       setCameraLabel((current) =>
         current.yaw === yaw && current.pitch === pitch ? current : {yaw, pitch},
       )
-      if (!targets.park.classList.contains("shared-three-renderer")) {
-        targets.park.classList.add("shared-three-renderer")
+
+      canvas.__zooWorldDebug = {
+        tileCenterClient(x, y) {
+          const activeCamera = cameraRef.current
+          if (!activeCamera || !snapshot.tiles.some((tile) => tile.x === x && tile.y === y)) {
+            return null
+          }
+          return clientPointForWorld(canvas, activeCamera, tileCenter(x, y, 0.08))
+        },
+        entityCenterClient(kind, id) {
+          const activeCamera = cameraRef.current
+          if (!activeCamera) return null
+          if (kind === "depot") {
+            const origin = depotOrigin(snapshot)
+            return clientPointForWorld(canvas, activeCamera, [origin.x, 0.55, origin.z])
+          }
+          if (kind === "guest") {
+            const guest = snapshot.guests.find((candidate) => candidate.id === id)
+            return guest
+              ? clientPointForWorld(canvas, activeCamera, [guest.x + 1, 0.58, guest.y])
+              : null
+          }
+          const stand = snapshot.concessions.find((candidate) => candidate.id === id)
+          if (!stand) return null
+          const origin = concessionOrigin(stand)
+          return clientPointForWorld(canvas, activeCamera, [origin.x, 0.55, origin.z])
+        },
+        state() {
+          return {
+            width: snapshot.width,
+            height: snapshot.height,
+            tileCount: snapshot.tiles.length,
+            boundaryFenceSegments: fenceFrame.counts.boundary,
+            habitatFenceSegments: fenceFrame.counts.habitat,
+            concessionCount: snapshot.concessions.length,
+            guestCount: snapshot.guests.length,
+          }
+        },
       }
+
+      setFailed(false)
       setReady(true)
       return true
     } catch (error) {
-      console.error("Shared 3d-lab renderer frame rejected; failing closed", error)
-      rendererRef.current?.dispose()
-      rendererRef.current = null
-      bridgeRef.current?.free()
-      bridgeRef.current = null
-      if (canvasRef.current) {
-        canvasRef.current.style.visibility = "hidden"
-        canvasRef.current.dataset.sharedRenderer = "failed"
-      }
-      targets.park.classList.add("shared-three-renderer")
-      targets.park.dataset.sharedRendererFailure = "true"
-      targets.park.inert = true
-      targets.park.style.visibility = "hidden"
+      console.error("3D Zoo world frame rejected", error)
+      canvas.dataset.sharedRenderer = "failed"
+      canvas.dataset.worldRenderer = "failed"
       setReady(false)
+      setFailed(true)
       return false
     }
-  }, [targets])
-
-  const scheduleRender = useCallback(() => {
-    if (renderRequestRef.current !== null) return
-    renderRequestRef.current = window.requestAnimationFrame(() => {
-      renderRequestRef.current = null
-      renderCurrent()
-    })
-  }, [renderCurrent])
+  }, [
+    hoveredTile,
+    placement,
+    selectedDepot,
+    selectedGuestId,
+    selectedHabitatId,
+    snapshot,
+    tool,
+  ])
 
   const resetCamera = useCallback(() => {
-    if (!targets) return
-    const {snapshot: currentSnapshot} = renderInputsRef.current
     bridgeRef.current?.free()
-    bridgeRef.current = new ParkCameraBridge(currentSnapshot.width, currentSnapshot.height)
+    bridgeRef.current = new ParkCameraBridge(snapshot.width, snapshot.height)
     renderCurrent()
-  }, [renderCurrent, targets])
+  }, [renderCurrent, snapshot.height, snapshot.width])
 
   useEffect(() => {
-    if (!targets) return
     const canvas = canvasRef.current
     if (!canvas) return
     let cancelled = false
-    let mutationObserver: MutationObserver | null = null
-    let transformObserver: MutationObserver | null = null
-    let lastInlineTransform = ""
-
-    const syncBaseTransform = () => {
-      const next = targets.park.style.transform || "translate(0px, 0px) scale(1)"
-      if (next === lastInlineTransform) return
-      lastInlineTransform = next
-      if (targets.park.style.getPropertyValue("--zoo-base-transform").trim() !== next) {
-        targets.park.style.setProperty("--zoo-base-transform", next)
-      }
-    }
 
     void initScene()
       .then(() => {
         if (cancelled) return
-        const tiles = collectTiles(targets.park)
-        if (tiles.length === 0) throw new Error("Zoo renderer requires tile scene data")
-        const {snapshot: currentSnapshot} = renderInputsRef.current
-        bridgeRef.current = new ParkCameraBridge(currentSnapshot.width, currentSnapshot.height)
-        rendererRef.current = createThreeSceneRenderer(canvas, {alpha: true})
-        rendererRef.current.setSize(RENDER_WIDTH, RENDER_HEIGHT, window.devicePixelRatio || 1)
-        syncBaseTransform()
-        renderCurrent()
-
-        mutationObserver = new MutationObserver(scheduleRender)
-        mutationObserver.observe(targets.park, {
-          attributes: true,
-          attributeFilter: ["aria-label", "class", "style"],
-          childList: true,
-          subtree: true,
+        bridgeRef.current = new ParkCameraBridge(snapshot.width, snapshot.height)
+        rendererRef.current = createThreeSceneRenderer(canvas, {
+          alpha: false,
+          antialias: true,
+          background: "#315d43",
+          shadows: true,
+          pixelRatioLimit: 2,
         })
-        transformObserver = new MutationObserver(syncBaseTransform)
-        transformObserver.observe(targets.park, {attributes: true, attributeFilter: ["style"]})
+        rendererRef.current.setSize(RENDER_WIDTH, RENDER_HEIGHT, window.devicePixelRatio || 1)
+        setReady(true)
       })
       .catch((error) => {
-        console.error("Shared 3d-lab renderer failed; failing closed", error)
-        rendererRef.current?.dispose()
-        rendererRef.current = null
-        bridgeRef.current?.free()
-        bridgeRef.current = null
-        canvas.style.visibility = "hidden"
+        console.error("3D Zoo world failed to initialize", error)
         canvas.dataset.sharedRenderer = "failed"
-        targets.park.classList.add("shared-three-renderer")
-        targets.park.dataset.sharedRendererFailure = "true"
-        targets.park.inert = true
-        targets.park.style.visibility = "hidden"
+        canvas.dataset.worldRenderer = "failed"
+        setFailed(true)
         setReady(false)
       })
 
-    const resetFromTopBar = () => {
-      window.requestAnimationFrame(resetCamera)
-    }
-    const resetButton = document.querySelector<HTMLButtonElement>(".camera-reset")
-    resetButton?.addEventListener("click", resetFromTopBar)
-
-    const resetForNewPark = (event: MouseEvent) => {
-      if (!(event.target instanceof Element)) return
-      const button = event.target.closest<HTMLButtonElement>("button.secondary")
-      if (button?.textContent?.trim() === "Start new park") {
-        window.requestAnimationFrame(resetCamera)
-      }
-    }
-    document.addEventListener("click", resetForNewPark)
-
     return () => {
       cancelled = true
-      mutationObserver?.disconnect()
-      transformObserver?.disconnect()
-      resetButton?.removeEventListener("click", resetFromTopBar)
-      document.removeEventListener("click", resetForNewPark)
-      if (renderRequestRef.current !== null) {
-        window.cancelAnimationFrame(renderRequestRef.current)
-        renderRequestRef.current = null
-      }
       rendererRef.current?.dispose()
       rendererRef.current = null
       bridgeRef.current?.free()
       bridgeRef.current = null
-      targets.park.inert = false
-      targets.park.style.removeProperty("visibility")
-      delete targets.park.dataset.sharedRendererFailure
-      canvas.style.removeProperty("visibility")
-      delete canvas.dataset.sharedRendererFenceNodes
-      delete canvas.dataset.sharedRendererBoundaryFenceSegments
-      delete canvas.dataset.sharedRendererHabitatFenceSegments
-      delete canvas.dataset.sharedRendererPreviewFenceSegments
-      delete canvas.dataset.sharedRendererBuildingNodes
-      delete canvas.dataset.sharedRendererConcessionNodes
-      restoreDomOverlay(targets.park)
-      targets.park.classList.remove("shared-three-renderer")
+      cameraRef.current = null
+      delete canvas.__zooWorldDebug
       setReady(false)
     }
-  }, [renderCurrent, resetCamera, scheduleRender, targets])
+  }, [snapshot.height, snapshot.width])
 
   useEffect(() => {
-    if (ready) scheduleRender()
-  }, [placement, ready, scheduleRender, snapshot])
+    if (ready) renderCurrent()
+  }, [ready, renderCurrent])
+
+  useEffect(() => {
+    const reset = () => window.requestAnimationFrame(resetCamera)
+    const topBarReset = document.querySelector<HTMLButtonElement>(".camera-reset")
+    topBarReset?.addEventListener("click", reset)
+
+    const resetForNewPark = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return
+      const button = event.target.closest<HTMLButtonElement>("button.secondary")
+      if (button?.textContent?.trim() === "Start new park") reset()
+    }
+    document.addEventListener("click", resetForNewPark)
+
+    return () => {
+      topBarReset?.removeEventListener("click", reset)
+      document.removeEventListener("click", resetForNewPark)
+    }
+  }, [resetCamera])
+
+  const pointFromPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current
+    const camera = cameraRef.current
+    if (!canvas || !camera) return null
+    const point = canvasPoint(canvas, event.clientX, event.clientY)
+    return point ? {canvas, camera, point} : null
+  }
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (tool === "pan") return
+    const context = pointFromPointer(event)
+    if (!context) return
+    const tile = pickTile(snapshot, context.camera, context.point)
+    if (!tile) return
+
+    if (tool === "path" || tool === "habitat") {
+      event.preventDefault()
+      event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      onTilePointerDown(event.pointerId, tile)
+    }
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const context = pointFromPointer(event)
+    if (!context) return
+    const tile = pickTile(snapshot, context.camera, context.point)
+    const key = tile ? `${tile.x}:${tile.y}` : null
+    if (key !== lastHoverKeyRef.current) {
+      lastHoverKeyRef.current = key
+      onHoverTile(tile ? {x: tile.x, y: tile.y} : null)
+    }
+    if (tile && (tool === "path" || tool === "habitat")) {
+      onTilePointerMove(event.pointerId, tile)
+    }
+  }
+
+  const handlePointerLeave = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) return
+    lastHoverKeyRef.current = null
+    onHoverTile(null)
+  }
+
+  const handlePointerEnd = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const handleClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (tool === "pan" || tool === "path" || tool === "habitat") return
+    const canvas = canvasRef.current
+    const camera = cameraRef.current
+    if (!canvas || !camera) return
+    const point = canvasPoint(canvas, event.clientX, event.clientY)
+    if (!point) return
+    const pick = pickWorld(snapshot, camera, point)
+    if (!pick) return
+
+    if (pick.kind === "guest") {
+      onGuestClick(pick.id)
+      return
+    }
+    if (pick.kind === "depot") {
+      onDepotClick()
+      return
+    }
+    onTileClick(pick.tile)
+  }
 
   const rotate = (steps: number) => {
     bridgeRef.current?.rotate_steps(steps)
@@ -1182,75 +1269,88 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
     renderCurrent()
   }
 
-  if (!targets) return null
+  const viewport =
+    typeof document === "undefined" ? null : document.querySelector<HTMLElement>(".viewport")
 
   return (
     <>
-      {createPortal(
-        <canvas
-          ref={canvasRef}
-          className="park-three-renderer-canvas"
-          width={RENDER_WIDTH}
-          height={RENDER_HEIGHT}
-          aria-hidden="true"
-          data-shared-renderer={ready ? "ready" : "loading"}
-        />,
-        targets.park,
+      <canvas
+        ref={canvasRef}
+        className={`park-three-renderer-canvas world-tool-${tool}`}
+        width={RENDER_WIDTH}
+        height={RENDER_HEIGHT}
+        tabIndex={0}
+        role="application"
+        aria-label="3D Zoo world. Use the build toolbar to select a tool, then interact with the park."
+        data-shared-renderer={failed ? "failed" : ready ? "ready" : "loading"}
+        data-world-renderer="exclusive"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onPointerLeave={handlePointerLeave}
+        onClick={handleClick}
+      />
+      {failed && (
+        <div className="renderer-failure" role="alert">
+          3D renderer unavailable
+        </div>
       )}
-      {createPortal(
-        <div className="camera-orbit-controls bevel" aria-label="3D camera orientation">
-          <span className="camera-orbit-label">View</span>
-          <button
-            type="button"
-            className="camera-orbit-left"
-            onClick={() => rotate(-1)}
-            title="Rotate camera left"
-            aria-label="Rotate camera left"
-          >
-            ↶
-          </button>
-          <button
-            type="button"
-            className="camera-orbit-right"
-            onClick={() => rotate(1)}
-            title="Rotate camera right"
-            aria-label="Rotate camera right"
-          >
-            ↷
-          </button>
-          <button
-            type="button"
-            className="camera-tilt-up"
-            onClick={() => tilt(PITCH_STEP)}
-            title="Lower camera"
-            aria-label="Lower camera"
-          >
-            ▾
-          </button>
-          <button
-            type="button"
-            className="camera-tilt-down"
-            onClick={() => tilt(-PITCH_STEP)}
-            title="Raise camera"
-            aria-label="Raise camera"
-          >
-            ▴
-          </button>
-          <button
-            type="button"
-            className="camera-orbit-reset"
-            onClick={resetCamera}
-            title="Reset 3D view"
-            aria-label="Reset 3D view"
-          >
-            ⌂
-          </button>
-          <small aria-live="polite">
-            {cameraLabel.yaw}° · {cameraLabel.pitch}°
-          </small>
-        </div>,
-        targets.viewport,
-      )}
+      {viewport &&
+        createPortal(
+          <div className="camera-orbit-controls bevel" aria-label="3D camera orientation">
+            <span className="camera-orbit-label">View</span>
+            <button
+              type="button"
+              className="camera-orbit-left"
+              onClick={() => rotate(-1)}
+              title="Rotate camera left"
+              aria-label="Rotate camera left"
+            >
+              ↶
+            </button>
+            <button
+              type="button"
+              className="camera-orbit-right"
+              onClick={() => rotate(1)}
+              title="Rotate camera right"
+              aria-label="Rotate camera right"
+            >
+              ↷
+            </button>
+            <button
+              type="button"
+              className="camera-tilt-up"
+              onClick={() => tilt(PITCH_STEP)}
+              title="Lower camera"
+              aria-label="Lower camera"
+            >
+              ▾
+            </button>
+            <button
+              type="button"
+              className="camera-tilt-down"
+              onClick={() => tilt(-PITCH_STEP)}
+              title="Raise camera"
+              aria-label="Raise camera"
+            >
+              ▴
+            </button>
+            <button
+              type="button"
+              className="camera-orbit-reset"
+              onClick={resetCamera}
+              title="Reset 3D view"
+              aria-label="Reset 3D view"
+            >
+              ⌂
+            </button>
+            <small aria-live="polite">
+              {cameraLabel.yaw}° · {cameraLabel.pitch}°
+            </small>
+          </div>,
+          viewport,
+        )}
     </>
   )
 }
