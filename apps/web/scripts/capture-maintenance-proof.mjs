@@ -97,8 +97,13 @@ try {
   }
 
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (await evaluate(`Boolean(document.querySelector('[aria-label="grass tile 1, 6"]'))`)) break
-    if (attempt === 79) throw new Error("Zoo UI did not become ready")
+    if (
+      await evaluate(`Boolean(
+        document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"][data-world-renderer="exclusive"]')?.__zooWorldDebug &&
+        document.querySelector('[aria-label="grass tile 1, 6"]')
+      )`)
+    ) break
+    if (attempt === 79) throw new Error("Renderer-owned Zoo world did not become ready")
     await sleep(250)
   }
 
@@ -156,9 +161,14 @@ try {
 
   let failed = false
   for (let attempt = 0; attempt < 160; attempt += 1) {
-    failed = await evaluate(
-      `Boolean(document.querySelector('.concession-failed') && document.querySelector('.maintenance-alert'))`,
-    )
+    failed = await evaluate(`(() => {
+      const canvas = document.querySelector('.park-three-renderer-canvas')
+      return Boolean(
+        document.querySelector('.concession-failed') &&
+        document.querySelector('.maintenance-alert') &&
+        Number(canvas?.dataset.sharedRendererMaintenanceCount ?? 0) > 0
+      )
+    })()`)
     if (failed) break
     await sleep(250)
   }
@@ -177,9 +187,15 @@ try {
 
   let repaired = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    repaired = await evaluate(
-      `Boolean(document.querySelector('.concession-healthy') && !document.querySelector('.maintenance-alert'))`,
-    )
+    repaired = await evaluate(`(() => {
+      const canvas = document.querySelector('.park-three-renderer-canvas')
+      return Boolean(
+        document.querySelector('.concession-healthy') &&
+        !document.querySelector('.maintenance-alert') &&
+        Number(canvas?.dataset.sharedRendererMaintenanceCount ?? 0) === 0 &&
+        Number(canvas?.dataset.sharedRendererMechanicCount ?? 0) > 0
+      )
+    })()`)
     if (repaired) break
     await sleep(250)
   }
@@ -191,16 +207,27 @@ try {
       healthy: Boolean(document.querySelector('.concession-healthy')),
       noTask: !document.querySelector('.maintenance-alert'),
       panel: document.body.textContent.includes('Repairs'),
+      rendererMechanics: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererMechanicCount ?? 0),
+      rendererMaintenance: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererMaintenanceCount ?? 0),
+      visualDom: document.querySelectorAll('.park > .mechanic, .park > .maintenance-alert, .park > .concession').length,
     })`),
   )
-  if (!finalState.mechanic || !finalState.healthy || !finalState.noTask || !finalState.panel) {
+  if (
+    !finalState.mechanic ||
+    !finalState.healthy ||
+    !finalState.noTask ||
+    !finalState.panel ||
+    finalState.rendererMechanics < 1 ||
+    finalState.rendererMaintenance !== 0 ||
+    finalState.visualDom !== 0
+  ) {
     throw new Error(`Maintenance proof ended in unexpected state: ${JSON.stringify(finalState)}`)
   }
 
   mkdirSync("test-results", {recursive: true})
   const screenshot = await cdp.send("Page.captureScreenshot", {format: "png", fromSurface: true})
   writeFileSync("test-results/maintenance.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Maintenance dogfood passed: stand failed visibly and mechanic repaired it by path")
+  console.log("Maintenance dogfood passed: semantic state and renderer-owned maintenance/mechanic visuals stay coherent through repair.")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")
