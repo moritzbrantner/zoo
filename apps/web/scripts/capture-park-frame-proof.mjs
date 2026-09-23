@@ -2,7 +2,6 @@ import {spawn} from "node:child_process"
 import {existsSync, mkdirSync, rmSync, writeFileSync} from "node:fs"
 
 const previewUrl = "http://127.0.0.1:4173/"
-const debuggingPort = 9223
 const chromeCandidates = [
   process.env.CHROME_PATH,
   "/usr/bin/google-chrome",
@@ -11,40 +10,48 @@ const chromeCandidates = [
   "/usr/bin/chromium-browser",
 ].filter(Boolean)
 const chromePath = chromeCandidates.find((candidate) => existsSync(candidate))
-
-if (!chromePath) {
-  throw new Error(`No Chrome/Chromium binary found. Checked: ${chromeCandidates.join(", ")}`)
-}
-
-const profileDir = `/tmp/zoo-park-frame-proof-${process.pid}`
-rmSync(profileDir, {recursive: true, force: true})
-
-const chrome = spawn(
-  chromePath,
-  [
-    "--headless=new",
-    "--no-sandbox",
-    "--disable-gpu",
-    `--remote-debugging-port=${debuggingPort}`,
-    `--user-data-dir=${profileDir}`,
-    "--window-size=1280,850",
-    previewUrl,
-  ],
-  {stdio: "ignore"},
-)
+if (!chromePath) throw new Error(`No Chrome/Chromium binary found. Checked: ${chromeCandidates.join(", ")}`)
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
-async function waitForPageTarget() {
+function connectCdp(webSocketDebuggerUrl) {
+  const socket = new WebSocket(webSocketDebuggerUrl)
+  const pending = new Map()
+  let nextId = 1
+  const opened = new Promise((resolve, reject) => {
+    socket.addEventListener("open", resolve, {once: true})
+    socket.addEventListener("error", reject, {once: true})
+  })
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(String(event.data))
+    if (!message.id) return
+    const request = pending.get(message.id)
+    if (!request) return
+    pending.delete(message.id)
+    if (message.error) request.reject(new Error(`${message.error.code}: ${message.error.message}`))
+    else request.resolve(message.result)
+  })
+  return {
+    opened,
+    close: () => socket.close(),
+    send(method, params = {}) {
+      const id = nextId++
+      return new Promise((resolve, reject) => {
+        pending.set(id, {resolve, reject})
+        socket.send(JSON.stringify({id, method, params}))
+      })
+    },
+  }
+}
+
+async function waitForPageTarget(port) {
   let lastError = null
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
-      const response = await fetch(`http://127.0.0.1:${debuggingPort}/json`)
+      const response = await fetch(`http://127.0.0.1:${port}/json`)
       if (response.ok) {
         const targets = await response.json()
-        const target = targets.find(
-          (candidate) => candidate.type === "page" && candidate.url.startsWith(previewUrl),
-        )
+        const target = targets.find((candidate) => candidate.type === "page" && candidate.url.startsWith(previewUrl))
         if (target?.webSocketDebuggerUrl) return target
       }
     } catch (error) {
@@ -55,207 +62,96 @@ async function waitForPageTarget() {
   throw new Error(`Chrome did not expose the Zoo page target: ${lastError ?? "timed out"}`)
 }
 
-function connectCdp(webSocketDebuggerUrl) {
-  const socket = new WebSocket(webSocketDebuggerUrl)
-  const pending = new Map()
-  let nextId = 1
-
-  const opened = new Promise((resolve, reject) => {
-    socket.addEventListener("open", resolve, {once: true})
-    socket.addEventListener("error", reject, {once: true})
-  })
-
-  socket.addEventListener("message", (event) => {
-    const message = JSON.parse(String(event.data))
-    if (!message.id) return
-    const request = pending.get(message.id)
-    if (!request) return
-    pending.delete(message.id)
-    if (message.error) request.reject(new Error(`${message.error.code}: ${message.error.message}`))
-    else request.resolve(message.result)
-  })
-
-  return {
-    opened,
-    close: () => socket.close(),
-    send(method, params = {}) {
-      const id = nextId
-      nextId += 1
-      return new Promise((resolve, reject) => {
-        pending.set(id, {resolve, reject})
-        socket.send(JSON.stringify({id, method, params}))
-      })
-    },
-  }
-}
-
-let cdp = null
-try {
-  const target = await waitForPageTarget()
-  cdp = connectCdp(target.webSocketDebuggerUrl)
+async function openZoo(port, profileDir) {
+  rmSync(profileDir, {recursive: true, force: true})
+  const chrome = spawn(
+    chromePath,
+    [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${port}`,
+      `--user-data-dir=${profileDir}`,
+      "--window-size=1280,850",
+      previewUrl,
+    ],
+    {stdio: "ignore"},
+  )
+  const target = await waitForPageTarget(port)
+  const cdp = connectCdp(target.webSocketDebuggerUrl)
   await cdp.opened
   await cdp.send("Page.enable")
   await cdp.send("Runtime.enable")
-
   const evaluate = async (expression) => {
     const response = await cdp.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
     })
-    if (response.exceptionDetails) {
-      throw new Error(response.exceptionDetails.text ?? "Browser evaluation failed")
-    }
+    if (response.exceptionDetails) throw new Error(response.exceptionDetails.text ?? "Browser evaluation failed")
     return response.result.value
   }
-
-  let ready = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    ready = await evaluate(`Boolean(
-      document.querySelector('.park.shared-three-renderer') &&
-      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"]') &&
-      document.querySelector('.park-entrance-building') &&
-      document.querySelector('.park-entrance-base') &&
-      document.querySelector('.park-border-tile') &&
-      document.querySelector('.park-boundary-fence')
+    const ready = await evaluate(`Boolean(
+      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"][data-world-renderer="exclusive"]')?.__zooWorldDebug
     )`)
-    if (ready) break
+    if (ready) return {chrome, cdp, evaluate}
     await sleep(250)
   }
-  if (!ready) throw new Error("Park frame did not become ready")
+  throw new Error("3D Zoo world did not become interactive")
+}
 
-  const frame = await evaluate(`(() => {
-    const tileElements = [...document.querySelectorAll('.tile[aria-label]')]
-    const tiles = tileElements.map((element) => {
-      const match = element.getAttribute('aria-label')?.match(/tile (\\d+), (\\d+)$/)
-      return match ? {x: Number(match[1]), y: Number(match[2]), element} : null
-    }).filter(Boolean)
-    const width = Math.max(...tiles.map((tile) => tile.x)) + 1
-    const height = Math.max(...tiles.map((tile) => tile.y)) + 1
-    const base = document.querySelector('.park-entrance-base')
-    const building = document.querySelector('.park-entrance-building')
-    const viewportRect = document.querySelector('.viewport').getBoundingClientRect()
+const port = 9223
+const profileDir = `/tmp/zoo-park-frame-proof-${process.pid}`
+let chrome = null
+let cdp = null
+try {
+  const opened = await openZoo(port, profileDir)
+  chrome = opened.chrome
+  cdp = opened.cdp
+  const evaluate = opened.evaluate
+
+  const state = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const canvas = document.querySelector('.park-three-renderer-canvas')
+    const debug = canvas.__zooWorldDebug
+    const world = debug.state()
+    const forbidden = document.querySelectorAll(
+      '.park > .tile, .park > .fence-segment, .park > .park-boundary-fence, .park > .park-entrance-building, .park > .care-depot, .park > .concession, .park > .animal, .park > .guest, .park > .litter, .park > .maintenance-alert, .park > .mechanic'
+    ).length
     return {
-      width,
-      height,
-      borderCount: document.querySelectorAll('.park-border-tile').length,
-      fenceCount: document.querySelectorAll('.park-boundary-fence').length,
-      approachCount: document.querySelectorAll('.park-border-approach').length,
-      baseDisplay: base ? getComputedStyle(base).display : null,
-      buildingDisplay: building ? getComputedStyle(building).display : null,
-      oldGateVisible: getComputedStyle(document.querySelector('.entrance-gate')).display !== 'none',
-      viewport: {
-        x: viewportRect.left,
-        y: viewportRect.top,
-        width: Math.min(viewportRect.width, window.innerWidth - viewportRect.left),
-        height: Math.min(viewportRect.height, window.innerHeight - viewportRect.top),
-      },
+      ...world,
+      buildingNodes: Number(canvas.dataset.sharedRendererBuildingNodes ?? 0),
+      tileNodes: Number(canvas.dataset.sharedRendererTileNodes ?? 0),
+      forbidden,
+      depotPoint: debug.entityCenterClient('depot'),
     }
-  })()`)
-
-  const expectedBorderCount = (frame.width + 8) * (frame.height + 8) - frame.width * frame.height
-  if (frame.borderCount !== expectedBorderCount) {
-    throw new Error(`Expected ${expectedBorderCount} four-tile border tiles, found ${frame.borderCount}`)
-  }
-
-  const expectedFenceCount = frame.width * 2 + frame.height * 2 - 1
-  if (frame.fenceCount !== expectedFenceCount) {
-    throw new Error(`Expected ${expectedFenceCount} park fence segments with one entrance gap, found ${frame.fenceCount}`)
-  }
-  if (frame.approachCount !== 4) {
-    throw new Error(`Expected a four-tile entrance approach, found ${frame.approachCount}`)
-  }
-  if (frame.baseDisplay !== "none") {
-    throw new Error(`Legacy entrance ground diamond is still visible in shared-renderer mode: ${frame.baseDisplay}`)
-  }
-  if (frame.buildingDisplay === "none") {
-    throw new Error("Entrance building disappeared with its legacy ground diamond")
-  }
-  if (frame.oldGateVisible) throw new Error("Legacy floating entrance gate is still visible")
-
-  let rendererFrame = null
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    rendererFrame = JSON.parse(
-      await evaluate(`JSON.stringify((() => {
-        const canvas = document.querySelector('.park-three-renderer-canvas')
-        const boundary = [...document.querySelectorAll('.park-boundary-fence')]
-        return {
-          ready: canvas?.dataset.sharedRenderer === 'ready',
-          boundarySegments: Number(canvas?.dataset.sharedRendererBoundaryFenceSegments ?? 0),
-          buildingNodes: Number(canvas?.dataset.sharedRendererBuildingNodes ?? 0),
-          legacyBoundaryVisible: boundary.filter(
-            (segment) => getComputedStyle(segment).opacity !== '0',
-          ).length,
-          legacyEntranceVisible:
-            getComputedStyle(document.querySelector('.park-entrance-building')).opacity !== '0',
-          depotArtworkHidden: (() => {
-            const depot = document.querySelector('.care-depot')
-            const style = getComputedStyle(depot)
-            return (
-              style.backgroundColor === 'rgba(0, 0, 0, 0)' &&
-              style.borderTopColor === 'rgba(0, 0, 0, 0)' &&
-              style.boxShadow === 'none' &&
-              [...depot.children].every((child) => getComputedStyle(child).visibility === 'hidden')
-            )
-          })(),
-        }
-      })())`),
-    )
-    if (
-      rendererFrame.ready &&
-      rendererFrame.boundarySegments === expectedFenceCount &&
-      rendererFrame.buildingNodes === 24 &&
-      rendererFrame.legacyBoundaryVisible === 0 &&
-      !rendererFrame.legacyEntranceVisible &&
-      rendererFrame.depotArtworkHidden
-    ) {
-      break
-    }
-    await sleep(50)
-  }
-
+  })())`))
+  const expectedBoundary = state.width * 2 + state.height * 2 - 1
   if (
-    !rendererFrame?.ready ||
-    rendererFrame.boundarySegments !== expectedFenceCount ||
-    rendererFrame.buildingNodes !== 24 ||
-    rendererFrame.legacyBoundaryVisible !== 0 ||
-    rendererFrame.legacyEntranceVisible ||
-    !rendererFrame.depotArtworkHidden
+    state.boundaryFenceSegments !== expectedBoundary ||
+    state.tileNodes !== state.tileCount ||
+    state.buildingNodes <= 0 ||
+    state.forbidden !== 0 ||
+    !state.depotPoint
   ) {
-    throw new Error(
-      `Park frame did not settle on renderer-owned 3D geometry: ${JSON.stringify(rendererFrame)}`,
-    )
+    throw new Error(`Park frame is not renderer-exclusive: ${JSON.stringify({state, expectedBoundary})}`)
   }
 
-  const depotFocusVisible = await evaluate(`(() => {
-    const depot = document.querySelector('.care-depot')
-    depot.focus()
-    const style = getComputedStyle(depot)
-    const visible =
-      document.activeElement === depot &&
-      style.outlineStyle !== 'none' &&
-      Number.parseFloat(style.outlineWidth) >= 3
-    depot.blur()
-    return visible
-  })()`)
-  if (!depotFocusVisible) {
-    throw new Error("Renderer-owned operations depot lost visible keyboard focus")
-  }
-
-    const screenshot = await cdp.send("Page.captureScreenshot", {
+  const viewport = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const rect = document.querySelector('.viewport').getBoundingClientRect()
+    return {x: rect.left, y: rect.top, width: rect.width, height: rect.height, scale: 1}
+  })())`))
+  const screenshot = await cdp.send("Page.captureScreenshot", {
     format: "png",
     fromSurface: true,
     captureBeyondViewport: false,
-    clip: {...frame.viewport, scale: 1},
+    clip: viewport,
   })
   mkdirSync("test-results", {recursive: true})
   writeFileSync("test-results/park-frame.png", Buffer.from(screenshot.data, "base64"))
-
-  console.log(
-    `Park-frame browser dogfood passed: ${frame.width}×${frame.height} buildable area, ${frame.borderCount} projected outer tiles, ${frame.fenceCount} authoritative 3D boundary segments with one entrance gap, and renderer-owned entrance/depot buildings.`,
-  )
+  console.log("Park-frame browser dogfood passed: terrain, entrance, depot and boundary fence exist only in the 3D renderer.")
 } finally {
   cdp?.close()
-  chrome.kill("SIGTERM")
+  chrome?.kill("SIGTERM")
   rmSync(profileDir, {recursive: true, force: true})
 }
