@@ -34,10 +34,28 @@
 .park.shared-three-renderer .fence-segment,
 .park.shared-three-renderer .park-boundary-fence,
 .park.shared-three-renderer .park-entrance-building,
-.park.shared-three-renderer .entrance-gate,
+.park.shared-three-renderer .entrance-gate {
+  opacity: 0;
+}
+
 .park.shared-three-renderer .care-depot,
 .park.shared-three-renderer .concession {
-  opacity: 0;
+  border-color: transparent;
+  background: transparent;
+  color: transparent;
+  box-shadow: none;
+  filter: none;
+}
+
+.park.shared-three-renderer .care-depot > *,
+.park.shared-three-renderer .concession > * {
+  visibility: hidden;
+}
+
+.park.shared-three-renderer .care-depot:focus-visible,
+.park.shared-three-renderer .concession:focus-visible {
+  outline: 3px solid #f6d36f;
+  outline-offset: 3px;
 }
 
 .park.shared-three-renderer .park-entrance-base {
