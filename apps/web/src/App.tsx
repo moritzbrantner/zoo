@@ -526,6 +526,43 @@ export default function App() {
     if (tile.habitat_id === selectedHabitatId) setSelectedHabitatId(null)
   }
 
+  const onSemanticTileActivate = (tile: Tile) => {
+    const game = gameRef.current
+    if (!game || tool === "pan") return
+
+    if (tool === "path") {
+      paintPath(tile)
+      return
+    }
+
+    if (tool === "habitat") {
+      if (!drawingFenceRef.current) {
+        const point = {x: tile.x, y: tile.y}
+        drawingFenceRef.current = true
+        fencePointerIdRef.current = -1
+        fenceStartRef.current = point
+        fenceEndRef.current = point
+        setFenceStart(point)
+        setFenceEnd(point)
+        setMessage(`Habitat start set at ${tile.x}, ${tile.y}. Choose the opposite corner.`)
+        setMessageKind("info")
+        return
+      }
+
+      if (fencePointerIdRef.current === -1) {
+        const start = fenceStartRef.current
+        if (start) {
+          fenceEndRef.current = {x: tile.x, y: tile.y}
+          perform(() => game.place_habitat_rect(start.x, start.y, tile.x, tile.y))
+        }
+        clearFenceGesture()
+      }
+      return
+    }
+
+    onTileClick(tile)
+  }
+
   const beginPan = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool !== "pan") return
     event.preventDefault()
@@ -743,7 +780,7 @@ export default function App() {
                   aria-label={`${tile.kind} tile ${tile.x}, ${tile.y}`}
                   onPointerDown={(event) => onTilePointerDown(event.pointerId, tile)}
                   onPointerEnter={(event) => onTilePointerMove(event.pointerId, tile)}
-                  onClick={() => onTileClick(tile)}
+                  onClick={() => onSemanticTileActivate(tile)}
                 />
               ))}
               <button
