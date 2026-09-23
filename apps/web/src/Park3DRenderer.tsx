@@ -395,6 +395,8 @@ function renderEntranceBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
     buildingBox("building:entrance:center", origin, [0, 0.62, -0.02], [0.58, 1.12, 0.74], wall, yaw),
     buildingBox("building:entrance:left-roof", origin, [-0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
     buildingBox("building:entrance:right-roof", origin, [0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
+    buildingBox("building:entrance:left-window", origin, [-0.56, 0.57, 0.352], [0.22, 0.3, 0.035], "#87c7d8", yaw),
+    buildingBox("building:entrance:right-window", origin, [0.56, 0.57, 0.352], [0.22, 0.3, 0.035], "#87c7d8", yaw),
     buildingCylinder("building:entrance:tower-roof", origin, [0, 1.22, -0.03], 0.42, 0.18, roof),
     buildingBox("building:entrance:door", origin, [0, 0.39, 0.39], [0.28, 0.54, 0.06], door, yaw),
     buildingBox("building:entrance:sign", origin, [0, 0.88, 0.405], [0.64, 0.18, 0.05], "#e0bf65", yaw),
@@ -414,18 +416,29 @@ function concessionOrigin(stand: Snapshot["concessions"][number]) {
 
 function renderDepotBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
   const origin = depotOrigin(snapshot)
-
-  return [
+  const nodes: RendererSceneNode[] = [
     buildingBox("building:depot:plinth", origin, [0, 0.06, 0], [1.3, 0.12, 1.02], "#a9a68f"),
     buildingBox("building:depot:shell", origin, [0, 0.49, 0], [1.18, 0.86, 0.9], "#c9c4ae"),
     buildingBox("building:depot:roof", origin, [0, 0.98, 0], [1.32, 0.12, 1.04], "#5c716f"),
     buildingBox("building:depot:garage-door", origin, [0, 0.39, 0.475], [0.72, 0.56, 0.05], "#42695f"),
-    buildingBox("building:depot:door-lintel", origin, [0, 0.7, 0.49], [0.82, 0.08, 0.06], "#786f59"),
     buildingBox("building:depot:sign", origin, [0, 0.84, 0.495], [0.62, 0.17, 0.05], "#d7c891"),
-    buildingBox("building:depot:side-door", origin, [0.615, 0.37, -0.18], [0.05, 0.5, 0.28], "#315c58"),
-    buildingBox("building:depot:hvac", origin, [0.28, 1.12, -0.14], [0.3, 0.16, 0.3], "#8b9692"),
     buildingCylinder("building:depot:roof-vent", origin, [-0.28, 1.16, -0.08], 0.075, 0.22, "#6f7e7b"),
+    buildingBox("building:depot:side-window", origin, [0.39, 0.64, 0.458], [0.24, 0.2, 0.025], "#87c7d8"),
   ]
+
+  for (const [index, y] of [0.18, 0.31, 0.44, 0.57].entries()) {
+    nodes.push(
+      buildingBox(
+        `building:depot:garage-slat:${index}`,
+        origin,
+        [0, y, 0.508],
+        [0.66, 0.025, 0.018],
+        "#eadfbf",
+      ),
+    )
+  }
+
+  return nodes
 }
 
 function renderConcessionNodes(snapshot: Snapshot): RendererSceneNode[] {
@@ -433,26 +446,114 @@ function renderConcessionNodes(snapshot: Snapshot): RendererSceneNode[] {
 
   for (const stand of snapshot.concessions) {
     const origin = concessionOrigin(stand)
-    const body: HexColor = stand.kind === "food" ? "#c87842" : "#4f8298"
-    const awning: HexColor =
+    const accent: HexColor = stand.kind === "food" ? "#d89b47" : "#75b7cc"
+    const serviceAccent: HexColor =
       stand.service_state === "failed"
         ? "#8c443e"
         : stand.service_state === "degraded"
           ? "#c18a43"
-          : stand.kind === "food"
-            ? "#e3c562"
-            : "#8fc9d8"
+          : accent
 
     nodes.push(
-      buildingBox(`concession:${stand.id}:foundation`, origin, [0, 0.06, 0], [0.82, 0.12, 0.76], "#8b785d"),
-      buildingBox(`concession:${stand.id}:body`, origin, [0, 0.43, 0], [0.7, 0.62, 0.62], body),
-      buildingBox(`concession:${stand.id}:roof`, origin, [0, 0.79, -0.01], [0.84, 0.12, 0.76], awning),
-      buildingBox(`concession:${stand.id}:counter`, origin, [0, 0.39, 0.345], [0.62, 0.13, 0.08], "#6b513b"),
-      buildingBox(`concession:${stand.id}:sign`, origin, [0, 0.67, 0.345], [0.46, 0.17, 0.05], "#eee0b0"),
-      buildingBox(`concession:${stand.id}:awning-front`, origin, [0, 0.72, 0.39], [0.78, 0.08, 0.18], awning),
-      buildingBox(`concession:${stand.id}:post-left`, origin, [-0.31, 0.36, 0.36], [0.05, 0.62, 0.05], "#5f4a37"),
-      buildingBox(`concession:${stand.id}:post-right`, origin, [0.31, 0.36, 0.36], [0.05, 0.62, 0.05], "#5f4a37"),
+      buildingBox(`concession:${stand.id}:counter`, origin, [0, 0.38, 0], [0.82, 0.7, 0.62], accent),
+      buildingBox(
+        `concession:${stand.id}:service-window`,
+        origin,
+        [0, 0.47, 0.322],
+        [0.54, 0.28, 0.025],
+        "#493722",
+      ),
+      buildingBox(
+        `concession:${stand.id}:serving-counter`,
+        origin,
+        [0, 0.31, 0.38],
+        [0.68, 0.14, 0.16],
+        "#eadfbf",
+      ),
+      buildingCylinder(
+        `concession:${stand.id}:awning-post:left`,
+        origin,
+        [-0.42, 0.66, 0.28],
+        0.025,
+        0.54,
+        "#eadfbf",
+      ),
+      buildingCylinder(
+        `concession:${stand.id}:awning-post:right`,
+        origin,
+        [0.42, 0.66, 0.28],
+        0.025,
+        0.54,
+        "#eadfbf",
+      ),
+      buildingBox(
+        `concession:${stand.id}:menu-sign`,
+        origin,
+        [0, 1.02, 0.03],
+        [0.5, 0.23, 0.08],
+        serviceAccent,
+      ),
     )
+
+    for (const [index, x] of [-0.4, -0.2, 0, 0.2, 0.4].entries()) {
+      nodes.push(
+        buildingBox(
+          `concession:${stand.id}:awning-stripe:${index}`,
+          origin,
+          [x, 0.84, 0.08],
+          [0.205, 0.13, 0.78],
+          index % 2 === 0 ? serviceAccent : "#f4efe2",
+        ),
+      )
+    }
+
+    if (stand.kind === "food") {
+      nodes.push(
+        buildingCylinder(
+          `concession:${stand.id}:burger-bun-bottom`,
+          origin,
+          [0, 1.08, 0.085],
+          0.11,
+          0.045,
+          "#d89b47",
+        ),
+        buildingCylinder(
+          `concession:${stand.id}:burger-patty`,
+          origin,
+          [0, 1.13, 0.085],
+          0.1,
+          0.035,
+          "#6b513b",
+        ),
+        buildingCylinder(
+          `concession:${stand.id}:burger-bun-top`,
+          origin,
+          [0, 1.18, 0.085],
+          0.11,
+          0.05,
+          "#d89b47",
+        ),
+      )
+    } else {
+      nodes.push(
+        buildingCylinder(
+          `concession:${stand.id}:drink-cup`,
+          origin,
+          [0, 1.12, 0.085],
+          0.075,
+          0.17,
+          "#f4efe2",
+        ),
+        buildingCylinder(
+          `concession:${stand.id}:drink-straw`,
+          origin,
+          [0.035, 1.25, 0.085],
+          0.012,
+          0.14,
+          "#9d4937",
+        ),
+      )
+    }
   }
 
   return nodes
