@@ -188,8 +188,16 @@ try {
           ).length,
           legacyEntranceVisible:
             getComputedStyle(document.querySelector('.park-entrance-building')).opacity !== '0',
-          legacyDepotVisible:
-            getComputedStyle(document.querySelector('.care-depot')).opacity !== '0',
+          depotArtworkHidden: (() => {
+            const depot = document.querySelector('.care-depot')
+            const style = getComputedStyle(depot)
+            return (
+              style.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+              style.borderTopColor === 'rgba(0, 0, 0, 0)' &&
+              style.boxShadow === 'none' &&
+              [...depot.children].every((child) => getComputedStyle(child).visibility === 'hidden')
+            )
+          })(),
         }
       })())`),
     )
@@ -199,7 +207,7 @@ try {
       rendererFrame.buildingNodes === 20 &&
       rendererFrame.legacyBoundaryVisible === 0 &&
       !rendererFrame.legacyEntranceVisible &&
-      !rendererFrame.legacyDepotVisible
+      rendererFrame.depotArtworkHidden
     ) {
       break
     }
@@ -212,14 +220,29 @@ try {
     rendererFrame.buildingNodes !== 20 ||
     rendererFrame.legacyBoundaryVisible !== 0 ||
     rendererFrame.legacyEntranceVisible ||
-    rendererFrame.legacyDepotVisible
+    !rendererFrame.depotArtworkHidden
   ) {
     throw new Error(
       `Park frame did not settle on renderer-owned 3D geometry: ${JSON.stringify(rendererFrame)}`,
     )
   }
 
-  const screenshot = await cdp.send("Page.captureScreenshot", {
+  const depotFocusVisible = await evaluate(`(() => {
+    const depot = document.querySelector('.care-depot')
+    depot.focus()
+    const style = getComputedStyle(depot)
+    const visible =
+      document.activeElement === depot &&
+      style.outlineStyle !== 'none' &&
+      Number.parseFloat(style.outlineWidth) >= 3
+    depot.blur()
+    return visible
+  })()`)
+  if (!depotFocusVisible) {
+    throw new Error("Renderer-owned operations depot lost visible keyboard focus")
+  }
+
+    const screenshot = await cdp.send("Page.captureScreenshot", {
     format: "png",
     fromSurface: true,
     captureBeyondViewport: false,
