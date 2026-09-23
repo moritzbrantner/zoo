@@ -308,23 +308,6 @@ function toolHint(tool: Tool) {
   }
 }
 
-function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot) {
-  if (!start || !end) return []
-  const left = Math.min(start.x, end.x)
-  const right = Math.max(start.x, end.x)
-  const top = Math.min(start.y, end.y)
-  const bottom = Math.max(start.y, end.y)
-  const tiles: Point[] = []
-  for (let y = top; y <= bottom; y += 1) {
-    for (let x = left; x <= right; x += 1) {
-      if (x >= 0 && y >= 0 && x < snapshot.width && y < snapshot.height) {
-        tiles.push({x, y})
-      }
-    }
-  }
-  return tiles
-}
-
 export default function App() {
   const gameRef = useRef<ZooGame | null>(null)
   const paintingRef = useRef(false)
