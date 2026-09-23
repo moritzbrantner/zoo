@@ -765,6 +765,7 @@ export default function App() {
               ))}
               <button
                 type="button"
+                className="care-depot"
                 data-world-entity="depot"
                 aria-label="Central operations depot"
                 onClick={() => {
@@ -780,9 +781,26 @@ export default function App() {
                   setTool("select")
                 }}
               />
+              {snapshot.concessions.map((stand) => (
+                <button
+                  type="button"
+                  key={`a11y-concession:${stand.id}`}
+                  className={`concession concession-${stand.kind} concession-${stand.service_state}`}
+                  data-world-entity="concession"
+                  data-world-id={stand.id}
+                  aria-label={`${stand.kind === "food" ? "Food" : "Drink"} stand ${stand.id}`}
+                  onClick={() => {
+                    const tile = snapshot.tiles.find(
+                      (candidate) => candidate.x === stand.x && candidate.y === stand.y,
+                    )
+                    if (tile) onTileClick(tile)
+                  }}
+                />
+              ))}
               {snapshot.guests.map((guest) => (
                 <button
                   type="button"
+                  className="guest"
                   key={`a11y-guest:${guest.id}`}
                   data-world-entity="guest"
                   data-world-id={guest.id}
@@ -794,6 +812,55 @@ export default function App() {
                     setSelectedDepot(false)
                     setTool("select")
                   }}
+                />
+              ))}
+              {snapshot.animals.map((animal) => (
+                <button
+                  type="button"
+                  className="animal"
+                  key={`a11y-animal:${animal.id}`}
+                  data-world-entity="animal"
+                  data-world-id={animal.id}
+                  aria-label={`${speciesLabel(animal.species, snapshot.species_catalog)} in habitat ${animal.habitat_id}`}
+                  onClick={() => {
+                    if (tool === "pan") return
+                    setSelectedGuestId(null)
+                    setSelectedHabitatId(animal.habitat_id)
+                    setSelectedDepot(false)
+                    setTool("select")
+                  }}
+                />
+              ))}
+              {snapshot.litter.map((task) => (
+                <span
+                  className="litter"
+                  key={`a11y-litter:${task.id}`}
+                  data-world-entity="litter"
+                  aria-label={`Litter task ${task.id}: ${task.status}`}
+                />
+              ))}
+              {snapshot.maintenance.map((task) => (
+                <span
+                  className="maintenance-alert"
+                  key={`a11y-maintenance:${task.id}`}
+                  data-world-entity="maintenance"
+                  aria-label={`Maintenance task ${task.id}: ${task.status}`}
+                />
+              ))}
+              {snapshot.animal_care_depot.janitors.map((janitor) => (
+                <span
+                  className="janitor"
+                  key={`a11y-janitor:${janitor.id}`}
+                  data-world-entity="janitor"
+                  aria-label={`Janitor ${janitor.id}: ${janitor.status}`}
+                />
+              ))}
+              {snapshot.animal_care_depot.mechanics.map((mechanic) => (
+                <span
+                  className="mechanic"
+                  key={`a11y-mechanic:${mechanic.id}`}
+                  data-world-entity="mechanic"
+                  aria-label={`Mechanic ${mechanic.id}: ${mechanic.status}`}
                 />
               ))}
             </div>
