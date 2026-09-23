@@ -173,7 +173,76 @@ try {
   }
   if (frame.oldGateVisible) throw new Error("Legacy floating entrance gate is still visible")
 
-  const screenshot = await cdp.send("Page.captureScreenshot", {
+  let rendererFrame = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    rendererFrame = JSON.parse(
+      await evaluate(`JSON.stringify((() => {
+        const canvas = document.querySelector('.park-three-renderer-canvas')
+        const boundary = [...document.querySelectorAll('.park-boundary-fence')]
+        return {
+          ready: canvas?.dataset.sharedRenderer === 'ready',
+          boundarySegments: Number(canvas?.dataset.sharedRendererBoundaryFenceSegments ?? 0),
+          buildingNodes: Number(canvas?.dataset.sharedRendererBuildingNodes ?? 0),
+          legacyBoundaryVisible: boundary.filter(
+            (segment) => getComputedStyle(segment).opacity !== '0',
+          ).length,
+          legacyEntranceVisible:
+            getComputedStyle(document.querySelector('.park-entrance-building')).opacity !== '0',
+          depotArtworkHidden: (() => {
+            const depot = document.querySelector('.care-depot')
+            const style = getComputedStyle(depot)
+            return (
+              style.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+              style.borderTopColor === 'rgba(0, 0, 0, 0)' &&
+              style.boxShadow === 'none' &&
+              [...depot.children].every((child) => getComputedStyle(child).visibility === 'hidden')
+            )
+          })(),
+        }
+      })())`),
+    )
+    if (
+      rendererFrame.ready &&
+      rendererFrame.boundarySegments === expectedFenceCount &&
+      rendererFrame.buildingNodes === 24 &&
+      rendererFrame.legacyBoundaryVisible === 0 &&
+      !rendererFrame.legacyEntranceVisible &&
+      rendererFrame.depotArtworkHidden
+    ) {
+      break
+    }
+    await sleep(50)
+  }
+
+  if (
+    !rendererFrame?.ready ||
+    rendererFrame.boundarySegments !== expectedFenceCount ||
+    rendererFrame.buildingNodes !== 24 ||
+    rendererFrame.legacyBoundaryVisible !== 0 ||
+    rendererFrame.legacyEntranceVisible ||
+    !rendererFrame.depotArtworkHidden
+  ) {
+    throw new Error(
+      `Park frame did not settle on renderer-owned 3D geometry: ${JSON.stringify(rendererFrame)}`,
+    )
+  }
+
+  const depotFocusVisible = await evaluate(`(() => {
+    const depot = document.querySelector('.care-depot')
+    depot.focus()
+    const style = getComputedStyle(depot)
+    const visible =
+      document.activeElement === depot &&
+      style.outlineStyle !== 'none' &&
+      Number.parseFloat(style.outlineWidth) >= 3
+    depot.blur()
+    return visible
+  })()`)
+  if (!depotFocusVisible) {
+    throw new Error("Renderer-owned operations depot lost visible keyboard focus")
+  }
+
+    const screenshot = await cdp.send("Page.captureScreenshot", {
     format: "png",
     fromSurface: true,
     captureBeyondViewport: false,
@@ -183,7 +252,7 @@ try {
   writeFileSync("test-results/park-frame.png", Buffer.from(screenshot.data, "base64"))
 
   console.log(
-    `Park-frame browser dogfood passed: ${frame.width}×${frame.height} buildable area, ${frame.borderCount} projected outer tiles, ${frame.fenceCount} projected fence segments, and renderer-owned entrance ground.`,
+    `Park-frame browser dogfood passed: ${frame.width}×${frame.height} buildable area, ${frame.borderCount} projected outer tiles, ${frame.fenceCount} authoritative 3D boundary segments with one entrance gap, and renderer-owned entrance/depot buildings.`,
   )
 } finally {
   cdp?.close()

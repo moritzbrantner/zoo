@@ -172,10 +172,113 @@ try {
     throw new Error(`Expected two rendered stands, got ${JSON.stringify(finalState)}`)
   }
 
+  let rendererState = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    rendererState = JSON.parse(
+      await evaluate(`JSON.stringify((() => {
+        const canvas = document.querySelector('.park-three-renderer-canvas')
+        const stands = [...document.querySelectorAll('.concession')]
+        const artworkHidden = stands.every((stand) => {
+          const style = getComputedStyle(stand)
+          const childrenHidden = [...stand.children].every(
+            (child) => getComputedStyle(child).visibility === 'hidden',
+          )
+          return (
+            style.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+            style.borderTopColor === 'rgba(0, 0, 0, 0)' &&
+            style.boxShadow === 'none' &&
+            childrenHidden
+          )
+        })
+        return {
+          ready: canvas?.dataset.sharedRenderer === 'ready',
+          nodeCount: Number(canvas?.dataset.sharedRendererConcessionNodes ?? 0),
+          artworkHidden,
+          anchors: stands.map((stand) => ({
+            kind: stand.classList.contains('concession-food') ? 'food' : 'drink',
+            x: Number(stand.dataset.sharedRendererWorldX),
+            y: Number(stand.dataset.sharedRendererWorldY),
+            z: Number(stand.dataset.sharedRendererWorldZ),
+          })),
+        }
+      })())`),
+    )
+    if (rendererState.ready && rendererState.nodeCount === 27 && rendererState.artworkHidden) break
+    await sleep(50)
+  }
+  if (!rendererState?.ready || rendererState.nodeCount !== 27 || !rendererState.artworkHidden) {
+    throw new Error(
+      `Concessions did not settle as renderer-owned 3D models: ${JSON.stringify(rendererState)}`,
+    )
+  }
+
+  const anchorByKind = Object.fromEntries(rendererState.anchors.map((anchor) => [anchor.kind, anchor]))
+  if (
+    anchorByKind.drink?.x !== 2 ||
+    anchorByKind.drink?.z !== 6 ||
+    anchorByKind.food?.x !== 4 ||
+    anchorByKind.food?.z !== 6
+  ) {
+    throw new Error(`Concession hit targets do not share model anchors: ${JSON.stringify(rendererState.anchors)}`)
+  }
+
+  const focusVisible = await evaluate(`(() => {
+    const stand = document.querySelector('.concession-food')
+    stand.focus()
+    const style = getComputedStyle(stand)
+    return (
+      document.activeElement === stand &&
+      style.outlineStyle !== 'none' &&
+      Number.parseFloat(style.outlineWidth) >= 3
+    )
+  })()`)
+  if (!focusVisible) throw new Error("Renderer-owned concession hit target lost visible keyboard focus")
+
+  const beforeRotation = JSON.parse(
+    await evaluate(`JSON.stringify((() => {
+      const stand = document.querySelector('.concession-food')
+      const rect = stand.getBoundingClientRect()
+      return {left: rect.left, top: rect.top, x: Number(stand.dataset.sharedRendererWorldX)}
+    })())`),
+  )
+  await evaluate(`document.querySelector('.camera-orbit-right').click(); true`)
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const rotated = JSON.parse(
+      await evaluate(`JSON.stringify((() => {
+        const stand = document.querySelector('.concession-food')
+        const rect = stand.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+        const centerY = rect.top + rect.height / 2
+        return {
+          yaw: Number(document.querySelector('.park').dataset.cameraYaw),
+          left: rect.left,
+          top: rect.top,
+          worldX: Number(stand.dataset.sharedRendererWorldX),
+          worldZ: Number(stand.dataset.sharedRendererWorldZ),
+          ownsCenter: document.elementFromPoint(centerX, centerY) === stand,
+        }
+      })())`),
+    )
+    if (
+      rotated.yaw !== 0 &&
+      rotated.worldX === 4 &&
+      rotated.worldZ === 6 &&
+      rotated.ownsCenter &&
+      (rotated.left !== beforeRotation.left || rotated.top !== beforeRotation.top)
+    ) {
+      break
+    }
+    if (attempt === 39) {
+      throw new Error(`Concession hit target did not stay on its model anchor after rotation: ${JSON.stringify(rotated)}`)
+    }
+    await sleep(50)
+  }
+  await evaluate(`document.querySelector('.concession-food').blur(); true`)
+
   mkdirSync("test-results", {recursive: true})
   const screenshot = await cdp.send("Page.captureScreenshot", {format: "png", fromSurface: true})
   writeFileSync("test-results/concessions.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Concession dogfood passed: food + drink stands placed beside the starter path")
+  console.log("Concession dogfood passed: stands are renderer-owned 3D models; transparent hit targets keep model anchors through camera rotation and remain keyboard-focus visible")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")

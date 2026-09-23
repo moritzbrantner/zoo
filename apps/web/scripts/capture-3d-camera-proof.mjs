@@ -248,7 +248,17 @@ try {
       boundaryFenceTransform: boundaryFence?.style.transform,
       boundaryFenceWidth: boundaryFence?.style.width,
       boundaryFenceOpacity: boundaryFence ? getComputedStyle(boundaryFence).opacity : null,
-      depotOpacity: depot ? getComputedStyle(depot).opacity : null,
+      depotArtworkHidden: depot
+        ? (() => {
+            const style = getComputedStyle(depot)
+            return (
+              style.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+              style.borderTopColor === 'rgba(0, 0, 0, 0)' &&
+              style.boxShadow === 'none' &&
+              [...depot.children].every((child) => getComputedStyle(child).visibility === 'hidden')
+            )
+          })()
+        : false,
       entranceBuildingOpacity: entranceBuilding ? getComputedStyle(entranceBuilding).opacity : null,
       entranceBaseDisplay: entranceBase ? getComputedStyle(entranceBase).display : null,
       depthSamples: depthEntries.length,
@@ -266,7 +276,7 @@ try {
     !projectedPresentation.boundaryFenceTransform?.startsWith("rotate(") ||
     !(Number.parseFloat(projectedPresentation.boundaryFenceWidth) > 0) ||
     projectedPresentation.boundaryFenceOpacity !== "0" ||
-    projectedPresentation.depotOpacity !== "0" ||
+    !projectedPresentation.depotArtworkHidden ||
     projectedPresentation.entranceBuildingOpacity !== "0" ||
     projectedPresentation.entranceBaseDisplay !== "none" ||
     projectedPresentation.depthSamples < 4 ||

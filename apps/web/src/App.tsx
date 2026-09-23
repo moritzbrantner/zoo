@@ -6,6 +6,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react"
+import Park3DRenderer from "./Park3DRenderer"
 import init, {ZooGame} from "./wasm/zoo_core"
 
 type Tool = "select" | "pan" | "path" | "habitat" | "food" | "drink" | "bulldoze"
@@ -175,7 +176,7 @@ type FinanceDay = {
   breakdown: FinanceBreakdown
 }
 
-type Snapshot = {
+export type Snapshot = {
   width: number
   height: number
   day: number
@@ -226,7 +227,7 @@ type ActionResult = {
   message: string
 }
 
-type PlacementEvaluation = {
+export type PlacementEvaluation = {
   ok: boolean
   message: string
   x: number
@@ -741,6 +742,7 @@ export default function App() {
             onPointerCancel={endPan}
             onPointerLeave={() => setHoveredTile(null)}
           >
+            <Park3DRenderer snapshot={snapshot} placement={placement} />
             <div className="park-label">Starter Meadow</div>
 
             {snapshot.tiles
@@ -896,6 +898,7 @@ export default function App() {
                   type="button"
                   className={`concession concession-${stand.kind} concession-${stand.service_state}`}
                   key={`concession:${stand.id}`}
+                  data-concession-id={stand.id}
                   style={{
                     left: position.left + 8,
                     top: position.top - 42,
