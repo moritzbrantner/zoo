@@ -6,7 +6,14 @@ import {
   type RendererSceneNode,
   type ThreeSceneRenderer,
 } from "@moritzbrantner/three-d-renderer"
-import {useCallback, useEffect, useRef, useState} from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import {createPortal} from "react-dom"
 import type {PlacementEvaluation, Snapshot, Tool} from "./App"
 import initScene, {ParkCameraBridge} from "./scene-wasm/zoo_scene"
@@ -1189,7 +1196,7 @@ export default function Park3DRenderer({
     }
   }, [resetCamera])
 
-  const pointFromPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const pointFromPointer = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
     const camera = cameraRef.current
     if (!canvas || !camera) return null
@@ -1197,7 +1204,7 @@ export default function Park3DRenderer({
     return point ? {canvas, camera, point} : null
   }
 
-  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (tool === "pan") return
     const context = pointFromPointer(event)
     if (!context) return
@@ -1212,7 +1219,7 @@ export default function Park3DRenderer({
     }
   }
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const context = pointFromPointer(event)
     if (!context) return
     const tile = pickTile(snapshot, context.camera, context.point)
@@ -1226,19 +1233,19 @@ export default function Park3DRenderer({
     }
   }
 
-  const handlePointerLeave = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerLeave = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) return
     lastHoverKeyRef.current = null
     onHoverTile(null)
   }
 
-  const handlePointerEnd = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
   }
 
-  const handleClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleClick = (event: ReactMouseEvent<HTMLCanvasElement>) => {
     if (tool === "pan" || tool === "path" || tool === "habitat") return
     const canvas = canvasRef.current
     const camera = cameraRef.current
