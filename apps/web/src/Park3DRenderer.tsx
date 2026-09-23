@@ -8,6 +8,7 @@ import {
 } from "@moritzbrantner/three-d-renderer"
 import {useCallback, useEffect, useRef, useState} from "react"
 import {createPortal} from "react-dom"
+import type {PlacementEvaluation, Snapshot} from "./App"
 import initScene, {ParkCameraBridge} from "./scene-wasm/zoo_scene"
 
 const RENDER_WIDTH = 1240
@@ -115,40 +116,15 @@ type FenceModelSegment = {
   start: WorldPoint
   end: WorldPoint
   boundary: boolean
+  preview: boolean
 }
 
-function sceneBox(
-  id: string,
-  translation: WorldPoint,
-  size: WorldPoint,
-  color: HexColor,
-  rotationQuaternion?: [number, number, number, number],
-): RendererSceneNode {
-  return {
-    id,
-    transform:
-      rotationQuaternion === undefined
-        ? {translation}
-        : {translation, rotationQuaternion},
-    geometry: {kind: "box", size},
-    color,
-  }
+type RendererInputs = {
+  snapshot: Snapshot
+  placement: PlacementEvaluation | null
 }
 
-function sceneCylinder(
-  id: string,
-  translation: WorldPoint,
-  radius: number,
-  height: number,
-  color: HexColor,
-): RendererSceneNode {
-  return {
-    id,
-    transform: {translation},
-    geometry: {kind: "cylinder", radius, height},
-    color,
-  }
-}
+type Props = RendererInputs
 
 function worldPointKey([x, , z]: WorldPoint) {
   return `${x.toFixed(3)}:${z.toFixed(3)}`
@@ -159,34 +135,92 @@ function fenceEdgeKey(start: WorldPoint, end: WorldPoint) {
   return `${keys[0]}--${keys[1]}`
 }
 
-function collectFenceModelSegments(park: HTMLElement) {
-  const edges = new Map<string, FenceModelSegment>()
-  const elements = park.querySelectorAll<HTMLElement>(
-    ".fence-segment:not(.fence-preview), .park-boundary-fence",
-  )
+function entranceBoundarySide(snapshot: Snapshot): FenceSide {
+  if (snapshot.entrance.y <= 0) return "north"
+  if (snapshot.entrance.y >= snapshot.height - 1) return "south"
+  if (snapshot.entrance.x <= 0) return "west"
+  return "east"
+}
 
-  for (const element of elements) {
-    const canonical = captureCanonicalPosition(element)
-    const side = readFenceSide(element)
-    if (!canonical || !side) continue
+function boundaryFenceSegments(snapshot: Snapshot) {
+  const segments: FenceModelSegment[] = []
+  const entranceSide = entranceBoundarySide(snapshot)
 
-    const tile = canonicalWorldTile(canonical)
-    const [start, end] = fenceEndpoints(tile.x, tile.z, side)
-    const id = fenceEdgeKey(start, end)
-    const boundary = element.classList.contains("park-boundary-fence")
-    const existing = edges.get(id)
-    if (!existing || boundary) {
-      edges.set(id, {id, start, end, boundary})
+  for (let x = 0; x < snapshot.width; x += 1) {
+    if (!(entranceSide === "north" && x === snapshot.entrance.x)) {
+      const [start, end] = fenceEndpoints(x, 0, "north")
+      segments.push({id: `boundary:north:${x}`, start, end, boundary: true, preview: false})
+    }
+    if (!(entranceSide === "south" && x === snapshot.entrance.x)) {
+      const [start, end] = fenceEndpoints(x, snapshot.height - 1, "south")
+      segments.push({id: `boundary:south:${x}`, start, end, boundary: true, preview: false})
     }
   }
 
-  return [...edges.values()].sort((left, right) => left.id.localeCompare(right.id))
+  for (let z = 0; z < snapshot.height; z += 1) {
+    if (!(entranceSide === "west" && z === snapshot.entrance.y)) {
+      const [start, end] = fenceEndpoints(0, z, "west")
+      segments.push({id: `boundary:west:${z}`, start, end, boundary: true, preview: false})
+    }
+    if (!(entranceSide === "east" && z === snapshot.entrance.y)) {
+      const [start, end] = fenceEndpoints(snapshot.width - 1, z, "east")
+      segments.push({id: `boundary:east:${z}`, start, end, boundary: true, preview: false})
+    }
+  }
+
+  return segments
 }
 
-function renderFenceNodes(park: HTMLElement): RendererSceneNode[] {
-  const segments = collectFenceModelSegments(park)
+function habitatFenceSegments(snapshot: Snapshot) {
+  const segments = new Map<string, FenceModelSegment>()
+  for (const habitat of snapshot.habitats) {
+    for (const segment of habitat.fence_segments) {
+      const [start, end] = fenceEndpoints(segment.x, segment.y, segment.side)
+      const edge = fenceEdgeKey(start, end)
+      if (!segments.has(edge)) {
+        segments.set(edge, {
+          id: `habitat:${habitat.id}:${edge}`,
+          start,
+          end,
+          boundary: false,
+          preview: false,
+        })
+      }
+    }
+  }
+  return [...segments.values()]
+}
+
+function previewFenceSegments(placement: PlacementEvaluation | null) {
+  if (!placement) return []
+  return placement.fence_segments.map((segment, index) => {
+    const [start, end] = fenceEndpoints(segment.x, segment.y, segment.side)
+    return {
+      id: `preview:${index}:${segment.x}:${segment.y}:${segment.side}`,
+      start,
+      end,
+      boundary: false,
+      preview: true,
+    } satisfies FenceModelSegment
+  })
+}
+
+function renderFenceNodes(snapshot: Snapshot, placement: PlacementEvaluation | null) {
+  const boundary = boundaryFenceSegments(snapshot)
+  const habitat = habitatFenceSegments(snapshot)
+  const preview = previewFenceSegments(placement)
+  const committed = new Map<string, FenceModelSegment>()
+
+  for (const segment of [...habitat, ...boundary]) {
+    const edge = fenceEdgeKey(segment.start, segment.end)
+    const existing = committed.get(edge)
+    if (!existing || segment.boundary) committed.set(edge, segment)
+  }
+
+  const committedSegments = [...committed.values()]
+  const segments = [...committedSegments, ...preview]
   const nodes: RendererSceneNode[] = []
-  const posts = new Map<string, {point: WorldPoint; boundary: boolean}>()
+  const posts = new Map<string, {point: WorldPoint; boundary: boolean; preview: boolean}>()
 
   for (const segment of segments) {
     const deltaX = segment.end[0] - segment.start[0]
@@ -195,35 +229,41 @@ function renderFenceNodes(park: HTMLElement): RendererSceneNode[] {
     const alongX = Math.abs(deltaX) >= Math.abs(deltaZ)
     const centerX = (segment.start[0] + segment.end[0]) * 0.5
     const centerZ = (segment.start[2] + segment.end[2]) * 0.5
-    const color: HexColor = segment.boundary ? "#29463d" : "#38513c"
+    const color: HexColor = segment.preview
+      ? placement?.ok
+        ? "#e8d276"
+        : "#b6584c"
+      : segment.boundary
+        ? "#29463d"
+        : "#38513c"
     const railSize: WorldPoint = alongX ? [length, 0.07, 0.075] : [0.075, 0.07, length]
 
     nodes.push(
-      sceneBox(
-        `fence:${segment.id}:rail:lower`,
-        [centerX, 0.27, centerZ],
-        railSize,
-        color,
-      ),
-      sceneBox(
-        `fence:${segment.id}:rail:upper`,
-        [centerX, 0.51, centerZ],
-        railSize,
-        color,
-      ),
+      sceneBox(`fence:${segment.id}:rail:lower`, [centerX, 0.27, centerZ], railSize, color),
+      sceneBox(`fence:${segment.id}:rail:upper`, [centerX, 0.51, centerZ], railSize, color),
     )
 
     for (const point of [segment.start, segment.end]) {
       const key = worldPointKey(point)
       const existing = posts.get(key)
-      if (!existing || segment.boundary) {
-        posts.set(key, {point, boundary: segment.boundary || existing?.boundary === true})
+      if (!existing || segment.boundary || (!existing.boundary && !segment.preview && existing.preview)) {
+        posts.set(key, {
+          point,
+          boundary: segment.boundary || existing?.boundary === true,
+          preview: segment.preview && existing?.boundary !== true,
+        })
       }
     }
   }
 
   for (const [key, post] of [...posts.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    const color: HexColor = post.boundary ? "#243f38" : "#314937"
+    const color: HexColor = post.preview
+      ? placement?.ok
+        ? "#e8d276"
+        : "#b6584c"
+      : post.boundary
+        ? "#243f38"
+        : "#314937"
     nodes.push(
       sceneBox(
         `fence:post:${key}`,
@@ -241,14 +281,14 @@ function renderFenceNodes(park: HTMLElement): RendererSceneNode[] {
     )
   }
 
-  return nodes
-}
-
-function entranceBuildingSide(element: HTMLElement): FenceSide {
-  for (const side of ["north", "east", "south", "west"] as const) {
-    if (element.classList.contains(`park-entrance-building-${side}`)) return side
+  return {
+    nodes,
+    counts: {
+      boundary: committedSegments.filter((segment) => segment.boundary).length,
+      habitat: committedSegments.filter((segment) => !segment.boundary).length,
+      preview: preview.length,
+    },
   }
-  return "south"
 }
 
 function yawForSide(side: FenceSide) {
@@ -302,26 +342,14 @@ function buildingCylinder(
   radius: number,
   height: number,
   color: HexColor,
-  yaw = 0,
 ) {
-  const offset = rotateLocalOffset(local[0], local[2], yaw)
-  return sceneCylinder(
-    id,
-    [origin.x + offset.x, local[1], origin.z + offset.z],
-    radius,
-    height,
-    color,
-  )
+  const offset = rotateLocalOffset(local[0], local[2], 0)
+  return sceneCylinder(id, [origin.x + offset.x, local[1], origin.z + offset.z], radius, height, color)
 }
 
-function renderEntranceBuildingNodes(element: HTMLElement): RendererSceneNode[] {
-  const canonical = captureCanonicalPosition(element)
-  const rule = overlayRule(element)
-  if (!canonical || !rule) return []
-
-  const [anchorX, , anchorZ] = inferWorldAnchor(canonical, rule)
-  const origin = {x: anchorX + 1, z: anchorZ}
-  const yaw = yawForSide(entranceBuildingSide(element))
+function renderEntranceBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
+  const origin = {x: snapshot.entrance.x + 1, z: snapshot.entrance.y}
+  const yaw = yawForSide(entranceBoundarySide(snapshot))
   const wall: HexColor = "#d8c79d"
   const trim: HexColor = "#eadfbf"
   const roof: HexColor = "#9d4937"
@@ -334,7 +362,7 @@ function renderEntranceBuildingNodes(element: HTMLElement): RendererSceneNode[] 
     buildingBox("building:entrance:center", origin, [0, 0.62, -0.02], [0.58, 1.12, 0.74], wall, yaw),
     buildingBox("building:entrance:left-roof", origin, [-0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
     buildingBox("building:entrance:right-roof", origin, [0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
-    buildingCylinder("building:entrance:tower-roof", origin, [0, 1.22, -0.03], 0.42, 0.18, roof, yaw),
+    buildingCylinder("building:entrance:tower-roof", origin, [0, 1.22, -0.03], 0.42, 0.18, roof),
     buildingBox("building:entrance:door", origin, [0, 0.39, 0.39], [0.28, 0.54, 0.06], door, yaw),
     buildingBox("building:entrance:sign", origin, [0, 0.88, 0.405], [0.64, 0.18, 0.05], "#e0bf65", yaw),
     buildingBox("building:entrance:left-column", origin, [-0.23, 0.46, 0.405], [0.09, 0.68, 0.07], trim, yaw),
@@ -342,13 +370,9 @@ function renderEntranceBuildingNodes(element: HTMLElement): RendererSceneNode[] 
   ]
 }
 
-function renderDepotBuildingNodes(element: HTMLElement): RendererSceneNode[] {
-  const canonical = captureCanonicalPosition(element)
-  const rule = overlayRule(element)
-  if (!canonical || !rule) return []
-
-  const [anchorX, , anchorZ] = inferWorldAnchor(canonical, rule)
-  const origin = {x: anchorX + 1, z: anchorZ}
+function renderDepotBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
+  const depot = snapshot.animal_care_depot
+  const origin = {x: depot.x + 1, z: depot.y}
 
   return [
     buildingBox("building:depot:plinth", origin, [0, 0.06, 0], [1.3, 0.12, 1.02], "#a9a68f"),
@@ -363,16 +387,41 @@ function renderDepotBuildingNodes(element: HTMLElement): RendererSceneNode[] {
   ]
 }
 
-function renderBuildingNodes(park: HTMLElement): RendererSceneNode[] {
+function renderConcessionNodes(snapshot: Snapshot): RendererSceneNode[] {
   const nodes: RendererSceneNode[] = []
-  const entrance = park.querySelector<HTMLElement>(".park-entrance-building")
-  const depot = park.querySelector<HTMLElement>(".care-depot")
-  if (entrance) nodes.push(...renderEntranceBuildingNodes(entrance))
-  if (depot) nodes.push(...renderDepotBuildingNodes(depot))
+
+  for (const stand of snapshot.concessions) {
+    const origin = {x: stand.x + 1, z: stand.y}
+    const body: HexColor = stand.kind === "food" ? "#c87842" : "#4f8298"
+    const awning: HexColor =
+      stand.service_state === "failed"
+        ? "#8c443e"
+        : stand.service_state === "degraded"
+          ? "#c18a43"
+          : stand.kind === "food"
+            ? "#e3c562"
+            : "#8fc9d8"
+
+    nodes.push(
+      buildingBox(`concession:${stand.id}:foundation`, origin, [0, 0.06, 0], [0.82, 0.12, 0.76], "#8b785d"),
+      buildingBox(`concession:${stand.id}:body`, origin, [0, 0.43, 0], [0.7, 0.62, 0.62], body),
+      buildingBox(`concession:${stand.id}:roof`, origin, [0, 0.79, -0.01], [0.84, 0.12, 0.76], awning),
+      buildingBox(`concession:${stand.id}:counter`, origin, [0, 0.39, 0.345], [0.62, 0.13, 0.08], "#6b513b"),
+      buildingBox(`concession:${stand.id}:sign`, origin, [0, 0.67, 0.345], [0.46, 0.17, 0.05], "#eee0b0"),
+      buildingBox(`concession:${stand.id}:awning-front`, origin, [0, 0.72, 0.39], [0.78, 0.08, 0.18], awning),
+      buildingBox(`concession:${stand.id}:post-left`, origin, [-0.31, 0.36, 0.36], [0.05, 0.62, 0.05], "#5f4a37"),
+      buildingBox(`concession:${stand.id}:post-right`, origin, [0.31, 0.36, 0.36], [0.05, 0.62, 0.05], "#5f4a37"),
+    )
+  }
+
   return nodes
 }
 
-function relativeYaw(yawDegrees: number) {
+function renderBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
+  return [...renderEntranceBuildingNodes(snapshot), ...renderDepotBuildingNodes(snapshot)]
+}
+
+function relativeYaw(function relativeYaw(yawDegrees: number) {
   return ((yawDegrees - DEFAULT_SHARED_YAW) % 360 + 360) % 360
 }
 
@@ -693,11 +742,13 @@ function parseCameraFrame(bridge: ParkCameraBridge): CameraFrame {
   return JSON.parse(bridge.frame_json(RENDER_ASPECT)) as CameraFrame
 }
 
-export default function Park3DRenderer() {
+export default function Park3DRenderer({snapshot, placement}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<ThreeSceneRenderer | null>(null)
   const bridgeRef = useRef<ParkCameraBridge | null>(null)
   const renderRequestRef = useRef<number | null>(null)
+  const renderInputsRef = useRef<RendererInputs>({snapshot, placement})
+  renderInputsRef.current = {snapshot, placement}
   const [targets, setTargets] = useState<Targets | null>(null)
   const [cameraLabel, setCameraLabel] = useState({yaw: 0, pitch: 0})
   const [ready, setReady] = useState(false)
@@ -728,17 +779,23 @@ export default function Park3DRenderer() {
       if (tiles.length === 0) return false
 
       const camera = parseCameraFrame(bridgeRef.current)
+      const {snapshot: currentSnapshot, placement: currentPlacement} = renderInputsRef.current
       const tileNodes = renderNodes(tiles)
-      const fenceNodes = renderFenceNodes(targets.park)
-      const buildingNodes = renderBuildingNodes(targets.park)
+      const fenceFrame = renderFenceNodes(currentSnapshot, currentPlacement)
+      const buildingNodes = renderBuildingNodes(currentSnapshot)
+      const concessionNodes = renderConcessionNodes(currentSnapshot)
       const frame: RendererFrame = {
         camera,
-        nodes: [...tileNodes, ...fenceNodes, ...buildingNodes],
+        nodes: [...tileNodes, ...fenceFrame.nodes, ...buildingNodes, ...concessionNodes],
       }
       rendererRef.current.render(frame)
       if (canvasRef.current) {
-        canvasRef.current.dataset.sharedRendererFenceNodes = String(fenceNodes.length)
+        canvasRef.current.dataset.sharedRendererFenceNodes = String(fenceFrame.nodes.length)
+        canvasRef.current.dataset.sharedRendererBoundaryFenceSegments = String(fenceFrame.counts.boundary)
+        canvasRef.current.dataset.sharedRendererHabitatFenceSegments = String(fenceFrame.counts.habitat)
+        canvasRef.current.dataset.sharedRendererPreviewFenceSegments = String(fenceFrame.counts.preview)
         canvasRef.current.dataset.sharedRendererBuildingNodes = String(buildingNodes.length)
+        canvasRef.current.dataset.sharedRendererConcessionNodes = String(concessionNodes.length)
       }
       projectDomOverlay(targets.park, camera)
 
@@ -791,11 +848,9 @@ export default function Park3DRenderer() {
 
   const resetCamera = useCallback(() => {
     if (!targets) return
-    const tiles = collectTiles(targets.park)
-    if (tiles.length === 0) return
-    const extent = readParkExtent(tiles)
+    const {snapshot: currentSnapshot} = renderInputsRef.current
     bridgeRef.current?.free()
-    bridgeRef.current = new ParkCameraBridge(extent.width, extent.height)
+    bridgeRef.current = new ParkCameraBridge(currentSnapshot.width, currentSnapshot.height)
     renderCurrent()
   }, [renderCurrent, targets])
 
@@ -822,8 +877,8 @@ export default function Park3DRenderer() {
         if (cancelled) return
         const tiles = collectTiles(targets.park)
         if (tiles.length === 0) throw new Error("Zoo renderer requires tile scene data")
-        const extent = readParkExtent(tiles)
-        bridgeRef.current = new ParkCameraBridge(extent.width, extent.height)
+        const {snapshot: currentSnapshot} = renderInputsRef.current
+        bridgeRef.current = new ParkCameraBridge(currentSnapshot.width, currentSnapshot.height)
         rendererRef.current = createThreeSceneRenderer(canvas, {alpha: true})
         rendererRef.current.setSize(RENDER_WIDTH, RENDER_HEIGHT, window.devicePixelRatio || 1)
         syncBaseTransform()
@@ -888,12 +943,20 @@ export default function Park3DRenderer() {
       delete targets.park.dataset.sharedRendererFailure
       canvas.style.removeProperty("visibility")
       delete canvas.dataset.sharedRendererFenceNodes
+      delete canvas.dataset.sharedRendererBoundaryFenceSegments
+      delete canvas.dataset.sharedRendererHabitatFenceSegments
+      delete canvas.dataset.sharedRendererPreviewFenceSegments
       delete canvas.dataset.sharedRendererBuildingNodes
+      delete canvas.dataset.sharedRendererConcessionNodes
       restoreDomOverlay(targets.park)
       targets.park.classList.remove("shared-three-renderer")
       setReady(false)
     }
   }, [renderCurrent, resetCamera, scheduleRender, targets])
+
+  useEffect(() => {
+    if (ready) scheduleRender()
+  }, [placement, ready, scheduleRender, snapshot])
 
   const rotate = (steps: number) => {
     bridgeRef.current?.rotate_steps(steps)
