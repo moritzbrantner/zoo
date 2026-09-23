@@ -898,6 +898,7 @@ export default function App() {
                   type="button"
                   className={`concession concession-${stand.kind} concession-${stand.service_state}`}
                   key={`concession:${stand.id}`}
+                  data-concession-id={stand.id}
                   style={{
                     left: position.left + 8,
                     top: position.top - 42,
