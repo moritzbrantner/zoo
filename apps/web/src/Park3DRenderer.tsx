@@ -423,28 +423,43 @@ function buildingCylinder(
   return sceneCylinder(id, [origin.x + offset.x, local[1], origin.z + offset.z], radius, height, color)
 }
 
+function entranceOrigin(snapshot: Snapshot) {
+  const side = entranceBoundarySide(snapshot)
+  const center = tileCenter(snapshot.entrance.x, snapshot.entrance.y)
+  const outward =
+    side === "west"
+      ? {x: -0.9, z: 0}
+      : side === "east"
+        ? {x: 0.9, z: 0}
+        : side === "north"
+          ? {x: 0, z: -0.9}
+          : {x: 0, z: 0.9}
+  return {x: center[0] + outward.x, z: center[2] + outward.z}
+}
+
 function renderEntranceBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
-  const origin = {x: snapshot.entrance.x + 1, z: snapshot.entrance.y}
+  const origin = entranceOrigin(snapshot)
   const yaw = yawForSide(entranceBoundarySide(snapshot))
   const wall: HexColor = "#d8c79d"
   const trim: HexColor = "#eadfbf"
   const roof: HexColor = "#9d4937"
-  const door: HexColor = "#244d45"
+  const dark: HexColor = "#244d45"
 
   return [
-    buildingBox("building:entrance:plinth", origin, [0, 0.06, 0], [1.72, 0.12, 0.94], "#b7aa88", yaw),
-    buildingBox("building:entrance:left-wing", origin, [-0.56, 0.49, 0.01], [0.5, 0.86, 0.68], wall, yaw),
-    buildingBox("building:entrance:right-wing", origin, [0.56, 0.49, 0.01], [0.5, 0.86, 0.68], wall, yaw),
-    buildingBox("building:entrance:center", origin, [0, 0.62, -0.02], [0.58, 1.12, 0.74], wall, yaw),
-    buildingBox("building:entrance:left-roof", origin, [-0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
-    buildingBox("building:entrance:right-roof", origin, [0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
-    buildingBox("building:entrance:left-window", origin, [-0.56, 0.57, 0.352], [0.22, 0.3, 0.035], "#87c7d8", yaw),
-    buildingBox("building:entrance:right-window", origin, [0.56, 0.57, 0.352], [0.22, 0.3, 0.035], "#87c7d8", yaw),
-    buildingCylinder("building:entrance:tower-roof", origin, [0, 1.22, -0.03], 0.42, 0.18, roof),
-    buildingBox("building:entrance:door", origin, [0, 0.39, 0.39], [0.28, 0.54, 0.06], door, yaw),
-    buildingBox("building:entrance:sign", origin, [0, 0.88, 0.405], [0.64, 0.18, 0.05], "#e0bf65", yaw),
-    buildingBox("building:entrance:left-column", origin, [-0.23, 0.46, 0.405], [0.09, 0.68, 0.07], trim, yaw),
-    buildingBox("building:entrance:right-column", origin, [0.23, 0.46, 0.405], [0.09, 0.68, 0.07], trim, yaw),
+    buildingBox("building:entrance:left-plinth", origin, [-0.68, 0.06, 0], [0.72, 0.12, 0.9], "#b7aa88", yaw),
+    buildingBox("building:entrance:right-plinth", origin, [0.68, 0.06, 0], [0.72, 0.12, 0.9], "#b7aa88", yaw),
+    buildingBox("building:entrance:left-wing", origin, [-0.68, 0.52, 0], [0.62, 0.9, 0.72], wall, yaw),
+    buildingBox("building:entrance:right-wing", origin, [0.68, 0.52, 0], [0.62, 0.9, 0.72], wall, yaw),
+    buildingBox("building:entrance:left-roof", origin, [-0.68, 1.02, 0], [0.76, 0.16, 0.86], roof, yaw),
+    buildingBox("building:entrance:right-roof", origin, [0.68, 1.02, 0], [0.76, 0.16, 0.86], roof, yaw),
+    buildingBox("building:entrance:bridge", origin, [0, 1.08, 0.02], [1.7, 0.2, 0.28], roof, yaw),
+    buildingBox("building:entrance:sign", origin, [0, 1.29, 0.05], [0.82, 0.24, 0.08], "#e0bf65", yaw),
+    buildingBox("building:entrance:left-column", origin, [-0.35, 0.58, 0.34], [0.1, 0.92, 0.1], trim, yaw),
+    buildingBox("building:entrance:right-column", origin, [0.35, 0.58, 0.34], [0.1, 0.92, 0.1], trim, yaw),
+    buildingBox("building:entrance:left-window", origin, [-0.68, 0.58, 0.37], [0.24, 0.3, 0.04], "#87c7d8", yaw),
+    buildingBox("building:entrance:right-window", origin, [0.68, 0.58, 0.37], [0.24, 0.3, 0.04], "#87c7d8", yaw),
+    buildingBox("building:entrance:left-turnstile", origin, [-0.18, 0.28, 0.1], [0.08, 0.5, 0.08], dark, yaw),
+    buildingBox("building:entrance:right-turnstile", origin, [0.18, 0.28, 0.1], [0.08, 0.5, 0.08], dark, yaw),
   ]
 }
 
