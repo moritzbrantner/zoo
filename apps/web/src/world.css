@@ -1,0 +1,133 @@
+.park-three-renderer-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 1240px;
+  height: 720px;
+  border: 0;
+  outline: 0;
+  touch-action: none;
+}
+
+.park-three-renderer-canvas:focus-visible {
+  outline: 3px solid #f6d36f;
+  outline-offset: -4px;
+}
+
+.park-three-renderer-canvas.world-tool-select,
+.park-three-renderer-canvas.world-tool-food,
+.park-three-renderer-canvas.world-tool-drink,
+.park-three-renderer-canvas.world-tool-bulldoze {
+  cursor: pointer;
+}
+
+.park-three-renderer-canvas.world-tool-path,
+.park-three-renderer-canvas.world-tool-habitat {
+  cursor: crosshair;
+}
+
+.park-three-renderer-canvas.world-tool-pan {
+  cursor: grab;
+}
+
+.world-accessibility {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.park-label {
+  z-index: 4;
+  pointer-events: none;
+}
+
+.renderer-failure {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 20;
+  transform: translate(-50%, -50%);
+  padding: 10px 14px;
+  border: 1px solid #6e2929;
+  border-radius: 6px;
+  color: #fff;
+  background: #8f3f39;
+  font-weight: 800;
+}
+
+.camera-orbit-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: auto repeat(5, 38px);
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  color: #eef5f1;
+  background: rgb(24 66 57 / 92%);
+  backdrop-filter: blur(6px);
+}
+
+.camera-orbit-controls button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid #123c34;
+  border-radius: 4px;
+  color: #edf5f1;
+  background: #1e5548;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.camera-orbit-controls button:hover,
+.camera-orbit-controls button:focus-visible {
+  color: #1d3028;
+  background: #f2d274;
+}
+
+.camera-orbit-label {
+  padding: 0 5px 0 3px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.camera-orbit-controls small {
+  grid-column: 1 / -1;
+  color: #bfd9d0;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .camera-orbit-controls {
+    top: 8px;
+    right: 8px;
+    grid-template-columns: repeat(5, 44px);
+    max-width: calc(100% - 16px);
+  }
+
+  .camera-orbit-controls button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .camera-orbit-label {
+    display: none;
+  }
+
+  .camera-orbit-controls small {
+    grid-column: 1 / -1;
+  }
+}
