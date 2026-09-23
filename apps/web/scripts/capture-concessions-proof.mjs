@@ -172,10 +172,36 @@ try {
     throw new Error(`Expected two rendered stands, got ${JSON.stringify(finalState)}`)
   }
 
+  let rendererState = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    rendererState = JSON.parse(
+      await evaluate(`JSON.stringify((() => {
+        const canvas = document.querySelector('.park-three-renderer-canvas')
+        const stands = [...document.querySelectorAll('.concession')]
+        return {
+          ready: canvas?.dataset.sharedRenderer === 'ready',
+          nodeCount: Number(canvas?.dataset.sharedRendererConcessionNodes ?? 0),
+          legacyVisible: stands.filter((stand) => getComputedStyle(stand).opacity !== '0').length,
+        }
+      })())`),
+    )
+    if (rendererState.ready && rendererState.nodeCount === 16 && rendererState.legacyVisible === 0) break
+    await sleep(50)
+  }
+  if (
+    !rendererState?.ready ||
+    rendererState.nodeCount !== 16 ||
+    rendererState.legacyVisible !== 0
+  ) {
+    throw new Error(
+      `Concessions did not settle as renderer-owned 3D models: ${JSON.stringify(rendererState)}`,
+    )
+  }
+
   mkdirSync("test-results", {recursive: true})
   const screenshot = await cdp.send("Page.captureScreenshot", {format: "png", fromSurface: true})
   writeFileSync("test-results/concessions.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Concession dogfood passed: food + drink stands placed beside the starter path")
+  console.log("Concession dogfood passed: food + drink stands are renderer-owned 3D models with legacy DOM stand-ins hidden")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")
