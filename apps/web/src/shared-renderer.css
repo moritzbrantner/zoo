@@ -31,11 +31,12 @@
   transform: none;
 }
 
-.park.shared-three-renderer .fence-segment:not(.fence-preview),
+.park.shared-three-renderer .fence-segment,
 .park.shared-three-renderer .park-boundary-fence,
 .park.shared-three-renderer .park-entrance-building,
 .park.shared-three-renderer .entrance-gate,
-.park.shared-three-renderer .care-depot {
+.park.shared-three-renderer .care-depot,
+.park.shared-three-renderer .concession {
   opacity: 0;
 }
 
