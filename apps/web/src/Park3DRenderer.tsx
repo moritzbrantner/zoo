@@ -8,34 +8,20 @@ import {
 } from "@moritzbrantner/three-d-renderer"
 import {useCallback, useEffect, useRef, useState} from "react"
 import {createPortal} from "react-dom"
-import type {PlacementEvaluation, Snapshot} from "./App"
+import type {PlacementEvaluation, Snapshot, Tool} from "./App"
 import initScene, {ParkCameraBridge} from "./scene-wasm/zoo_scene"
 
 const RENDER_WIDTH = 1240
 const RENDER_HEIGHT = 720
 const RENDER_ASPECT = RENDER_WIDTH / RENDER_HEIGHT
-const CANVAS_LEFT = 116
-const CANVAS_TOP = -37
-const ISO_ORIGIN_X = 620
-const ISO_ORIGIN_Y = 68
-const ISO_X_STEP = 29
-const ISO_Y_STEP = 15
 const DEFAULT_SHARED_YAW = 45
 const DEFAULT_SHARED_PITCH = 31.15
 const PITCH_STEP = 6
-const PROJECTED_DEPTH_SCALE = 1_000_000
-const PROJECTED_DEPTH_BASE = 1_000
 
-type TileKind = "grass" | "path" | "entrance" | "habitat" | "concession"
+type TileKind = Snapshot["tiles"][number]["kind"]
 type FenceSide = "north" | "east" | "south" | "west"
 type WorldPoint = [number, number, number]
-
-type TileDescriptor = {
-  element: HTMLButtonElement
-  x: number
-  y: number
-  kind: TileKind
-}
+type TilePoint = {x: number; y: number}
 
 type CameraFrame = RendererCamera & {
   yawDegrees: number
@@ -43,20 +29,7 @@ type CameraFrame = RendererCamera & {
   zoom: number
 }
 
-type Targets = {
-  park: HTMLElement
-  viewport: HTMLElement
-}
-
-type OverlayRule = {
-  offsetX: number
-  offsetY: number
-  snap: number
-}
-
-const PROJECTION_VIEWPORT = {
-  x: CANVAS_LEFT,
-  y: CANVAS_TOP,
+const RENDER_VIEWPORT = {
   width: RENDER_WIDTH,
   height: RENDER_HEIGHT,
 }
@@ -66,48 +39,100 @@ const TILE_COLORS: Record<TileKind, `#${string}`> = {
   path: "#d1bb8d",
   entrance: "#d7a45f",
   habitat: "#6f9d49",
-  concession: "#b69464",
+  concession: "#74ad50",
 }
 
-function parseTile(element: Element): TileDescriptor | null {
-  if (!(element instanceof HTMLButtonElement) || !element.classList.contains("tile")) return null
-  const label = element.getAttribute("aria-label")
-  const match = label?.match(/^(grass|path|entrance|habitat|concession) tile (\d+), (\d+)$/)
-  if (!match) return null
-  return {
-    element,
-    kind: match[1] as TileKind,
-    x: Number(match[2]),
-    y: Number(match[3]),
-  }
+function tileCenter(x: number, y: number, height = 0): WorldPoint {
+  return [x + 1, height, y]
 }
 
-function collectTiles(park: HTMLElement) {
-  return [...park.querySelectorAll("button.tile")]
-    .map(parseTile)
-    .filter((tile): tile is TileDescriptor => tile !== null)
-}
-
-function readParkExtent(tiles: TileDescriptor[]) {
-  return {
-    width: Math.max(...tiles.map((tile) => tile.x)) + 1,
-    height: Math.max(...tiles.map((tile) => tile.y)) + 1,
-  }
-}
-
-function renderNodes(tiles: TileDescriptor[]): RendererSceneNode[] {
-  return tiles.map((tile) => ({
-    id: `tile:${tile.x}:${tile.y}`,
-    transform: {
-      // The +1 X offset is Zoo's presentation mapping from its legacy diamond anchor to the
-      // center of the real 3D tile. Camera/projection math remains owned by 3d-lab.
-      translation: [tile.x + 1, -0.06, tile.y],
+function renderTerrainNodes(
+  snapshot: Snapshot,
+  selectedHabitatId: number | null,
+  placement: PlacementEvaluation | null,
+  hoveredTile: TilePoint | null,
+  tool: Tool,
+): RendererSceneNode[] {
+  const nodes: RendererSceneNode[] = [
+    {
+      id: "terrain:outer-foundation",
+      transform: {
+        translation: [(snapshot.width + 1) * 0.5, -0.18, (snapshot.height - 1) * 0.5],
+      },
+      geometry: {kind: "box", size: [snapshot.width + 8, 0.24, snapshot.height + 8]},
+      color: "#496b47",
     },
-    geometry: {kind: "box", size: [1, 0.12, 1]},
-    color: TILE_COLORS[tile.kind],
-  }))
-}
+  ]
 
+  for (const tile of snapshot.tiles) {
+    const raised = tile.kind === "path" || tile.kind === "entrance" ? 0.08 : 0.06
+    nodes.push({
+      id: `tile:${tile.x}:${tile.y}`,
+      transform: {translation: tileCenter(tile.x, tile.y, raised - 0.06)},
+      geometry: {kind: "box", size: [0.98, 0.12, 0.98]},
+      color: TILE_COLORS[tile.kind],
+    })
+
+    if (tile.habitat_id === selectedHabitatId) {
+      nodes.push({
+        id: `selection:habitat:${tile.x}:${tile.y}`,
+        transform: {translation: tileCenter(tile.x, tile.y, 0.075)},
+        geometry: {kind: "box", size: [0.9, 0.035, 0.9]},
+        color: "#f6d36f",
+        opacity: 0.52,
+      })
+    }
+
+    if (
+      hoveredTile?.x === tile.x &&
+      hoveredTile.y === tile.y &&
+      ["select", "path", "habitat", "food", "drink", "bulldoze"].includes(tool)
+    ) {
+      nodes.push({
+        id: `hover:${tile.x}:${tile.y}`,
+        transform: {translation: tileCenter(tile.x, tile.y, 0.105)},
+        geometry: {kind: "box", size: [0.86, 0.025, 0.86]},
+        color: tool === "bulldoze" ? "#d97462" : "#f6d36f",
+        opacity: 0.32,
+      })
+    }
+  }
+
+  if (placement) {
+    for (const tile of placement.occupied_tiles) {
+      nodes.push({
+        id: `placement:${tile.x}:${tile.y}`,
+        transform: {translation: tileCenter(tile.x, tile.y, 0.13)},
+        geometry: {kind: "box", size: [0.9, 0.035, 0.9]},
+        color: placement.ok ? "#9dd56f" : "#c35c50",
+        opacity: 0.44,
+      })
+    }
+  }
+
+  const side = entranceBoundarySide(snapshot)
+  const direction =
+    side === "west"
+      ? {x: -1, z: 0}
+      : side === "east"
+        ? {x: 1, z: 0}
+        : side === "north"
+          ? {x: 0, z: -1}
+          : {x: 0, z: 1}
+  const start = tileCenter(snapshot.entrance.x, snapshot.entrance.y)
+  for (let index = 1; index <= 4; index += 1) {
+    nodes.push({
+      id: `entrance:approach:${index}`,
+      transform: {
+        translation: [start[0] + direction.x * index, 0.02, start[2] + direction.z * index],
+      },
+      geometry: {kind: "box", size: [0.98, 0.12, 0.98]},
+      color: "#d1bb8d",
+    })
+  }
+
+  return nodes
+}
 
 type HexColor = `#${string}`
 
@@ -132,6 +157,7 @@ function sceneBox(
   size: WorldPoint,
   color: HexColor,
   rotationQuaternion?: [number, number, number, number],
+  opacity?: number,
 ): RendererSceneNode {
   return {
     id,
@@ -141,6 +167,7 @@ function sceneBox(
         : {translation, rotationQuaternion},
     geometry: {kind: "box", size},
     color,
+    ...(opacity === undefined ? {} : {opacity}),
   }
 }
 
@@ -150,11 +177,27 @@ function sceneCylinder(
   radius: number,
   height: number,
   color: HexColor,
+  opacity?: number,
 ): RendererSceneNode {
   return {
     id,
     transform: {translation},
     geometry: {kind: "cylinder", radius, height},
+    color,
+    ...(opacity === undefined ? {} : {opacity}),
+  }
+}
+
+function sceneSphere(
+  id: string,
+  translation: WorldPoint,
+  radius: number,
+  color: HexColor,
+): RendererSceneNode {
+  return {
+    id,
+    transform: {translation},
+    geometry: {kind: "sphere", radius},
     color,
   }
 }
