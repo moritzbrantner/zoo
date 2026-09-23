@@ -173,6 +173,52 @@ try {
   }
   if (frame.oldGateVisible) throw new Error("Legacy floating entrance gate is still visible")
 
+  let rendererFrame = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    rendererFrame = JSON.parse(
+      await evaluate(`JSON.stringify((() => {
+        const canvas = document.querySelector('.park-three-renderer-canvas')
+        const boundary = [...document.querySelectorAll('.park-boundary-fence')]
+        return {
+          ready: canvas?.dataset.sharedRenderer === 'ready',
+          boundarySegments: Number(canvas?.dataset.sharedRendererBoundaryFenceSegments ?? 0),
+          buildingNodes: Number(canvas?.dataset.sharedRendererBuildingNodes ?? 0),
+          legacyBoundaryVisible: boundary.filter(
+            (segment) => getComputedStyle(segment).opacity !== '0',
+          ).length,
+          legacyEntranceVisible:
+            getComputedStyle(document.querySelector('.park-entrance-building')).opacity !== '0',
+          legacyDepotVisible:
+            getComputedStyle(document.querySelector('.care-depot')).opacity !== '0',
+        }
+      })())`),
+    )
+    if (
+      rendererFrame.ready &&
+      rendererFrame.boundarySegments === expectedFenceCount &&
+      rendererFrame.buildingNodes === 20 &&
+      rendererFrame.legacyBoundaryVisible === 0 &&
+      !rendererFrame.legacyEntranceVisible &&
+      !rendererFrame.legacyDepotVisible
+    ) {
+      break
+    }
+    await sleep(50)
+  }
+
+  if (
+    !rendererFrame?.ready ||
+    rendererFrame.boundarySegments !== expectedFenceCount ||
+    rendererFrame.buildingNodes !== 20 ||
+    rendererFrame.legacyBoundaryVisible !== 0 ||
+    rendererFrame.legacyEntranceVisible ||
+    rendererFrame.legacyDepotVisible
+  ) {
+    throw new Error(
+      `Park frame did not settle on renderer-owned 3D geometry: ${JSON.stringify(rendererFrame)}`,
+    )
+  }
+
   const screenshot = await cdp.send("Page.captureScreenshot", {
     format: "png",
     fromSurface: true,
@@ -183,7 +229,7 @@ try {
   writeFileSync("test-results/park-frame.png", Buffer.from(screenshot.data, "base64"))
 
   console.log(
-    `Park-frame browser dogfood passed: ${frame.width}×${frame.height} buildable area, ${frame.borderCount} projected outer tiles, ${frame.fenceCount} projected fence segments, and renderer-owned entrance ground.`,
+    `Park-frame browser dogfood passed: ${frame.width}×${frame.height} buildable area, ${frame.borderCount} projected outer tiles, ${frame.fenceCount} authoritative 3D boundary segments with one entrance gap, and renderer-owned entrance/depot buildings.`,
   )
 } finally {
   cdp?.close()
