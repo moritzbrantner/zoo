@@ -179,6 +179,37 @@ try {
     throw new Error(`Habitat did not commit through canvas interaction: ${JSON.stringify(committed)}`)
   }
 
+  const keyboardBuilt = await evaluate(`(() => {
+    const reset = [...document.querySelectorAll('button.secondary')].find(
+      (button) => button.textContent?.trim() === 'Start new park',
+    )
+    reset?.click()
+    const tool = [...document.querySelectorAll('button.tool')].find((button) =>
+      button.textContent?.includes('Draw habitat'),
+    )
+    tool?.click()
+    document.querySelector('[aria-label="grass tile 1, 8"]')?.click()
+    document.querySelector('[aria-label="grass tile 4, 10"]')?.click()
+    return Boolean(reset && tool)
+  })()`)
+  if (!keyboardBuilt) throw new Error("Could not exercise semantic keyboard habitat controls")
+
+  let semanticCommitted = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    semanticCommitted = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const canvas = document.querySelector('.park-three-renderer-canvas')
+      return {
+        habitatSegments: Number(canvas.dataset.sharedRendererHabitatFenceSegments ?? 0),
+        message: document.querySelector('.message')?.textContent ?? '',
+      }
+    })())`))
+    if (semanticCommitted.habitatSegments === 14) break
+    await sleep(50)
+  }
+  if (semanticCommitted?.habitatSegments !== 14) {
+    throw new Error(`Semantic two-tile habitat flow failed: ${JSON.stringify(semanticCommitted)}`)
+  }
+
   const viewport = JSON.parse(await evaluate(`JSON.stringify((() => {
     const rect = document.querySelector('.viewport').getBoundingClientRect()
     return {x: rect.left, y: rect.top, width: rect.width, height: rect.height, scale: 1}
@@ -191,7 +222,7 @@ try {
   })
   mkdirSync("test-results", {recursive: true})
   writeFileSync("test-results/fence-rendering.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Fence browser dogfood passed: canvas touch preview/cancel/commit is authoritative and no visual DOM fence exists.")
+  console.log("Fence browser dogfood passed: canvas touch preview/cancel/commit and semantic keyboard construction both use authoritative 3D fences.")
 } finally {
   cdp?.close()
   chrome?.kill("SIGTERM")
