@@ -1252,6 +1252,15 @@ export default function Park3DRenderer({
     if (!canvas || !camera) return
     const point = canvasPoint(canvas, event.clientX, event.clientY)
     if (!point) return
+
+    // Construction is ground-authoritative: nearby rendered actors/buildings must not steal
+    // the tile the user is explicitly trying to build on.
+    if (tool === "food" || tool === "drink") {
+      const tile = pickTile(snapshot, camera, point)
+      if (tile) onTileClick(tile)
+      return
+    }
+
     const pick = pickWorld(snapshot, camera, point)
     if (!pick) return
 
