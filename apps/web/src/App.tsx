@@ -9,7 +9,7 @@ import {
 import Park3DRenderer from "./Park3DRenderer"
 import init, {ZooGame} from "./wasm/zoo_core"
 
-type Tool = "select" | "pan" | "path" | "habitat" | "food" | "drink" | "bulldoze"
+export type Tool = "select" | "pan" | "path" | "habitat" | "food" | "drink" | "bulldoze"
 type Speed = 0 | 1 | 2 | 4
 type SpeciesKey = "capybara" | "flamingo" | "zebra" | "giraffe" | "elephant" | "penguin"
 type ConcessionKind = "food" | "drink"
@@ -238,18 +238,6 @@ export type PlacementEvaluation = {
   cost_cents: number
   occupied_tiles: Point[]
   fence_segments: FenceSegment[]
-}
-
-const tileWidth = 58
-const tileHeight = 30
-const originX = 620
-const originY = 68
-
-function isoPosition(x: number, y: number) {
-  return {
-    left: originX + (x - y) * (tileWidth / 2),
-    top: originY + (x + y) * (tileHeight / 2),
-  }
 }
 
 function money(cents: number) {
@@ -489,10 +477,8 @@ export default function App() {
     [perform],
   )
 
-  const onTilePointerDown = (event: ReactPointerEvent<HTMLButtonElement>, tile: Tile) => {
+  const onTilePointerDown = (pointerId: number, tile: Tile) => {
     if (tool === "path") {
-      event.preventDefault()
-      event.stopPropagation()
       paintingRef.current = true
       paintedTilesRef.current.clear()
       paintPath(tile)
@@ -500,13 +486,11 @@ export default function App() {
     }
 
     if (tool === "habitat") {
-      event.preventDefault()
-      event.stopPropagation()
       if (drawingFenceRef.current) return
 
       const point = {x: tile.x, y: tile.y}
       drawingFenceRef.current = true
-      fencePointerIdRef.current = event.pointerId
+      fencePointerIdRef.current = pointerId
       fenceStartRef.current = point
       fenceEndRef.current = point
       setFenceStart(point)
@@ -514,7 +498,7 @@ export default function App() {
     }
   }
 
-  const onTilePointerEnter = (event: ReactPointerEvent<HTMLButtonElement>, tile: Tile) => {
+  const onTilePointerMove = (pointerId: number, tile: Tile) => {
     const point = {x: tile.x, y: tile.y}
     setHoveredTile(point)
     if (tool === "path" && paintingRef.current) {
@@ -523,7 +507,7 @@ export default function App() {
     if (
       tool === "habitat" &&
       drawingFenceRef.current &&
-      fencePointerIdRef.current === event.pointerId
+      fencePointerIdRef.current === pointerId
     ) {
       fenceEndRef.current = point
       setFenceEnd(point)
@@ -659,16 +643,6 @@ export default function App() {
     return <main className="loading">Preparing the park simulation…</main>
   }
 
-  const selectedTileIds = new Set<number>(
-    selectedHabitat
-      ? snapshot.tiles
-          .filter((tile) => tile.habitat_id === selectedHabitat.id)
-          .map((tile) => tile.y * snapshot.width + tile.x)
-      : [],
-  )
-  const ghostTiles = previewTiles(fenceStart, fenceEnd, snapshot)
-  const entrancePosition = isoPosition(snapshot.entrance.x, snapshot.entrance.y)
-
   return (
     <main className="game-shell">
       <header className="topbar bevel">
@@ -740,360 +714,79 @@ export default function App() {
             onPointerMove={movePan}
             onPointerUp={endPan}
             onPointerCancel={endPan}
-            onPointerLeave={() => setHoveredTile(null)}
           >
-            <Park3DRenderer snapshot={snapshot} placement={placement} />
+            <Park3DRenderer
+              snapshot={snapshot}
+              placement={placement}
+              tool={tool}
+              selectedHabitatId={selectedHabitatId}
+              selectedGuestId={selectedGuestId}
+              selectedDepot={selectedDepot}
+              hoveredTile={hoveredTile}
+              onTilePointerDown={onTilePointerDown}
+              onTilePointerMove={onTilePointerMove}
+              onTileClick={onTileClick}
+              onHoverTile={setHoveredTile}
+              onGuestClick={(guestId) => {
+                if (tool === "pan") return
+                setSelectedGuestId(guestId)
+                setSelectedHabitatId(null)
+                setSelectedDepot(false)
+                setTool("select")
+              }}
+              onDepotClick={() => {
+                if (tool === "pan") return
+                if (tool === "bulldoze") {
+                  setMessage("The central animal-care depot cannot be demolished.")
+                  setMessageKind("error")
+                  return
+                }
+                setSelectedGuestId(null)
+                setSelectedHabitatId(null)
+                setSelectedDepot(true)
+                setTool("select")
+                setMessage("Central operations depot selected · stock animal feed and hire park staff here.")
+                setMessageKind("info")
+              }}
+            />
             <div className="park-label">Starter Meadow</div>
 
-            {snapshot.tiles
-              .slice()
-              .sort((a, b) => a.x + a.y - (b.x + b.y))
-              .map((tile) => {
-                const position = isoPosition(tile.x, tile.y)
-                const tileId = tile.y * snapshot.width + tile.x
-                return (
-                  <button
-                    key={`${tile.x}:${tile.y}`}
-                    className={`tile tile-${tile.kind} ${
-                      selectedTileIds.has(tileId) ? "selected" : ""
-                    }`}
-                    style={{
-                      left: position.left,
-                      top: position.top,
-                      zIndex: tile.x + tile.y,
-                    }}
-                    onPointerDown={(event) => onTilePointerDown(event, tile)}
-                    onPointerEnter={(event) => onTilePointerEnter(event, tile)}
-                    onClick={() => onTileClick(tile)}
-                    title={`${tile.kind} (${tile.x}, ${tile.y})`}
-                    aria-label={`${tile.kind} tile ${tile.x}, ${tile.y}`}
-                  />
-                )
-              })}
-
-            {snapshot.habitats.flatMap((habitat) =>
-              habitat.fence_segments.map((segment, index) => {
-                const position = isoPosition(segment.x, segment.y)
-                return (
-                  <span
-                    className={`fence-segment fence-${segment.side}`}
-                    key={`fence:${habitat.id}:${segment.x}:${segment.y}:${segment.side}:${index}`}
-                    style={{
-                      left: position.left,
-                      top: position.top,
-                      zIndex: 340 + segment.x + segment.y,
-                    }}
-                  />
-                )
-              }),
-            )}
-
-            {ghostTiles.map((tile) => {
-              const position = isoPosition(tile.x, tile.y)
-              return (
-                <div
-                  className={`placement-ghost ${placement?.ok ? "valid" : "invalid"}`}
-                  key={`ghost:${tile.x}:${tile.y}`}
-                  style={{
-                    left: position.left,
-                    top: position.top,
-                    zIndex: 300 + tile.x + tile.y,
-                  }}
+            <div className="world-accessibility">
+              {snapshot.tiles.map((tile) => (
+                <button
+                  type="button"
+                  key={`a11y-tile:${tile.x}:${tile.y}`}
+                  data-world-tile={`${tile.x}:${tile.y}`}
+                  aria-label={`${tile.kind} tile ${tile.x}, ${tile.y}`}
+                  onPointerDown={(event) => onTilePointerDown(event.pointerId, tile)}
+                  onPointerEnter={(event) => onTilePointerMove(event.pointerId, tile)}
+                  onClick={() => onTileClick(tile)}
                 />
-              )
-            })}
-
-            {placement?.fence_segments.map((segment, index) => {
-              const position = isoPosition(segment.x, segment.y)
-              return (
-                <span
-                  className={`fence-segment fence-${segment.side} fence-preview`}
-                  key={`preview-fence:${segment.x}:${segment.y}:${segment.side}:${index}`}
-                  style={{
-                    left: position.left,
-                    top: position.top,
-                    zIndex: 360 + segment.x + segment.y,
-                  }}
-                />
-              )
-            })}
-
-            {placement && hoveredTile && (
-              <div
-                className={`placement-price bevel ${placement.ok ? "valid" : "invalid"}`}
-                style={{
-                  left: isoPosition(hoveredTile.x, hoveredTile.y).left + 24,
-                  top: isoPosition(hoveredTile.x, hoveredTile.y).top - 52,
-                  zIndex: 900,
+              ))}
+              <button
+                type="button"
+                data-world-entity="depot"
+                aria-label="Central operations depot"
+                onClick={() => {
+                  if (tool === "pan") return
+                  if (tool === "bulldoze") {
+                    setMessage("The central animal-care depot cannot be demolished.")
+                    setMessageKind("error")
+                    return
+                  }
+                  setSelectedGuestId(null)
+                  setSelectedHabitatId(null)
+                  setSelectedDepot(true)
+                  setTool("select")
                 }}
-              >
-                <b>
-                  {placement.ok ? "✓ Fence closes" : "! Cannot build"} · {placement.width}×
-                  {placement.height} · {money(placement.cost_cents)}
-                </b>
-                <small>{placement.message}</small>
-              </div>
-            )}
-
-            <div
-              className="entrance-gate"
-              style={{
-                left: entrancePosition.left - 24,
-                top: entrancePosition.top - 48,
-                zIndex: 760,
-              }}
-              title={`${snapshot.entrance.arrivals_total} guests have entered here`}
-              aria-label="Zoo entrance gate"
-            >
-              <span className="gate-roof" />
-              <span className="gate-sign">ZOO</span>
-              <span className="gate-post gate-post-left" />
-              <span className="gate-post gate-post-right" />
-              <span className="turnstile" />
-            </div>
-
-            {(() => {
-              const depot = snapshot.animal_care_depot
-              const position = isoPosition(depot.x, depot.y)
-              return (
+              />
+              {snapshot.guests.map((guest) => (
                 <button
                   type="button"
-                  className="care-depot"
-                  style={{
-                    left: position.left + 4,
-                    top: position.top - 54,
-                    zIndex: 640 + depot.x + depot.y,
-                  }}
-                  title={`${depot.feed_crates} animal-feed crates · ${depot.keepers.length} keepers · ${depot.janitors.length} janitors · ${depot.mechanics.length} mechanics`}
-                  aria-label="Central operations depot"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    if (tool === "pan") return
-                    if (tool === "bulldoze") {
-                      setMessage("The central animal-care depot cannot be demolished.")
-                      setMessageKind("error")
-                      return
-                    }
-                    setSelectedGuestId(null)
-                    setSelectedHabitatId(null)
-                    setSelectedDepot(true)
-                    setTool("select")
-                    setMessage("Central operations depot selected · stock animal feed and hire park staff here.")
-                    setMessageKind("info")
-                  }}
-                >
-                  <span className="concession-awning" />
-                  <strong>Ops</strong>
-                  <small>DEPOT</small>
-                  <span className="concession-counter" />
-                </button>
-              )
-            })()}
-
-            {snapshot.concessions.map((stand) => {
-              const position = isoPosition(stand.x, stand.y)
-              const label = stand.kind === "food" ? "Food" : "Drink"
-              return (
-                <button
-                  type="button"
-                  className={`concession concession-${stand.kind} concession-${stand.service_state}`}
-                  key={`concession:${stand.id}`}
-                  data-concession-id={stand.id}
-                  style={{
-                    left: position.left + 8,
-                    top: position.top - 42,
-                    zIndex: 610 + stand.x + stand.y,
-                  }}
-                  title={`${label} stand · ${stand.condition}% condition · ${stand.service_state} · ${stand.maintenance_status}`}
-                  aria-label={`${label} stand ${stand.id}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    const game = gameRef.current
-                    if (tool === "bulldoze" && game) {
-                      perform(() => game.bulldoze(stand.x, stand.y))
-                      return
-                    }
-                    if (tool === "pan") return
-                    setSelectedGuestId(null)
-                    setSelectedHabitatId(null)
-                    setSelectedDepot(false)
-                    setTool("select")
-                    setMessage(
-                      `${label} stand #${stand.id} · ${stand.condition}% condition · ${stand.service_state} · ${stand.maintenance_status}`,
-                    )
-                    setMessageKind("info")
-                  }}
-                >
-                  <span className="concession-awning" />
-                  <strong>{label}</strong>
-                  <small>
-                    {stand.service_state === "failed"
-                      ? "CLOSED"
-                      : stand.kind === "food"
-                        ? "FOOD"
-                        : "DRINK"}
-                  </small>
-                  <span className="concession-counter" />
-                </button>
-              )
-            })}
-
-            {snapshot.litter.map((task) => {
-              const position = isoPosition(task.x, task.y)
-              return (
-                <span
-                  className={`litter ${task.assigned_janitor_id === null ? "waiting" : "assigned"}`}
-                  key={`litter:${task.id}`}
-                  style={{
-                    left: position.left + 20,
-                    top: position.top + 8,
-                    zIndex: 700 + task.x + task.y,
-                  }}
-                  title={`Litter #${task.id} · ${task.age_minutes} min · ${task.status}`}
-                  aria-label={`Litter task ${task.id}: ${task.status}`}
-                />
-              )
-            })}
-
-            {snapshot.animal_care_depot.janitors.map((janitor) => {
-              const position = isoPosition(janitor.x, janitor.y)
-              return (
-                <span
-                  className="janitor"
-                  key={`janitor:${janitor.id}`}
-                  style={{
-                    left: position.left + 22,
-                    top: position.top - 8,
-                    zIndex: 820 + janitor.x + janitor.y,
-                  }}
-                  title={`Janitor #${janitor.id} · ${janitor.status}`}
-                  aria-label={`Janitor ${janitor.id}: ${janitor.status}`}
-                >
-                  <i />
-                  <b />
-                </span>
-              )
-            })}
-
-
-
-            {snapshot.maintenance.map((task) => {
-              const position = isoPosition(task.x, task.y)
-              return (
-                <span
-                  className={`maintenance-alert ${
-                    task.assigned_mechanic_id === null ? "waiting" : "assigned"
-                  }`}
-                  key={`maintenance:${task.id}`}
-                  style={{
-                    left: position.left + 38,
-                    top: position.top - 50,
-                    zIndex: 850 + task.x + task.y,
-                  }}
-                  title={`Stand #${task.concession_id} maintenance · ${task.age_minutes} min · ${task.status}`}
-                  aria-label={`Maintenance task ${task.id}: ${task.status}`}
-                >
-                  !
-                </span>
-              )
-            })}
-
-            {snapshot.animal_care_depot.mechanics.map((mechanic) => {
-              const position = isoPosition(mechanic.x, mechanic.y)
-              return (
-                <span
-                  className="mechanic"
-                  key={`mechanic:${mechanic.id}`}
-                  style={{
-                    left: position.left + 18,
-                    top: position.top - 9,
-                    zIndex: 825 + mechanic.x + mechanic.y,
-                  }}
-                  title={`Mechanic #${mechanic.id} · ${mechanic.status}`}
-                  aria-label={`Mechanic ${mechanic.id}: ${mechanic.status}`}
-                >
-                  <i />
-                  <b />
-                </span>
-              )
-            })}
-
-            {snapshot.animals.map((animal) => {
-              const position = isoPosition(animal.x, animal.y)
-              const offset = (animal.slot % 3) - 1
-              return (
-                <button
-                  type="button"
-                  className={`animal animal-${animal.species}`}
-                  key={animal.id}
-                  style={{
-                    left: position.left + 14 + offset * 6,
-                    top: position.top - 16 + (animal.slot % 2) * 5,
-                    zIndex: 520 + animal.x + animal.y + animal.slot,
-                    animationDelay: `-${animal.animation_phase / 20}s`,
-                  }}
-                  title={`${speciesLabel(animal.species, snapshot.species_catalog)} · Habitat #${
-                    animal.habitat_id
-                  }`}
-                  onClick={() => {
-                    if (tool === "pan") return
-                    setSelectedGuestId(null)
-                    setSelectedHabitatId(animal.habitat_id)
-                    setSelectedDepot(false)
-                    setTool("select")
-                  }}
-                >
-                  <span>{speciesGlyph(animal.species)}</span>
-                </button>
-              )
-            })}
-
-            {snapshot.habitats
-              .filter((habitat) => habitat.animals === 0)
-              .map((habitat) => {
-                const center = isoPosition(
-                  habitat.x + (habitat.width - 1) / 2,
-                  habitat.y + (habitat.height - 1) / 2,
-                )
-                return (
-                  <button
-                    type="button"
-                    className="empty-habitat-marker"
-                    key={`empty:${habitat.id}`}
-                    style={{
-                      left: center.left + 15,
-                      top: center.top - 10,
-                      zIndex: 500 + habitat.x + habitat.y,
-                    }}
-                    onClick={() => {
-                      if (tool === "pan") return
-                      setSelectedGuestId(null)
-                      setSelectedHabitatId(habitat.id)
-                      setSelectedDepot(false)
-                      setTool("select")
-                    }}
-                    title={`Habitat #${habitat.id}: empty`}
-                  >
-                    +
-                  </button>
-                )
-              })}
-
-            {snapshot.guests.map((guest) => {
-              const position = isoPosition(guest.x, guest.y)
-              return (
-                <button
-                  type="button"
-                  className={`guest guest-${guest.state} ${
-                    selectedGuestId === guest.id ? "selected" : ""
-                  }`}
-                  key={guest.id}
-                  style={{
-                    left: position.left + 24,
-                    top: position.top - 4,
-                    zIndex: 800 + guest.x + guest.y,
-                  }}
-                  title={`Guest #${guest.id} · ${guest.thought}`}
+                  key={`a11y-guest:${guest.id}`}
+                  data-world-entity="guest"
+                  data-world-id={guest.id}
+                  aria-label={`Guest ${guest.id}: ${guest.thought}`}
                   onClick={() => {
                     if (tool === "pan") return
                     setSelectedGuestId(guest.id)
@@ -1101,12 +794,9 @@ export default function App() {
                     setSelectedDepot(false)
                     setTool("select")
                   }}
-                >
-                  <i />
-                  <b />
-                </button>
-              )
-            })}
+                />
+              ))}
+            </div>
           </div>
         </div>
 
