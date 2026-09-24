@@ -1685,9 +1685,7 @@ impl GameState {
             .collect();
 
         candidates.sort_by(|left, right| {
-            let left_score = left
-                .appeal()
-                .saturating_add(left.welfare.saturating_mul(2));
+            let left_score = left.appeal().saturating_add(left.welfare.saturating_mul(2));
             let right_score = right
                 .appeal()
                 .saturating_add(right.welfare.saturating_mul(2));
@@ -3634,7 +3632,10 @@ mod tests {
         assert!(dirty_guest.cleanliness_concern);
         assert!(dirty_guest.happiness < clean_guest.happiness);
         assert!(dirty_guest.value_perception < clean_guest.value_perception);
-        assert_eq!((dirty_guest.x, dirty_guest.y), (clean_guest.x, clean_guest.y));
+        assert_eq!(
+            (dirty_guest.x, dirty_guest.y),
+            (clean_guest.x, clean_guest.y)
+        );
     }
 
     #[test]
