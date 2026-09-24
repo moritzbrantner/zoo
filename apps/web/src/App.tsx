@@ -1348,6 +1348,37 @@ export default function App() {
                   <span style={{width: `${selectedHabitat.welfare}%`}} />
                 </div>
 
+                <h3>Viewing</h3>
+                <dl>
+                  <div>
+                    <dt>Viewers / capacity</dt>
+                    <dd>
+                      {selectedHabitat.viewing_occupancy}/{selectedHabitat.viewing_capacity}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Useful path viewpoints</dt>
+                    <dd>
+                      {selectedHabitat.viewing_spots.filter((spot) => spot.capacity > 0).length}/
+                      {selectedHabitat.viewing_spots.length}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Crowded viewpoints</dt>
+                    <dd>{selectedHabitat.viewing_spots.filter((spot) => spot.crowded).length}</dd>
+                  </div>
+                </dl>
+                {selectedHabitat.animals > 0 && selectedHabitat.viewing_capacity === 0 && (
+                  <div className="guest-thought">
+                    No animals are visible from the current path frontage.
+                  </div>
+                )}
+                {selectedHabitat.viewing_spots.some((spot) => spot.crowded) && (
+                  <div className="guest-thought">
+                    One or more path viewpoints are over capacity.
+                  </div>
+                )}
+
                 <h3>Care</h3>
                 <div className="guest-thought">{selectedHabitat.care_status}</div>
                 <dl>
