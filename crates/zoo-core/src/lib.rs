@@ -2555,6 +2555,64 @@ impl GameState {
             .unwrap_or(u32::MAX)
     }
 
+    fn viewing_side_for_position(
+        &self,
+        habitat: &Habitat,
+        position: Position,
+    ) -> Option<FenceSide> {
+        let right = habitat
+            .x
+            .saturating_add(habitat.width.saturating_sub(1));
+        let bottom = habitat
+            .y
+            .saturating_add(habitat.height.saturating_sub(1));
+
+        if habitat.y > 0
+            && position.y == habitat.y - 1
+            && (habitat.x..=right).contains(&position.x)
+        {
+            return Some(FenceSide::North);
+        }
+        if right.saturating_add(1) < self.width
+            && position.x == right + 1
+            && (habitat.y..=bottom).contains(&position.y)
+        {
+            return Some(FenceSide::East);
+        }
+        if bottom.saturating_add(1) < self.height
+            && position.y == bottom + 1
+            && (habitat.x..=right).contains(&position.x)
+        {
+            return Some(FenceSide::South);
+        }
+        if habitat.x > 0
+            && position.x == habitat.x - 1
+            && (habitat.y..=bottom).contains(&position.y)
+        {
+            return Some(FenceSide::West);
+        }
+        None
+    }
+
+    fn viewing_spot(
+        &self,
+        habitat: &Habitat,
+        position: Position,
+        side: FenceSide,
+        occupancy: u32,
+    ) -> ViewingSpot {
+        let visible_animals = self.visible_animals_from(habitat, position, side);
+        ViewingSpot {
+            position,
+            side,
+            visible_animals,
+            capacity: visible_animals
+                .saturating_mul(VIEWERS_PER_VISIBLE_ANIMAL)
+                .min(VIEWPOINT_PHYSICAL_CAPACITY),
+            occupancy,
+        }
+    }
+
     fn viewing_spots(&self, habitat: &Habitat) -> Vec<ViewingSpot> {
         let mut candidates = Vec::new();
         let right = habitat
@@ -2575,7 +2633,7 @@ impl GameState {
                 ));
             }
         }
-        if right + 1 < self.width {
+        if right.saturating_add(1) < self.width {
             for y in habitat.y..=bottom {
                 candidates.push((
                     Position { x: right + 1, y },
@@ -2583,7 +2641,7 @@ impl GameState {
                 ));
             }
         }
-        if bottom + 1 < self.height {
+        if bottom.saturating_add(1) < self.height {
             for x in habitat.x..=right {
                 candidates.push((
                     Position { x, y: bottom + 1 },
@@ -2603,33 +2661,23 @@ impl GameState {
             }
         }
 
+        let mut occupancy_by_position: HashMap<(u32, u32), u32> = HashMap::new();
+        for guest in self.guests.iter().filter(|guest| {
+            guest.state == GuestState::Viewing && guest.target_habitat == habitat.id
+        }) {
+            let entry = occupancy_by_position.entry((guest.x, guest.y)).or_default();
+            *entry = entry.saturating_add(1);
+        }
+
         candidates
             .into_iter()
             .filter(|(position, _)| self.is_walkable(*position))
             .map(|(position, side)| {
-                let visible_animals = self.visible_animals_from(habitat, position, side);
-                let capacity = visible_animals
-                    .saturating_mul(VIEWERS_PER_VISIBLE_ANIMAL)
-                    .min(VIEWPOINT_PHYSICAL_CAPACITY);
-                let occupancy = self
-                    .guests
-                    .iter()
-                    .filter(|guest| {
-                        guest.state == GuestState::Viewing
-                            && guest.target_habitat == habitat.id
-                            && guest.x == position.x
-                            && guest.y == position.y
-                    })
-                    .count()
-                    .try_into()
-                    .unwrap_or(u32::MAX);
-                ViewingSpot {
-                    position,
-                    side,
-                    visible_animals,
-                    capacity,
-                    occupancy,
-                }
+                let occupancy = occupancy_by_position
+                    .get(&(position.x, position.y))
+                    .copied()
+                    .unwrap_or(0);
+                self.viewing_spot(habitat, position, side, occupancy)
             })
             .collect()
     }
@@ -2639,9 +2687,27 @@ impl GameState {
             .habitats
             .iter()
             .find(|habitat| habitat.id == guest.target_habitat)?;
-        self.viewing_spots(habitat)
-            .into_iter()
-            .find(|spot| spot.position.x == guest.x && spot.position.y == guest.y)
+        let position = Position {
+            x: guest.x,
+            y: guest.y,
+        };
+        if !self.is_walkable(position) {
+            return None;
+        }
+        let side = self.viewing_side_for_position(habitat, position)?;
+        let occupancy = self
+            .guests
+            .iter()
+            .filter(|other| {
+                other.state == GuestState::Viewing
+                    && other.target_habitat == habitat.id
+                    && other.x == position.x
+                    && other.y == position.y
+            })
+            .count()
+            .try_into()
+            .unwrap_or(u32::MAX);
+        Some(self.viewing_spot(habitat, position, side, occupancy))
     }
 
     fn guest_thought(&self, guest: &Guest) -> &'static str {
