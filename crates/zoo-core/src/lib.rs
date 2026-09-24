@@ -2713,6 +2713,7 @@ impl GameState {
         Some(self.viewing_spot(habitat, position, side, occupancy))
     }
 
+    #[cfg(test)]
     fn viewing_spot_for_guest(&self, guest: &Guest) -> Option<ViewingSpot> {
         let viewing_occupancy = self.viewing_occupancy();
         self.viewing_spot_for_guest_with_occupancy(guest, &viewing_occupancy)
@@ -2777,6 +2778,7 @@ impl GameState {
         }
     }
 
+    #[cfg(test)]
     fn guest_thought(&self, guest: &Guest) -> &'static str {
         let viewing_occupancy = self.viewing_occupancy();
         self.guest_thought_with_occupancy(guest, &viewing_occupancy)
@@ -2816,6 +2818,7 @@ impl GameState {
         candidates.into_iter().next().map(|(_, route)| route)
     }
 
+    #[cfg(test)]
     fn viewing_route(&self, habitat: &Habitat, start: Position) -> Option<Vec<Position>> {
         let viewing_occupancy = self.viewing_occupancy();
         self.viewing_route_with_occupancy(habitat, start, &viewing_occupancy)
