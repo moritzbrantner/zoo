@@ -1924,10 +1924,11 @@ impl GameState {
         for (index, start) in decisions {
             let next_habitat = {
                 let guest = &self.guests[index];
-                guest
-                    .wants_another_habitat()
-                    .then(|| self.next_engaging_habitat(guest, start))
-                    .flatten()
+                if guest.wants_another_habitat() {
+                    self.next_engaging_habitat(guest, start)
+                } else {
+                    None
+                }
             };
 
             if let Some((habitat_id, route)) = next_habitat {
