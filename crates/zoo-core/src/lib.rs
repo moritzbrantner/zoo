@@ -1717,11 +1717,7 @@ impl GameState {
                     .iter()
                     .find(|habitat| habitat.id == guest.target_habitat)
                     .and_then(|habitat| {
-                        self.viewing_route_with_occupancy(
-                            habitat,
-                            start,
-                            &viewing_occupancy,
-                        )
+                        self.viewing_route_with_occupancy(habitat, start, &viewing_occupancy)
                     }),
                 GuestState::WalkingToExit => self.path_between(
                     start,
@@ -1907,10 +1903,7 @@ impl GameState {
             .map(|(index, guest)| {
                 (
                     index,
-                    self.viewing_spot_for_guest_with_occupancy(
-                        guest,
-                        &viewing_occupancy,
-                    ),
+                    self.viewing_spot_for_guest_with_occupancy(guest, &viewing_occupancy),
                 )
             })
             .collect();
@@ -2747,8 +2740,7 @@ impl GameState {
             return "My feet are getting tired.";
         }
         if guest.state == GuestState::Viewing
-            && let Some(spot) =
-                self.viewing_spot_for_guest_with_occupancy(guest, viewing_occupancy)
+            && let Some(spot) = self.viewing_spot_for_guest_with_occupancy(guest, viewing_occupancy)
         {
             if spot.visible_animals == 0 {
                 return "I can't see any animals from here.";
@@ -3221,8 +3213,7 @@ impl GameState {
             .habitats
             .iter()
             .map(|habitat| {
-                let viewing_spots =
-                    self.viewing_spots_with_occupancy(habitat, &viewing_occupancy);
+                let viewing_spots = self.viewing_spots_with_occupancy(habitat, &viewing_occupancy);
                 let viewing_capacity = viewing_spots
                     .iter()
                     .map(|spot| spot.capacity)
