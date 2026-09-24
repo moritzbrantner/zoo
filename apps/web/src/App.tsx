@@ -138,6 +138,7 @@ type Guest = Point & {
   thirst: number
   value_perception: number
   target_habitat: number
+  habitats_viewed: number
   state: "arriving" | "walking_to_habitat" | "viewing" | "walking_to_exit"
   thought: string
 }

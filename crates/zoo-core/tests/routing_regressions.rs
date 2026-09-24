@@ -65,6 +65,19 @@ fn await_guest_state(game: &mut ZooGame, id: u32, state: &str) {
     }
     panic!("guest {id} did not reach {state}");
 }
+fn await_guest_thought(game: &mut ZooGame, id: u32, expected: &str) {
+    for _ in 0..60 {
+        if guest(&snapshot(game), id).is_some_and(|guest| {
+            guest["thought"]
+                .as_str()
+                .is_some_and(|thought| thought.contains(expected))
+        }) {
+            return;
+        }
+        advance(game, 1);
+    }
+    panic!("guest {id} did not report {expected:?}");
+}
 
 #[test]
 fn disconnected_habitat_does_not_starve_admissions_and_rejoins_after_connection() {
@@ -223,16 +236,9 @@ fn viewing_guest_reports_a_blocked_exit_and_recovers_after_reconnection() {
     advance(&mut game, 48);
     assert_eq!(guest(&snapshot(&game), 1).unwrap()["state"], "viewing");
     accepted(game.bulldoze(2, 7));
-    advance(&mut game, 24);
+    await_guest_thought(&mut game, 1, "exit is blocked");
     let view = snapshot(&game);
-    let first = guest(&view, 1).unwrap();
-    assert_position(first, 4, 7);
-    assert!(
-        first["thought"]
-            .as_str()
-            .unwrap()
-            .contains("exit is blocked")
-    );
+    assert_position(guest(&view, 1).unwrap(), 4, 7);
     accepted(game.place_path(2, 7));
     advance(&mut game, 18);
     assert!(guest(&snapshot(&game), 1).is_none());

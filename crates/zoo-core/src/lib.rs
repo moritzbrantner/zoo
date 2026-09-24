@@ -44,6 +44,14 @@ const MAINTENANCE_FAILURE_THRESHOLD: u32 = 20;
 const FEED_DELIVERY_INTERVAL_MINUTES: u32 = 60;
 const FEED_DELIVERY_RETRY_MINUTES: u32 = 15;
 const FEED_DELIVERY_THRESHOLD: u32 = 90;
+const MAX_GUEST_HABITATS_PER_VISIT: usize = 3;
+const MIN_ENGAGING_HABITAT_WELFARE: u32 = 40;
+const GUEST_CONTINUE_MIN_HAPPINESS: u32 = 45;
+const GUEST_CONTINUE_MIN_ENERGY: u32 = 35;
+const GUEST_CONTINUE_MAX_HUNGER: u32 = 75;
+const GUEST_CONTINUE_MAX_THIRST: u32 = 75;
+const GUEST_CONTINUE_MIN_VALUE: u32 = 35;
+const GUEST_CLEANLINESS_CONCERN_THRESHOLD: u32 = 70;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -593,9 +601,20 @@ struct Guest {
     arrival_steps: u8,
     bought_food: bool,
     bought_drink: bool,
+    visited_habitats: Vec<u32>,
+    cleanliness_concern: bool,
 }
 
 impl Guest {
+    fn wants_another_habitat(&self) -> bool {
+        self.visited_habitats.len() < MAX_GUEST_HABITATS_PER_VISIT
+            && self.happiness >= GUEST_CONTINUE_MIN_HAPPINESS
+            && self.energy >= GUEST_CONTINUE_MIN_ENERGY
+            && self.hunger <= GUEST_CONTINUE_MAX_HUNGER
+            && self.thirst <= GUEST_CONTINUE_MAX_THIRST
+            && self.value_perception >= GUEST_CONTINUE_MIN_VALUE
+    }
+
     fn thought(&self) -> &'static str {
         if self.route.is_empty()
             && matches!(
@@ -616,12 +635,20 @@ impl Guest {
             "I could use something to eat."
         } else if self.energy <= 35 {
             "My feet are getting tired."
+        } else if self.cleanliness_concern {
+            "The paths need cleaning."
         } else if self.value_perception <= 40 {
             "I expected a little more for the price."
         } else {
             match self.state {
                 GuestState::Arriving => "I'm entering the zoo.",
+                GuestState::WalkingToHabitat if !self.visited_habitats.is_empty() => {
+                    "I'd like to see another habitat."
+                }
                 GuestState::WalkingToHabitat => "I want to see the animals.",
+                GuestState::Viewing if self.visited_habitats.len() > 1 => {
+                    "There is a lot to see here."
+                }
                 GuestState::Viewing => "The animals are wonderful.",
                 GuestState::WalkingToExit => "I'm ready to head home.",
             }
@@ -1594,13 +1621,23 @@ impl GameState {
             arrival_steps: 2,
             bought_food: false,
             bought_drink: false,
+            visited_habitats: Vec::new(),
+            cleanliness_concern: false,
         });
         self.next_guest_id += 1;
     }
 
     fn advance_guest_needs(&mut self) {
+        let park_cleanliness = self.park_cleanliness();
+        let cleanliness_concern = park_cleanliness < GUEST_CLEANLINESS_CONCERN_THRESHOLD;
+        let cleanliness_penalty = GUEST_CLEANLINESS_CONCERN_THRESHOLD
+            .saturating_sub(park_cleanliness)
+            .div_ceil(20)
+            .max(1);
+
         for guest in &mut self.guests {
             guest.minutes_in_park += 1;
+            guest.cleanliness_concern = cleanliness_concern;
             if guest.minutes_in_park % 4 == 0 {
                 guest.energy = guest.energy.saturating_sub(1);
             }
@@ -1612,6 +1649,10 @@ impl GameState {
             }
             if guest.minutes_in_park % 10 == 0 {
                 guest.value_perception = guest.value_perception.saturating_sub(1);
+                if cleanliness_concern {
+                    guest.happiness = guest.happiness.saturating_sub(cleanliness_penalty);
+                    guest.value_perception = guest.value_perception.saturating_sub(1);
+                }
             }
             if guest.minutes_in_park % 5 == 0
                 && (guest.hunger >= 60 || guest.thirst >= 60 || guest.energy <= 35)
@@ -1628,6 +1669,35 @@ impl GameState {
             .map_or(0, |habitat| {
                 4 + habitat.welfare / 20 + habitat.appeal().min(300) / 30
             })
+    }
+
+    fn next_engaging_habitat(
+        &self,
+        guest: &Guest,
+        start: Position,
+    ) -> Option<(u32, Vec<Position>)> {
+        let mut candidates: Vec<&Habitat> = self
+            .habitats
+            .iter()
+            .filter(|habitat| habitat.animals > 0)
+            .filter(|habitat| habitat.welfare >= MIN_ENGAGING_HABITAT_WELFARE)
+            .filter(|habitat| !guest.visited_habitats.contains(&habitat.id))
+            .collect();
+
+        candidates.sort_by(|left, right| {
+            let left_score = left.appeal().saturating_add(left.welfare.saturating_mul(2));
+            let right_score = right
+                .appeal()
+                .saturating_add(right.welfare.saturating_mul(2));
+            right_score
+                .cmp(&left_score)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+
+        candidates.into_iter().find_map(|habitat| {
+            self.viewing_route(habitat, start)
+                .map(|route| (habitat.id, route))
+        })
     }
 
     fn refresh_guest_routes(&mut self) {
@@ -1713,8 +1783,11 @@ impl GameState {
                     let target_habitat = self.guests[index].target_habitat;
                     let experience_bonus = self.habitat_experience_bonus(target_habitat);
                     let guest = &mut self.guests[index];
+                    if !guest.visited_habitats.contains(&target_habitat) {
+                        guest.visited_habitats.push(target_habitat);
+                    }
                     guest.state = GuestState::Viewing;
-                    guest.viewing_minutes = 24;
+                    guest.viewing_minutes = 24 + (experience_bonus / 2).min(10);
                     guest.happiness = guest.happiness.saturating_add(experience_bonus).min(100);
                     guest.value_perception = guest
                         .value_perception
@@ -1830,12 +1903,12 @@ impl GameState {
     }
 
     fn advance_viewing(&mut self) {
-        let mut returning = Vec::new();
+        let mut decisions = Vec::new();
         for (index, guest) in self.guests.iter_mut().enumerate() {
             if matches!(guest.state, GuestState::Viewing) {
                 guest.viewing_minutes = guest.viewing_minutes.saturating_sub(1);
                 if guest.viewing_minutes == 0 {
-                    returning.push((
+                    decisions.push((
                         index,
                         Position {
                             x: guest.x,
@@ -1846,7 +1919,25 @@ impl GameState {
             }
         }
 
-        for (index, start) in returning {
+        for (index, start) in decisions {
+            let next_habitat = {
+                let guest = &self.guests[index];
+                if guest.wants_another_habitat() {
+                    self.next_engaging_habitat(guest, start)
+                } else {
+                    None
+                }
+            };
+
+            if let Some((habitat_id, route)) = next_habitat {
+                let guest = &mut self.guests[index];
+                guest.target_habitat = habitat_id;
+                guest.state = GuestState::WalkingToHabitat;
+                guest.route = route;
+                guest.route_index = 0;
+                continue;
+            }
+
             let exit = Position {
                 x: ENTRANCE_X,
                 y: ENTRANCE_Y,
@@ -2846,6 +2937,7 @@ impl GameState {
                 thirst: guest.thirst,
                 value_perception: guest.value_perception,
                 target_habitat: guest.target_habitat,
+                habitats_viewed: guest.visited_habitats.len() as u32,
                 state: guest.state,
                 thought: guest.thought().to_owned(),
             })
@@ -3081,6 +3173,7 @@ struct GuestView {
     thirst: u32,
     value_perception: u32,
     target_habitat: u32,
+    habitats_viewed: u32,
     state: GuestState,
     thought: String,
 }
@@ -3482,6 +3575,106 @@ mod tests {
             state.guests[0].state,
             GuestState::Arriving | GuestState::WalkingToHabitat
         ));
+    }
+
+    #[test]
+    fn engaged_guests_continue_to_distinct_reachable_habitats() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat_rect(5, 5, 8, 7).ok);
+        let first_id = state.habitats[0].id;
+        staff_habitat(&mut state, first_id);
+        assert!(state.adopt(first_id, "capybara").ok);
+
+        assert!(state.place_path(10, ENTRANCE_Y).ok);
+        assert!(state.place_habitat_rect(11, 5, 14, 7).ok);
+        let second_id = state.habitats[1].id;
+        staff_habitat(&mut state, second_id);
+        assert!(state.adopt(second_id, "giraffe").ok);
+        for x in 4..=10 {
+            assert!(state.place_path(x, ENTRANCE_Y + 1).ok);
+        }
+
+        let mut observed_two_habitats = false;
+        for _ in 0..180 {
+            state.tick(1);
+            if let Some(guest) = state.guests.iter().find(|guest| guest.id == 1)
+                && guest.visited_habitats.len() >= 2
+            {
+                assert_ne!(guest.visited_habitats[0], guest.visited_habitats[1]);
+                observed_two_habitats = true;
+                break;
+            }
+        }
+
+        assert!(observed_two_habitats);
+    }
+
+    #[test]
+    fn dirty_paths_reduce_guest_engagement_without_changing_routing() {
+        let mut clean = GameState::default();
+        assert!(clean.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = clean.habitats[0].id;
+        staff_habitat(&mut clean, habitat_id);
+        assert!(clean.adopt(habitat_id, "capybara").ok);
+        clean.tick(24);
+
+        let mut dirty = clean.clone();
+        for x in 1..=3 {
+            assert!(dirty.add_litter(Position { x, y: ENTRANCE_Y }));
+        }
+        assert!(dirty.park_cleanliness() < GUEST_CLEANLINESS_CONCERN_THRESHOLD);
+
+        clean.tick(10);
+        dirty.tick(10);
+
+        let clean_guest = clean.guests.iter().find(|guest| guest.id == 1).unwrap();
+        let dirty_guest = dirty.guests.iter().find(|guest| guest.id == 1).unwrap();
+        assert!(dirty_guest.cleanliness_concern);
+        assert!(dirty_guest.happiness < clean_guest.happiness);
+        assert!(dirty_guest.value_perception < clean_guest.value_perception);
+        assert_eq!(
+            (dirty_guest.x, dirty_guest.y),
+            (clean_guest.x, clean_guest.y)
+        );
+    }
+
+    #[test]
+    fn severe_needs_end_a_visit_before_another_reachable_habitat() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat_rect(5, 5, 8, 7).ok);
+        let first_id = state.habitats[0].id;
+        staff_habitat(&mut state, first_id);
+        assert!(state.adopt(first_id, "capybara").ok);
+
+        assert!(state.place_path(10, ENTRANCE_Y).ok);
+        assert!(state.place_habitat_rect(11, 5, 14, 7).ok);
+        let second_id = state.habitats[1].id;
+        staff_habitat(&mut state, second_id);
+        assert!(state.adopt(second_id, "giraffe").ok);
+        for x in 4..=10 {
+            assert!(state.place_path(x, ENTRANCE_Y + 1).ok);
+        }
+
+        for _ in 0..120 {
+            state.tick(1);
+            if state
+                .guests
+                .iter()
+                .find(|guest| guest.id == 1)
+                .is_some_and(|guest| guest.state == GuestState::Viewing)
+            {
+                break;
+            }
+        }
+
+        let guest = state.guests.iter_mut().find(|guest| guest.id == 1).unwrap();
+        guest.thirst = GUEST_CONTINUE_MAX_THIRST + 1;
+        guest.viewing_minutes = 1;
+        state.advance_viewing();
+
+        let guest = state.guests.iter().find(|guest| guest.id == 1).unwrap();
+        assert_eq!(guest.state, GuestState::WalkingToExit);
+        assert_eq!(guest.visited_habitats.len(), 1);
     }
 
     #[test]
