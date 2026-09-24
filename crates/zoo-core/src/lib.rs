@@ -3779,6 +3779,26 @@ mod tests {
         assert!(state.schedule_keeper(habitat_id).ok);
     }
 
+    fn test_habitat(x: u32, y: u32, width: u32, height: u32) -> Habitat {
+        Habitat {
+            id: 1,
+            x,
+            y,
+            width,
+            height,
+            orientation: HabitatOrientation::for_dimensions(width, height),
+            species: Some(Species::Capybara),
+            animals: 1,
+            welfare: 100,
+            food: 100,
+            water: 100,
+            cleanliness: 100,
+            has_shelter: true,
+            keeper_id: Some(1),
+            next_feed_delivery_minute: None,
+        }
+    }
+
     #[test]
     fn path_placement_is_idempotent_and_charges_once() {
         let mut state = GameState::default();
@@ -3906,6 +3926,134 @@ mod tests {
             assert!((habitat.x + 1..habitat.x + habitat.width - 1).contains(&animal.x));
             assert!((habitat.y + 1..habitat.y + habitat.height - 1).contains(&animal.y));
         }
+    }
+
+    #[test]
+    fn viewing_footprint_matches_the_five_wide_three_deep_rule_on_every_side() {
+        let state = GameState::default();
+        let habitat = test_habitat(10, 5, 5, 5);
+
+        let north = state.viewing_footprint(
+            &habitat,
+            Position { x: 12, y: 4 },
+            FenceSide::North,
+        );
+        let expected_north: Vec<Position> = (5..=7)
+            .flat_map(|y| (10..=14).map(move |x| Position { x, y }))
+            .collect();
+        assert_eq!(north, expected_north);
+
+        let south = state.viewing_footprint(
+            &habitat,
+            Position { x: 12, y: 10 },
+            FenceSide::South,
+        );
+        let expected_south: Vec<Position> = (7..=9)
+            .flat_map(|y| (10..=14).map(move |x| Position { x, y }))
+            .collect();
+        assert_eq!(south, expected_south);
+
+        let west = state.viewing_footprint(
+            &habitat,
+            Position { x: 9, y: 7 },
+            FenceSide::West,
+        );
+        let expected_west: Vec<Position> = (5..=9)
+            .flat_map(|y| (10..=12).map(move |x| Position { x, y }))
+            .collect();
+        assert_eq!(west, expected_west);
+
+        let east = state.viewing_footprint(
+            &habitat,
+            Position { x: 15, y: 7 },
+            FenceSide::East,
+        );
+        let expected_east: Vec<Position> = (5..=9)
+            .flat_map(|y| (12..=14).map(move |x| Position { x, y }))
+            .collect();
+        assert_eq!(east, expected_east);
+    }
+
+    #[test]
+    fn viewing_route_prefers_an_uncrowded_visible_path_tile() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat_rect(3, 8, 7, 10).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        assert!(state.place_path(5, ENTRANCE_Y).ok);
+        state.try_spawn_guest();
+
+        let mut template = state.guests[0].clone();
+        state.guests.clear();
+        template.state = GuestState::Viewing;
+        template.target_habitat = habitat_id;
+        template.x = 4;
+        template.y = ENTRANCE_Y;
+        template.route.clear();
+        template.route_index = 0;
+        template.viewing_minutes = 10;
+        for id in 1..=2 {
+            let mut guest = template.clone();
+            guest.id = id;
+            state.guests.push(guest);
+        }
+
+        let route = state
+            .viewing_route(
+                &state.habitats[0],
+                Position {
+                    x: ENTRANCE_X,
+                    y: ENTRANCE_Y,
+                },
+            )
+            .expect("an alternate visible viewpoint should remain reachable");
+        assert_eq!(route.last(), Some(&Position { x: 5, y: ENTRANCE_Y }));
+    }
+
+    #[test]
+    fn over_capacity_viewing_applies_a_bounded_engagement_penalty() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat_rect(3, 8, 7, 10).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "capybara").ok);
+        state.try_spawn_guest();
+
+        let mut template = state.guests[0].clone();
+        state.guests.clear();
+        template.state = GuestState::Viewing;
+        template.target_habitat = habitat_id;
+        template.x = 4;
+        template.y = ENTRANCE_Y;
+        template.route.clear();
+        template.route_index = 0;
+        template.viewing_minutes = 10;
+        template.minutes_in_park = VIEWING_PENALTY_INTERVAL_MINUTES;
+        template.happiness = 80;
+        template.value_perception = 70;
+        for id in 1..=3 {
+            let mut guest = template.clone();
+            guest.id = id;
+            state.guests.push(guest);
+        }
+
+        let spot = state
+            .viewing_spot_for_guest(&state.guests[0])
+            .expect("guest should occupy a viewing spot");
+        assert_eq!(spot.visible_animals, 1);
+        assert_eq!(spot.capacity, 2);
+        assert_eq!(spot.occupancy, 3);
+        assert!(spot.crowded());
+
+        state.advance_viewing();
+
+        assert_eq!(state.guests[0].happiness, 79);
+        assert_eq!(state.guests[0].value_perception, 69);
+        assert_eq!(
+            state.guest_thought(&state.guests[0]),
+            "It's too crowded to get a good view."
+        );
     }
 
     #[test]
