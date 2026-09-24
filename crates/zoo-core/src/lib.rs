@@ -52,6 +52,11 @@ const GUEST_CONTINUE_MAX_HUNGER: u32 = 75;
 const GUEST_CONTINUE_MAX_THIRST: u32 = 75;
 const GUEST_CONTINUE_MIN_VALUE: u32 = 35;
 const GUEST_CLEANLINESS_CONCERN_THRESHOLD: u32 = 70;
+const VIEWING_DEPTH_TILES: u32 = 3;
+const VIEWING_HALF_WIDTH_TILES: u32 = 2;
+const VIEWPOINT_PHYSICAL_CAPACITY: u32 = 4;
+const VIEWERS_PER_VISIBLE_ANIMAL: u32 = 2;
+const VIEWING_PENALTY_INTERVAL_MINUTES: u32 = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -303,6 +308,25 @@ struct FenceSegment {
     x: u32,
     y: u32,
     side: FenceSide,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ViewingSpot {
+    position: Position,
+    side: FenceSide,
+    visible_animals: u32,
+    capacity: u32,
+    occupancy: u32,
+}
+
+impl ViewingSpot {
+    fn available_capacity(self) -> u32 {
+        self.capacity.saturating_sub(self.occupancy)
+    }
+
+    fn crowded(self) -> bool {
+        self.capacity > 0 && self.occupancy > self.capacity
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -613,46 +637,6 @@ impl Guest {
             && self.hunger <= GUEST_CONTINUE_MAX_HUNGER
             && self.thirst <= GUEST_CONTINUE_MAX_THIRST
             && self.value_perception >= GUEST_CONTINUE_MIN_VALUE
-    }
-
-    fn thought(&self) -> &'static str {
-        if self.route.is_empty()
-            && matches!(
-                self.state,
-                GuestState::Arriving | GuestState::WalkingToHabitat
-            )
-        {
-            return "The path to the animals is blocked.";
-        }
-        if (self.route.is_empty() && self.state == GuestState::WalkingToExit)
-            || (self.state == GuestState::Viewing && self.viewing_minutes == 0)
-        {
-            return "The path to the exit is blocked.";
-        }
-        if self.thirst >= 60 {
-            "I'm getting thirsty."
-        } else if self.hunger >= 60 {
-            "I could use something to eat."
-        } else if self.energy <= 35 {
-            "My feet are getting tired."
-        } else if self.cleanliness_concern {
-            "The paths need cleaning."
-        } else if self.value_perception <= 40 {
-            "I expected a little more for the price."
-        } else {
-            match self.state {
-                GuestState::Arriving => "I'm entering the zoo.",
-                GuestState::WalkingToHabitat if !self.visited_habitats.is_empty() => {
-                    "I'd like to see another habitat."
-                }
-                GuestState::WalkingToHabitat => "I want to see the animals.",
-                GuestState::Viewing if self.visited_habitats.len() > 1 => {
-                    "There is a lot to see here."
-                }
-                GuestState::Viewing => "The animals are wonderful.",
-                GuestState::WalkingToExit => "I'm ready to head home.",
-            }
-        }
     }
 }
 
@@ -1903,19 +1887,39 @@ impl GameState {
     }
 
     fn advance_viewing(&mut self) {
+        let conditions: Vec<(usize, Option<ViewingSpot>)> = self
+            .guests
+            .iter()
+            .enumerate()
+            .filter(|(_, guest)| guest.state == GuestState::Viewing)
+            .map(|(index, guest)| (index, self.viewing_spot_for_guest(guest)))
+            .collect();
+
         let mut decisions = Vec::new();
-        for (index, guest) in self.guests.iter_mut().enumerate() {
-            if matches!(guest.state, GuestState::Viewing) {
-                guest.viewing_minutes = guest.viewing_minutes.saturating_sub(1);
-                if guest.viewing_minutes == 0 {
-                    decisions.push((
-                        index,
-                        Position {
-                            x: guest.x,
-                            y: guest.y,
-                        },
-                    ));
+        for (index, spot) in conditions {
+            let guest = &mut self.guests[index];
+            if guest
+                .minutes_in_park
+                .is_multiple_of(VIEWING_PENALTY_INTERVAL_MINUTES)
+            {
+                if spot.is_some_and(|spot| spot.visible_animals == 0) {
+                    guest.happiness = guest.happiness.saturating_sub(2);
+                    guest.value_perception = guest.value_perception.saturating_sub(1);
+                } else if spot.is_some_and(ViewingSpot::crowded) {
+                    guest.happiness = guest.happiness.saturating_sub(1);
+                    guest.value_perception = guest.value_perception.saturating_sub(1);
                 }
+            }
+
+            guest.viewing_minutes = guest.viewing_minutes.saturating_sub(1);
+            if guest.viewing_minutes == 0 {
+                decisions.push((
+                    index,
+                    Position {
+                        x: guest.x,
+                        y: guest.y,
+                    },
+                ));
             }
         }
 
@@ -2454,18 +2458,273 @@ impl GameState {
         )
     }
 
-    fn viewing_route(&self, habitat: &Habitat, start: Position) -> Option<Vec<Position>> {
-        let mut goals = Vec::new();
-        for y in habitat.y..habitat.y + habitat.height {
-            for x in habitat.x..habitat.x + habitat.width {
-                for neighbor in self.neighbors(Position { x, y }) {
-                    if self.is_walkable(neighbor) && !goals.contains(&neighbor) {
-                        goals.push(neighbor);
-                    }
+    fn viewing_tile_visible(
+        &self,
+        habitat: &Habitat,
+        viewpoint: Position,
+        side: FenceSide,
+        target: Position,
+    ) -> bool {
+        let right = habitat
+            .x
+            .saturating_add(habitat.width.saturating_sub(1));
+        let bottom = habitat
+            .y
+            .saturating_add(habitat.height.saturating_sub(1));
+        if target.x < habitat.x
+            || target.x > right
+            || target.y < habitat.y
+            || target.y > bottom
+        {
+            return false;
+        }
+
+        match side {
+            FenceSide::North => {
+                target.y.saturating_sub(habitat.y) < VIEWING_DEPTH_TILES
+                    && target.x.abs_diff(viewpoint.x) <= VIEWING_HALF_WIDTH_TILES
+            }
+            FenceSide::South => {
+                bottom.saturating_sub(target.y) < VIEWING_DEPTH_TILES
+                    && target.x.abs_diff(viewpoint.x) <= VIEWING_HALF_WIDTH_TILES
+            }
+            FenceSide::West => {
+                target.x.saturating_sub(habitat.x) < VIEWING_DEPTH_TILES
+                    && target.y.abs_diff(viewpoint.y) <= VIEWING_HALF_WIDTH_TILES
+            }
+            FenceSide::East => {
+                right.saturating_sub(target.x) < VIEWING_DEPTH_TILES
+                    && target.y.abs_diff(viewpoint.y) <= VIEWING_HALF_WIDTH_TILES
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn viewing_footprint(
+        &self,
+        habitat: &Habitat,
+        viewpoint: Position,
+        side: FenceSide,
+    ) -> Vec<Position> {
+        let mut positions = Vec::new();
+        for y in habitat.y..habitat.y.saturating_add(habitat.height) {
+            for x in habitat.x..habitat.x.saturating_add(habitat.width) {
+                let position = Position { x, y };
+                if self.viewing_tile_visible(habitat, viewpoint, side, position) {
+                    positions.push(position);
                 }
             }
         }
-        self.path_to_any(start, &goals)
+        positions
+    }
+
+    fn animal_position(&self, habitat: &Habitat, slot: u32) -> Position {
+        let inner_width = habitat.width.saturating_sub(2).max(1);
+        let inner_height = habitat.height.saturating_sub(2).max(1);
+        let inner_area = inner_width.saturating_mul(inner_height).max(1);
+        let time_step = self.minute_of_day / 2;
+        let index = time_step
+            .saturating_add(slot.saturating_mul(3))
+            .saturating_add(habitat.id.saturating_mul(5))
+            % inner_area;
+        let local_x = index % inner_width;
+        let local_y = index / inner_width;
+        Position {
+            x: habitat.x.saturating_add(1).saturating_add(local_x),
+            y: habitat.y.saturating_add(1).saturating_add(local_y),
+        }
+    }
+
+    fn visible_animals_from(
+        &self,
+        habitat: &Habitat,
+        viewpoint: Position,
+        side: FenceSide,
+    ) -> u32 {
+        (0..habitat.animals)
+            .filter(|slot| {
+                self.viewing_tile_visible(
+                    habitat,
+                    viewpoint,
+                    side,
+                    self.animal_position(habitat, *slot),
+                )
+            })
+            .count()
+            .try_into()
+            .unwrap_or(u32::MAX)
+    }
+
+    fn viewing_spots(&self, habitat: &Habitat) -> Vec<ViewingSpot> {
+        let mut candidates = Vec::new();
+        let right = habitat
+            .x
+            .saturating_add(habitat.width.saturating_sub(1));
+        let bottom = habitat
+            .y
+            .saturating_add(habitat.height.saturating_sub(1));
+
+        if habitat.y > 0 {
+            for x in habitat.x..=right {
+                candidates.push((
+                    Position {
+                        x,
+                        y: habitat.y - 1,
+                    },
+                    FenceSide::North,
+                ));
+            }
+        }
+        if right + 1 < self.width {
+            for y in habitat.y..=bottom {
+                candidates.push((
+                    Position { x: right + 1, y },
+                    FenceSide::East,
+                ));
+            }
+        }
+        if bottom + 1 < self.height {
+            for x in habitat.x..=right {
+                candidates.push((
+                    Position { x, y: bottom + 1 },
+                    FenceSide::South,
+                ));
+            }
+        }
+        if habitat.x > 0 {
+            for y in habitat.y..=bottom {
+                candidates.push((
+                    Position {
+                        x: habitat.x - 1,
+                        y,
+                    },
+                    FenceSide::West,
+                ));
+            }
+        }
+
+        candidates
+            .into_iter()
+            .filter(|(position, _)| self.is_walkable(*position))
+            .map(|(position, side)| {
+                let visible_animals = self.visible_animals_from(habitat, position, side);
+                let capacity = visible_animals
+                    .saturating_mul(VIEWERS_PER_VISIBLE_ANIMAL)
+                    .min(VIEWPOINT_PHYSICAL_CAPACITY);
+                let occupancy = self
+                    .guests
+                    .iter()
+                    .filter(|guest| {
+                        guest.state == GuestState::Viewing
+                            && guest.target_habitat == habitat.id
+                            && guest.x == position.x
+                            && guest.y == position.y
+                    })
+                    .count()
+                    .try_into()
+                    .unwrap_or(u32::MAX);
+                ViewingSpot {
+                    position,
+                    side,
+                    visible_animals,
+                    capacity,
+                    occupancy,
+                }
+            })
+            .collect()
+    }
+
+    fn viewing_spot_for_guest(&self, guest: &Guest) -> Option<ViewingSpot> {
+        let habitat = self
+            .habitats
+            .iter()
+            .find(|habitat| habitat.id == guest.target_habitat)?;
+        self.viewing_spots(habitat)
+            .into_iter()
+            .find(|spot| spot.position.x == guest.x && spot.position.y == guest.y)
+    }
+
+    fn guest_thought(&self, guest: &Guest) -> &'static str {
+        if guest.route.is_empty()
+            && matches!(
+                guest.state,
+                GuestState::Arriving | GuestState::WalkingToHabitat
+            )
+        {
+            return "The path to the animals is blocked.";
+        }
+        if (guest.route.is_empty() && guest.state == GuestState::WalkingToExit)
+            || (guest.state == GuestState::Viewing && guest.viewing_minutes == 0)
+        {
+            return "The path to the exit is blocked.";
+        }
+        if guest.thirst >= 60 {
+            return "I'm getting thirsty.";
+        }
+        if guest.hunger >= 60 {
+            return "I could use something to eat.";
+        }
+        if guest.energy <= 35 {
+            return "My feet are getting tired.";
+        }
+        if guest.state == GuestState::Viewing
+            && let Some(spot) = self.viewing_spot_for_guest(guest)
+        {
+            if spot.visible_animals == 0 {
+                return "I can't see any animals from here.";
+            }
+            if spot.crowded() {
+                return "It's too crowded to get a good view.";
+            }
+        }
+        if guest.cleanliness_concern {
+            return "The paths need cleaning.";
+        }
+        if guest.value_perception <= 40 {
+            return "I expected a little more for the price.";
+        }
+
+        match guest.state {
+            GuestState::Arriving => "I'm entering the zoo.",
+            GuestState::WalkingToHabitat if !guest.visited_habitats.is_empty() => {
+                "I'd like to see another habitat."
+            }
+            GuestState::WalkingToHabitat => "I want to see the animals.",
+            GuestState::Viewing if guest.visited_habitats.len() > 1 => {
+                "There is a lot to see here."
+            }
+            GuestState::Viewing => "The animals are wonderful.",
+            GuestState::WalkingToExit => "I'm ready to head home.",
+        }
+    }
+
+    fn viewing_route(&self, habitat: &Habitat, start: Position) -> Option<Vec<Position>> {
+        let mut candidates: Vec<(ViewingSpot, Vec<Position>)> = self
+            .viewing_spots(habitat)
+            .into_iter()
+            .filter(|spot| spot.capacity > 0)
+            .filter_map(|spot| {
+                self.path_between(start, spot.position)
+                    .map(|route| (spot, route))
+            })
+            .collect();
+
+        candidates.sort_by(|(left_spot, left_route), (right_spot, right_route)| {
+            let left_load =
+                u64::from(left_spot.occupancy).saturating_mul(u64::from(right_spot.capacity));
+            let right_load =
+                u64::from(right_spot.occupancy).saturating_mul(u64::from(left_spot.capacity));
+            right_spot
+                .available_capacity()
+                .cmp(&left_spot.available_capacity())
+                .then_with(|| left_load.cmp(&right_load))
+                .then_with(|| right_spot.visible_animals.cmp(&left_spot.visible_animals))
+                .then_with(|| left_route.len().cmp(&right_route.len()))
+                .then_with(|| left_spot.position.y.cmp(&right_spot.position.y))
+                .then_with(|| left_spot.position.x.cmp(&right_spot.position.x))
+        });
+
+        candidates.into_iter().next().map(|(_, route)| route)
     }
 
     fn path_between(&self, start: Position, goal: Position) -> Option<Vec<Position>> {
@@ -2558,24 +2817,14 @@ impl GameState {
                 continue;
             };
 
-            let inner_width = habitat.width.saturating_sub(2).max(1);
-            let inner_height = habitat.height.saturating_sub(2).max(1);
-            let inner_area = inner_width.saturating_mul(inner_height).max(1);
-            let time_step = self.minute_of_day / 2;
-
             for slot in 0..habitat.animals {
-                let index = time_step
-                    .saturating_add(slot.saturating_mul(3))
-                    .saturating_add(habitat.id.saturating_mul(5))
-                    % inner_area;
-                let local_x = index % inner_width;
-                let local_y = index / inner_width;
+                let position = self.animal_position(habitat, slot);
                 animals.push(AnimalView {
                     id: habitat.id.saturating_mul(100).saturating_add(slot + 1),
                     habitat_id: habitat.id,
                     species: species.key().to_owned(),
-                    x: habitat.x.saturating_add(1).saturating_add(local_x),
-                    y: habitat.y.saturating_add(1).saturating_add(local_y),
+                    x: position.x,
+                    y: position.y,
                     slot,
                     animation_phase: (slot
                         .saturating_mul(17)
@@ -2873,35 +3122,60 @@ impl GameState {
         let habitats = self
             .habitats
             .iter()
-            .map(|habitat| HabitatView {
-                id: habitat.id,
-                x: habitat.x,
-                y: habitat.y,
-                width: habitat.width,
-                height: habitat.height,
-                orientation: habitat.orientation,
-                footprint_area: habitat.area(),
-                fence_length: habitat.fence_length(),
-                fence_segments: habitat.fence_segments(),
-                species: habitat.species.map(|species| species.key().to_owned()),
-                animals: habitat.animals,
-                capacity: habitat.capacity(),
-                welfare: habitat.welfare,
-                welfare_target: habitat.welfare_target(),
-                social_score: habitat.social_score(),
-                space_score: habitat.space_score(),
-                welfare_status: habitat.welfare_status(),
-                food: habitat.food,
-                water: habitat.water,
-                cleanliness: habitat.cleanliness,
-                has_shelter: habitat.has_shelter,
-                keeper_id: habitat.keeper_id,
-                next_feed_delivery_in_minutes: habitat
-                    .next_feed_delivery_minute
-                    .map(|due| due.saturating_sub(self.absolute_minute())),
-                feeding_status: self.feeding_status(habitat),
-                care_status: habitat.care_status(),
-                appeal: habitat.appeal(),
+            .map(|habitat| {
+                let viewing_spots = self.viewing_spots(habitat);
+                let viewing_capacity = viewing_spots
+                    .iter()
+                    .map(|spot| spot.capacity)
+                    .fold(0_u32, u32::saturating_add);
+                let viewing_occupancy = viewing_spots
+                    .iter()
+                    .map(|spot| spot.occupancy)
+                    .fold(0_u32, u32::saturating_add);
+                HabitatView {
+                    id: habitat.id,
+                    x: habitat.x,
+                    y: habitat.y,
+                    width: habitat.width,
+                    height: habitat.height,
+                    orientation: habitat.orientation,
+                    footprint_area: habitat.area(),
+                    fence_length: habitat.fence_length(),
+                    fence_segments: habitat.fence_segments(),
+                    species: habitat.species.map(|species| species.key().to_owned()),
+                    animals: habitat.animals,
+                    capacity: habitat.capacity(),
+                    viewing_capacity,
+                    viewing_occupancy,
+                    viewing_spots: viewing_spots
+                        .into_iter()
+                        .map(|spot| ViewingSpotView {
+                            x: spot.position.x,
+                            y: spot.position.y,
+                            side: spot.side,
+                            visible_animals: spot.visible_animals,
+                            capacity: spot.capacity,
+                            occupancy: spot.occupancy,
+                            crowded: spot.crowded(),
+                        })
+                        .collect(),
+                    welfare: habitat.welfare,
+                    welfare_target: habitat.welfare_target(),
+                    social_score: habitat.social_score(),
+                    space_score: habitat.space_score(),
+                    welfare_status: habitat.welfare_status(),
+                    food: habitat.food,
+                    water: habitat.water,
+                    cleanliness: habitat.cleanliness,
+                    has_shelter: habitat.has_shelter,
+                    keeper_id: habitat.keeper_id,
+                    next_feed_delivery_in_minutes: habitat
+                        .next_feed_delivery_minute
+                        .map(|due| due.saturating_sub(self.absolute_minute())),
+                    feeding_status: self.feeding_status(habitat),
+                    care_status: habitat.care_status(),
+                    appeal: habitat.appeal(),
+                }
             })
             .collect();
 
@@ -2939,7 +3213,7 @@ impl GameState {
                 target_habitat: guest.target_habitat,
                 habitats_viewed: guest.visited_habitats.len() as u32,
                 state: guest.state,
-                thought: guest.thought().to_owned(),
+                thought: self.guest_thought(guest).to_owned(),
             })
             .collect();
 
@@ -3135,6 +3409,9 @@ struct HabitatView {
     species: Option<String>,
     animals: u32,
     capacity: u32,
+    viewing_capacity: u32,
+    viewing_occupancy: u32,
+    viewing_spots: Vec<ViewingSpotView>,
     welfare: u32,
     welfare_target: u32,
     social_score: u32,
@@ -3149,6 +3426,17 @@ struct HabitatView {
     feeding_status: String,
     care_status: String,
     appeal: u32,
+}
+
+#[derive(Serialize)]
+struct ViewingSpotView {
+    x: u32,
+    y: u32,
+    side: FenceSide,
+    visible_animals: u32,
+    capacity: u32,
+    occupancy: u32,
+    crowded: bool,
 }
 
 #[derive(Serialize)]
