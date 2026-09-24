@@ -2675,11 +2675,6 @@ impl GameState {
             .collect()
     }
 
-    fn viewing_spots(&self, habitat: &Habitat) -> Vec<ViewingSpot> {
-        let viewing_occupancy = self.viewing_occupancy();
-        self.viewing_spots_with_occupancy(habitat, &viewing_occupancy)
-    }
-
     fn viewing_spot_for_guest_with_occupancy(
         &self,
         guest: &Guest,
@@ -4027,16 +4022,18 @@ mod tests {
 
     #[test]
     fn shared_path_tile_counts_viewers_from_both_neighboring_habitats() {
-        let mut state = GameState::default();
-        state.habitats = vec![
-            test_habitat(3, 8, 5, 3),
-            Habitat {
-                id: 2,
-                x: 3,
-                y: 4,
-                ..test_habitat(3, 4, 5, 3)
-            },
-        ];
+        let mut state = GameState {
+            habitats: vec![
+                test_habitat(3, 8, 5, 3),
+                Habitat {
+                    id: 2,
+                    x: 3,
+                    y: 4,
+                    ..test_habitat(3, 4, 5, 3)
+                },
+            ],
+            ..GameState::default()
+        };
         state.set_tile(5, ENTRANCE_Y, TileKind::Path);
 
         let mut guest = Guest {
