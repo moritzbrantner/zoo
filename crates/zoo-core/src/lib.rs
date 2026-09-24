@@ -319,6 +319,8 @@ struct ViewingSpot {
     occupancy: u32,
 }
 
+type ViewingOccupancy = HashMap<(u32, u32, u32), u32>;
+
 impl ViewingSpot {
     fn available_capacity(self) -> u32 {
         self.capacity.saturating_sub(self.occupancy)
@@ -1569,12 +1571,13 @@ impl GameState {
             x: ENTRANCE_X,
             y: ENTRANCE_Y,
         };
+        let viewing_occupancy = self.viewing_occupancy();
         let mut candidates: Vec<(u32, Vec<Position>)> = self
             .habitats
             .iter()
             .filter(|habitat| habitat.animals > 0)
             .filter_map(|habitat| {
-                self.viewing_route(habitat, start)
+                self.viewing_route_with_occupancy(habitat, start, &viewing_occupancy)
                     .map(|route| (habitat.id, route))
             })
             .collect();
@@ -1659,6 +1662,7 @@ impl GameState {
         &self,
         guest: &Guest,
         start: Position,
+        viewing_occupancy: &ViewingOccupancy,
     ) -> Option<(u32, Vec<Position>)> {
         let mut candidates: Vec<&Habitat> = self
             .habitats
@@ -1679,7 +1683,7 @@ impl GameState {
         });
 
         candidates.into_iter().find_map(|habitat| {
-            self.viewing_route(habitat, start)
+            self.viewing_route_with_occupancy(habitat, start, viewing_occupancy)
                 .map(|route| (habitat.id, route))
         })
     }
@@ -1687,6 +1691,7 @@ impl GameState {
     fn refresh_guest_routes(&mut self) {
         // Topology edits, not simulation ticks, retry blocked routes. Preserve valid
         // cached routes so unrelated construction does not restart guest journeys.
+        let viewing_occupancy = self.viewing_occupancy();
         for index in 0..self.guests.len() {
             let guest = &self.guests[index];
             if guest.state == GuestState::Viewing {
@@ -1711,7 +1716,13 @@ impl GameState {
                     .habitats
                     .iter()
                     .find(|habitat| habitat.id == guest.target_habitat)
-                    .and_then(|habitat| self.viewing_route(habitat, start)),
+                    .and_then(|habitat| {
+                        self.viewing_route_with_occupancy(
+                            habitat,
+                            start,
+                            &viewing_occupancy,
+                        )
+                    }),
                 GuestState::WalkingToExit => self.path_between(
                     start,
                     Position {
@@ -1887,12 +1898,21 @@ impl GameState {
     }
 
     fn advance_viewing(&mut self) {
+        let viewing_occupancy = self.viewing_occupancy();
         let conditions: Vec<(usize, Option<ViewingSpot>)> = self
             .guests
             .iter()
             .enumerate()
             .filter(|(_, guest)| guest.state == GuestState::Viewing)
-            .map(|(index, guest)| (index, self.viewing_spot_for_guest(guest)))
+            .map(|(index, guest)| {
+                (
+                    index,
+                    self.viewing_spot_for_guest_with_occupancy(
+                        guest,
+                        &viewing_occupancy,
+                    ),
+                )
+            })
             .collect();
 
         let mut decisions = Vec::new();
@@ -1927,7 +1947,7 @@ impl GameState {
             let next_habitat = {
                 let guest = &self.guests[index];
                 if guest.wants_another_habitat() {
-                    self.next_engaging_habitat(guest, start)
+                    self.next_engaging_habitat(guest, start, &viewing_occupancy)
                 } else {
                     None
                 }
@@ -2594,7 +2614,26 @@ impl GameState {
         }
     }
 
-    fn viewing_spots(&self, habitat: &Habitat) -> Vec<ViewingSpot> {
+    fn viewing_occupancy(&self) -> ViewingOccupancy {
+        let mut occupancy = ViewingOccupancy::new();
+        for guest in self
+            .guests
+            .iter()
+            .filter(|guest| guest.state == GuestState::Viewing)
+        {
+            let entry = occupancy
+                .entry((guest.target_habitat, guest.x, guest.y))
+                .or_default();
+            *entry = entry.saturating_add(1);
+        }
+        occupancy
+    }
+
+    fn viewing_spots_with_occupancy(
+        &self,
+        habitat: &Habitat,
+        viewing_occupancy: &ViewingOccupancy,
+    ) -> Vec<ViewingSpot> {
         let mut candidates = Vec::new();
         let right = habitat.x.saturating_add(habitat.width.saturating_sub(1));
         let bottom = habitat.y.saturating_add(habitat.height.saturating_sub(1));
@@ -2632,20 +2671,12 @@ impl GameState {
             }
         }
 
-        let mut occupancy_by_position: HashMap<(u32, u32), u32> = HashMap::new();
-        for guest in self.guests.iter().filter(|guest| {
-            guest.state == GuestState::Viewing && guest.target_habitat == habitat.id
-        }) {
-            let entry = occupancy_by_position.entry((guest.x, guest.y)).or_default();
-            *entry = entry.saturating_add(1);
-        }
-
         candidates
             .into_iter()
             .filter(|(position, _)| self.is_walkable(*position))
             .map(|(position, side)| {
-                let occupancy = occupancy_by_position
-                    .get(&(position.x, position.y))
+                let occupancy = viewing_occupancy
+                    .get(&(habitat.id, position.x, position.y))
                     .copied()
                     .unwrap_or(0);
                 self.viewing_spot(habitat, position, side, occupancy)
@@ -2653,7 +2684,16 @@ impl GameState {
             .collect()
     }
 
-    fn viewing_spot_for_guest(&self, guest: &Guest) -> Option<ViewingSpot> {
+    fn viewing_spots(&self, habitat: &Habitat) -> Vec<ViewingSpot> {
+        let viewing_occupancy = self.viewing_occupancy();
+        self.viewing_spots_with_occupancy(habitat, &viewing_occupancy)
+    }
+
+    fn viewing_spot_for_guest_with_occupancy(
+        &self,
+        guest: &Guest,
+        viewing_occupancy: &ViewingOccupancy,
+    ) -> Option<ViewingSpot> {
         let habitat = self
             .habitats
             .iter()
@@ -2666,22 +2706,23 @@ impl GameState {
             return None;
         }
         let side = self.viewing_side_for_position(habitat, position)?;
-        let occupancy = self
-            .guests
-            .iter()
-            .filter(|other| {
-                other.state == GuestState::Viewing
-                    && other.target_habitat == habitat.id
-                    && other.x == position.x
-                    && other.y == position.y
-            })
-            .count()
-            .try_into()
-            .unwrap_or(u32::MAX);
+        let occupancy = viewing_occupancy
+            .get(&(habitat.id, position.x, position.y))
+            .copied()
+            .unwrap_or(0);
         Some(self.viewing_spot(habitat, position, side, occupancy))
     }
 
-    fn guest_thought(&self, guest: &Guest) -> &'static str {
+    fn viewing_spot_for_guest(&self, guest: &Guest) -> Option<ViewingSpot> {
+        let viewing_occupancy = self.viewing_occupancy();
+        self.viewing_spot_for_guest_with_occupancy(guest, &viewing_occupancy)
+    }
+
+    fn guest_thought_with_occupancy(
+        &self,
+        guest: &Guest,
+        viewing_occupancy: &ViewingOccupancy,
+    ) -> &'static str {
         if guest.route.is_empty()
             && matches!(
                 guest.state,
@@ -2705,7 +2746,8 @@ impl GameState {
             return "My feet are getting tired.";
         }
         if guest.state == GuestState::Viewing
-            && let Some(spot) = self.viewing_spot_for_guest(guest)
+            && let Some(spot) =
+                self.viewing_spot_for_guest_with_occupancy(guest, viewing_occupancy)
         {
             if spot.visible_animals == 0 {
                 return "I can't see any animals from here.";
@@ -2735,9 +2777,19 @@ impl GameState {
         }
     }
 
-    fn viewing_route(&self, habitat: &Habitat, start: Position) -> Option<Vec<Position>> {
+    fn guest_thought(&self, guest: &Guest) -> &'static str {
+        let viewing_occupancy = self.viewing_occupancy();
+        self.guest_thought_with_occupancy(guest, &viewing_occupancy)
+    }
+
+    fn viewing_route_with_occupancy(
+        &self,
+        habitat: &Habitat,
+        start: Position,
+        viewing_occupancy: &ViewingOccupancy,
+    ) -> Option<Vec<Position>> {
         let mut candidates: Vec<(ViewingSpot, Vec<Position>)> = self
-            .viewing_spots(habitat)
+            .viewing_spots_with_occupancy(habitat, viewing_occupancy)
             .into_iter()
             .filter(|spot| spot.capacity > 0)
             .filter_map(|spot| {
@@ -2762,6 +2814,11 @@ impl GameState {
         });
 
         candidates.into_iter().next().map(|(_, route)| route)
+    }
+
+    fn viewing_route(&self, habitat: &Habitat, start: Position) -> Option<Vec<Position>> {
+        let viewing_occupancy = self.viewing_occupancy();
+        self.viewing_route_with_occupancy(habitat, start, &viewing_occupancy)
     }
 
     fn path_between(&self, start: Position, goal: Position) -> Option<Vec<Position>> {
@@ -3127,6 +3184,7 @@ impl GameState {
     }
 
     fn snapshot(&self) -> Snapshot {
+        let viewing_occupancy = self.viewing_occupancy();
         let mut tiles = Vec::with_capacity(self.tiles.len());
         for y in 0..self.height {
             for x in 0..self.width {
@@ -3160,7 +3218,8 @@ impl GameState {
             .habitats
             .iter()
             .map(|habitat| {
-                let viewing_spots = self.viewing_spots(habitat);
+                let viewing_spots =
+                    self.viewing_spots_with_occupancy(habitat, &viewing_occupancy);
                 let viewing_capacity = viewing_spots
                     .iter()
                     .map(|spot| spot.capacity)
@@ -3250,7 +3309,9 @@ impl GameState {
                 target_habitat: guest.target_habitat,
                 habitats_viewed: guest.visited_habitats.len() as u32,
                 state: guest.state,
-                thought: self.guest_thought(guest).to_owned(),
+                thought: self
+                    .guest_thought_with_occupancy(guest, &viewing_occupancy)
+                    .to_owned(),
             })
             .collect();
 
