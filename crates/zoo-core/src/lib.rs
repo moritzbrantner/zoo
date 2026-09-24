@@ -4064,10 +4064,12 @@ mod tests {
         guest.id = 2;
         guest.target_habitat = 2;
         guest.visited_habitats = vec![2];
+        state.guests.push(guest.clone());
+        guest.id = 3;
         state.guests.push(guest);
 
         let occupancy = state.viewing_occupancy();
-        assert_eq!(occupancy.get(&(5, ENTRANCE_Y)), Some(&2));
+        assert_eq!(occupancy.get(&(5, ENTRANCE_Y)), Some(&3));
 
         let first = state
             .viewing_spot_for_guest_with_occupancy(&state.guests[0], &occupancy)
@@ -4075,8 +4077,10 @@ mod tests {
         let second = state
             .viewing_spot_for_guest_with_occupancy(&state.guests[1], &occupancy)
             .expect("second habitat should use the shared path viewpoint");
-        assert_eq!(first.occupancy, 2);
-        assert_eq!(second.occupancy, 2);
+        assert_eq!(first.occupancy, 3);
+        assert_eq!(second.occupancy, 3);
+        assert!(first.crowded());
+        assert!(second.crowded());
     }
 
     #[test]
