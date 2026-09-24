@@ -2465,17 +2465,9 @@ impl GameState {
         side: FenceSide,
         target: Position,
     ) -> bool {
-        let right = habitat
-            .x
-            .saturating_add(habitat.width.saturating_sub(1));
-        let bottom = habitat
-            .y
-            .saturating_add(habitat.height.saturating_sub(1));
-        if target.x < habitat.x
-            || target.x > right
-            || target.y < habitat.y
-            || target.y > bottom
-        {
+        let right = habitat.x.saturating_add(habitat.width.saturating_sub(1));
+        let bottom = habitat.y.saturating_add(habitat.height.saturating_sub(1));
+        if target.x < habitat.x || target.x > right || target.y < habitat.y || target.y > bottom {
             return false;
         }
 
@@ -2535,12 +2527,7 @@ impl GameState {
         }
     }
 
-    fn visible_animals_from(
-        &self,
-        habitat: &Habitat,
-        viewpoint: Position,
-        side: FenceSide,
-    ) -> u32 {
+    fn visible_animals_from(&self, habitat: &Habitat, viewpoint: Position, side: FenceSide) -> u32 {
         (0..habitat.animals)
             .filter(|slot| {
                 self.viewing_tile_visible(
@@ -2560,16 +2547,10 @@ impl GameState {
         habitat: &Habitat,
         position: Position,
     ) -> Option<FenceSide> {
-        let right = habitat
-            .x
-            .saturating_add(habitat.width.saturating_sub(1));
-        let bottom = habitat
-            .y
-            .saturating_add(habitat.height.saturating_sub(1));
+        let right = habitat.x.saturating_add(habitat.width.saturating_sub(1));
+        let bottom = habitat.y.saturating_add(habitat.height.saturating_sub(1));
 
-        if habitat.y > 0
-            && position.y == habitat.y - 1
-            && (habitat.x..=right).contains(&position.x)
+        if habitat.y > 0 && position.y == habitat.y - 1 && (habitat.x..=right).contains(&position.x)
         {
             return Some(FenceSide::North);
         }
@@ -2615,12 +2596,8 @@ impl GameState {
 
     fn viewing_spots(&self, habitat: &Habitat) -> Vec<ViewingSpot> {
         let mut candidates = Vec::new();
-        let right = habitat
-            .x
-            .saturating_add(habitat.width.saturating_sub(1));
-        let bottom = habitat
-            .y
-            .saturating_add(habitat.height.saturating_sub(1));
+        let right = habitat.x.saturating_add(habitat.width.saturating_sub(1));
+        let bottom = habitat.y.saturating_add(habitat.height.saturating_sub(1));
 
         if habitat.y > 0 {
             for x in habitat.x..=right {
@@ -2635,18 +2612,12 @@ impl GameState {
         }
         if right.saturating_add(1) < self.width {
             for y in habitat.y..=bottom {
-                candidates.push((
-                    Position { x: right + 1, y },
-                    FenceSide::East,
-                ));
+                candidates.push((Position { x: right + 1, y }, FenceSide::East));
             }
         }
         if bottom.saturating_add(1) < self.height {
             for x in habitat.x..=right {
-                candidates.push((
-                    Position { x, y: bottom + 1 },
-                    FenceSide::South,
-                ));
+                candidates.push((Position { x, y: bottom + 1 }, FenceSide::South));
             }
         }
         if habitat.x > 0 {
@@ -3933,41 +3904,25 @@ mod tests {
         let state = GameState::default();
         let habitat = test_habitat(10, 5, 5, 5);
 
-        let north = state.viewing_footprint(
-            &habitat,
-            Position { x: 12, y: 4 },
-            FenceSide::North,
-        );
+        let north = state.viewing_footprint(&habitat, Position { x: 12, y: 4 }, FenceSide::North);
         let expected_north: Vec<Position> = (5..=7)
             .flat_map(|y| (10..=14).map(move |x| Position { x, y }))
             .collect();
         assert_eq!(north, expected_north);
 
-        let south = state.viewing_footprint(
-            &habitat,
-            Position { x: 12, y: 10 },
-            FenceSide::South,
-        );
+        let south = state.viewing_footprint(&habitat, Position { x: 12, y: 10 }, FenceSide::South);
         let expected_south: Vec<Position> = (7..=9)
             .flat_map(|y| (10..=14).map(move |x| Position { x, y }))
             .collect();
         assert_eq!(south, expected_south);
 
-        let west = state.viewing_footprint(
-            &habitat,
-            Position { x: 9, y: 7 },
-            FenceSide::West,
-        );
+        let west = state.viewing_footprint(&habitat, Position { x: 9, y: 7 }, FenceSide::West);
         let expected_west: Vec<Position> = (5..=9)
             .flat_map(|y| (10..=12).map(move |x| Position { x, y }))
             .collect();
         assert_eq!(west, expected_west);
 
-        let east = state.viewing_footprint(
-            &habitat,
-            Position { x: 15, y: 7 },
-            FenceSide::East,
-        );
+        let east = state.viewing_footprint(&habitat, Position { x: 15, y: 7 }, FenceSide::East);
         let expected_east: Vec<Position> = (5..=9)
             .flat_map(|y| (12..=14).map(move |x| Position { x, y }))
             .collect();
@@ -4008,7 +3963,13 @@ mod tests {
                 },
             )
             .expect("an alternate visible viewpoint should remain reachable");
-        assert_eq!(route.last(), Some(&Position { x: 5, y: ENTRANCE_Y }));
+        assert_eq!(
+            route.last(),
+            Some(&Position {
+                x: 5,
+                y: ENTRANCE_Y
+            })
+        );
     }
 
     #[test]
