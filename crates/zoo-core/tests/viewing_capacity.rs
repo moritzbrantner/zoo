@@ -10,7 +10,7 @@ fn snapshot(game: &ZooGame) -> Value {
     serde_json::from_str(&game.snapshot_json()).unwrap()
 }
 
-fn habitat<'a>(view: &'a Value, id: u32) -> &'a Value {
+fn habitat(view: &Value, id: u32) -> &Value {
     view["habitats"]
         .as_array()
         .unwrap()
