@@ -319,7 +319,7 @@ struct ViewingSpot {
     occupancy: u32,
 }
 
-type ViewingOccupancy = HashMap<(u32, u32, u32), u32>;
+type ViewingOccupancy = HashMap<(u32, u32), u32>;
 
 impl ViewingSpot {
     fn available_capacity(self) -> u32 {
@@ -2614,9 +2614,7 @@ impl GameState {
             .iter()
             .filter(|guest| guest.state == GuestState::Viewing)
         {
-            let entry = occupancy
-                .entry((guest.target_habitat, guest.x, guest.y))
-                .or_default();
+            let entry = occupancy.entry((guest.x, guest.y)).or_default();
             *entry = entry.saturating_add(1);
         }
         occupancy
@@ -2669,7 +2667,7 @@ impl GameState {
             .filter(|(position, _)| self.is_walkable(*position))
             .map(|(position, side)| {
                 let occupancy = viewing_occupancy
-                    .get(&(habitat.id, position.x, position.y))
+                    .get(&(position.x, position.y))
                     .copied()
                     .unwrap_or(0);
                 self.viewing_spot(habitat, position, side, occupancy)
@@ -2700,7 +2698,7 @@ impl GameState {
         }
         let side = self.viewing_side_for_position(habitat, position)?;
         let occupancy = viewing_occupancy
-            .get(&(habitat.id, position.x, position.y))
+            .get(&(position.x, position.y))
             .copied()
             .unwrap_or(0);
         Some(self.viewing_spot(habitat, position, side, occupancy))
@@ -4025,6 +4023,60 @@ mod tests {
                 y: ENTRANCE_Y
             })
         );
+    }
+
+    #[test]
+    fn shared_path_tile_counts_viewers_from_both_neighboring_habitats() {
+        let mut state = GameState::default();
+        state.habitats = vec![
+            test_habitat(3, 8, 5, 3),
+            Habitat {
+                id: 2,
+                x: 3,
+                y: 4,
+                ..test_habitat(3, 4, 5, 3)
+            },
+        ];
+        state.set_tile(5, ENTRANCE_Y, TileKind::Path);
+
+        let mut guest = Guest {
+            id: 1,
+            x: 5,
+            y: ENTRANCE_Y,
+            happiness: 80,
+            energy: 90,
+            hunger: 0,
+            thirst: 0,
+            value_perception: 70,
+            minutes_in_park: 0,
+            target_habitat: 1,
+            state: GuestState::Viewing,
+            route: Vec::new(),
+            route_index: 0,
+            viewing_minutes: 10,
+            arrival_steps: 0,
+            bought_food: false,
+            bought_drink: false,
+            visited_habitats: vec![1],
+            cleanliness_concern: false,
+        };
+        state.guests.push(guest.clone());
+        guest.id = 2;
+        guest.target_habitat = 2;
+        guest.visited_habitats = vec![2];
+        state.guests.push(guest);
+
+        let occupancy = state.viewing_occupancy();
+        assert_eq!(occupancy.get(&(5, ENTRANCE_Y)), Some(&2));
+
+        let first = state
+            .viewing_spot_for_guest_with_occupancy(&state.guests[0], &occupancy)
+            .expect("first habitat should use the shared path viewpoint");
+        let second = state
+            .viewing_spot_for_guest_with_occupancy(&state.guests[1], &occupancy)
+            .expect("second habitat should use the shared path viewpoint");
+        assert_eq!(first.occupancy, 2);
+        assert_eq!(second.occupancy, 2);
     }
 
     #[test]
