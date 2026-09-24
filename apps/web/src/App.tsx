@@ -24,6 +24,14 @@ type FenceSegment = Point & {
   side: FenceSide
 }
 
+type ViewingSpot = Point & {
+  side: FenceSide
+  visible_animals: number
+  capacity: number
+  occupancy: number
+  crowded: boolean
+}
+
 type Tile = Point & {
   kind: "grass" | "path" | "entrance" | "habitat" | "concession"
   habitat_id: number | null
@@ -41,6 +49,9 @@ type Habitat = Point & {
   species: SpeciesKey | null
   animals: number
   capacity: number
+  viewing_capacity: number
+  viewing_occupancy: number
+  viewing_spots: ViewingSpot[]
   welfare: number
   welfare_target: number
   social_score: number
@@ -1336,6 +1347,37 @@ export default function App() {
                 <div className="meter">
                   <span style={{width: `${selectedHabitat.welfare}%`}} />
                 </div>
+
+                <h3>Viewing</h3>
+                <dl>
+                  <div>
+                    <dt>Viewers / capacity</dt>
+                    <dd>
+                      {selectedHabitat.viewing_occupancy}/{selectedHabitat.viewing_capacity}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Useful path viewpoints</dt>
+                    <dd>
+                      {selectedHabitat.viewing_spots.filter((spot) => spot.capacity > 0).length}/
+                      {selectedHabitat.viewing_spots.length}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Crowded viewpoints</dt>
+                    <dd>{selectedHabitat.viewing_spots.filter((spot) => spot.crowded).length}</dd>
+                  </div>
+                </dl>
+                {selectedHabitat.animals > 0 && selectedHabitat.viewing_capacity === 0 && (
+                  <div className="guest-thought">
+                    No animals are visible from the current path frontage.
+                  </div>
+                )}
+                {selectedHabitat.viewing_spots.some((spot) => spot.crowded) && (
+                  <div className="guest-thought">
+                    One or more path viewpoints are over capacity.
+                  </div>
+                )}
 
                 <h3>Care</h3>
                 <div className="guest-thought">{selectedHabitat.care_status}</div>
