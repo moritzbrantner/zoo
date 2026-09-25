@@ -106,8 +106,13 @@ try {
   }
 
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (await evaluate("Boolean(document.querySelector('.care-depot'))")) break
-    if (attempt === 79) throw new Error("Animal care depot did not render")
+    if (
+      await evaluate(`Boolean(
+        document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"][data-world-renderer="exclusive"]')?.__zooWorldDebug &&
+        document.querySelector('.world-accessibility .care-depot')
+      )`)
+    ) break
+    if (attempt === 79) throw new Error("Renderer-owned animal care depot did not become ready")
     await sleep(250)
   }
 
@@ -148,6 +153,9 @@ try {
       hasMechanic: document.body.textContent.includes('Mechanic #1'),
       mechanicIdle: document.body.textContent.includes('Idle · facilities are maintained'),
       mechanicRendered: Boolean(document.querySelector('.mechanic')),
+      rendererJanitors: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererJanitorCount ?? 0),
+      rendererMechanics: Number(document.querySelector('.park-three-renderer-canvas')?.dataset.sharedRendererMechanicCount ?? 0),
+      visualDomActors: document.querySelectorAll('.park > .janitor, .park > .mechanic, .park > .care-depot').length,
     })`),
   )
   if (
@@ -160,7 +168,10 @@ try {
     !finalState.janitorRendered ||
     !finalState.hasMechanic ||
     !finalState.mechanicIdle ||
-    !finalState.mechanicRendered
+    !finalState.mechanicRendered ||
+    finalState.rendererJanitors !== 1 ||
+    finalState.rendererMechanics !== 1 ||
+    finalState.visualDomActors !== 0
   ) {
     throw new Error(`Animal-care depot did not reach expected state: ${JSON.stringify(finalState)}`)
   }
@@ -168,7 +179,7 @@ try {
   mkdirSync("test-results", {recursive: true})
   const screenshot = await cdp.send("Page.captureScreenshot", {format: "png", fromSurface: true})
   writeFileSync("test-results/animal-care-depot.png", Buffer.from(screenshot.data, "base64"))
-  console.log("Operations-depot dogfood passed: feed purchased and keeper + janitor + mechanic hired centrally")
+  console.log("Operations-depot dogfood passed: staff state is mirrored semantically while depot/janitor/mechanic visuals remain renderer-owned.")
 } finally {
   cdp?.close()
   chrome.kill("SIGTERM")

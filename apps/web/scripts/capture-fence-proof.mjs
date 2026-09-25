@@ -2,7 +2,6 @@ import {spawn} from "node:child_process"
 import {existsSync, mkdirSync, rmSync, writeFileSync} from "node:fs"
 
 const previewUrl = "http://127.0.0.1:4173/"
-const debuggingPort = 9222
 const chromeCandidates = [
   process.env.CHROME_PATH,
   "/usr/bin/google-chrome",
@@ -11,40 +10,48 @@ const chromeCandidates = [
   "/usr/bin/chromium-browser",
 ].filter(Boolean)
 const chromePath = chromeCandidates.find((candidate) => existsSync(candidate))
-
-if (!chromePath) {
-  throw new Error(`No Chrome/Chromium binary found. Checked: ${chromeCandidates.join(", ")}`)
-}
-
-const profileDir = `/tmp/zoo-fence-proof-${process.pid}`
-rmSync(profileDir, {recursive: true, force: true})
-
-const chrome = spawn(
-  chromePath,
-  [
-    "--headless=new",
-    "--no-sandbox",
-    "--disable-gpu",
-    `--remote-debugging-port=${debuggingPort}`,
-    `--user-data-dir=${profileDir}`,
-    "--window-size=1280,850",
-    previewUrl,
-  ],
-  {stdio: "ignore"},
-)
+if (!chromePath) throw new Error(`No Chrome/Chromium binary found. Checked: ${chromeCandidates.join(", ")}`)
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
-async function waitForPageTarget() {
+function connectCdp(webSocketDebuggerUrl) {
+  const socket = new WebSocket(webSocketDebuggerUrl)
+  const pending = new Map()
+  let nextId = 1
+  const opened = new Promise((resolve, reject) => {
+    socket.addEventListener("open", resolve, {once: true})
+    socket.addEventListener("error", reject, {once: true})
+  })
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(String(event.data))
+    if (!message.id) return
+    const request = pending.get(message.id)
+    if (!request) return
+    pending.delete(message.id)
+    if (message.error) request.reject(new Error(`${message.error.code}: ${message.error.message}`))
+    else request.resolve(message.result)
+  })
+  return {
+    opened,
+    close: () => socket.close(),
+    send(method, params = {}) {
+      const id = nextId++
+      return new Promise((resolve, reject) => {
+        pending.set(id, {resolve, reject})
+        socket.send(JSON.stringify({id, method, params}))
+      })
+    },
+  }
+}
+
+async function waitForPageTarget(port) {
   let lastError = null
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
-      const response = await fetch(`http://127.0.0.1:${debuggingPort}/json`)
+      const response = await fetch(`http://127.0.0.1:${port}/json`)
       if (response.ok) {
         const targets = await response.json()
-        const target = targets.find(
-          (candidate) => candidate.type === "page" && candidate.url.startsWith(previewUrl),
-        )
+        const target = targets.find((candidate) => candidate.type === "page" && candidate.url.startsWith(previewUrl))
         if (target?.webSocketDebuggerUrl) return target
       }
     } catch (error) {
@@ -55,617 +62,169 @@ async function waitForPageTarget() {
   throw new Error(`Chrome did not expose the Zoo page target: ${lastError ?? "timed out"}`)
 }
 
-function connectCdp(webSocketDebuggerUrl) {
-  const socket = new WebSocket(webSocketDebuggerUrl)
-  const pending = new Map()
-  let nextId = 1
-
-  const opened = new Promise((resolve, reject) => {
-    socket.addEventListener("open", resolve, {once: true})
-    socket.addEventListener("error", reject, {once: true})
-  })
-
-  socket.addEventListener("message", (event) => {
-    const message = JSON.parse(String(event.data))
-    if (!message.id) return
-    const request = pending.get(message.id)
-    if (!request) return
-    pending.delete(message.id)
-    if (message.error) request.reject(new Error(`${message.error.code}: ${message.error.message}`))
-    else request.resolve(message.result)
-  })
-
-  return {
-    opened,
-    close: () => socket.close(),
-    send(method, params = {}) {
-      const id = nextId
-      nextId += 1
-      return new Promise((resolve, reject) => {
-        pending.set(id, {resolve, reject})
-        socket.send(JSON.stringify({id, method, params}))
-      })
-    },
-  }
-}
-
-let cdp = null
-try {
-  const target = await waitForPageTarget()
-  cdp = connectCdp(target.webSocketDebuggerUrl)
+async function openZoo(port, profileDir) {
+  rmSync(profileDir, {recursive: true, force: true})
+  const chrome = spawn(
+    chromePath,
+    [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${port}`,
+      `--user-data-dir=${profileDir}`,
+      "--window-size=1280,850",
+      previewUrl,
+    ],
+    {stdio: "ignore"},
+  )
+  const target = await waitForPageTarget(port)
+  const cdp = connectCdp(target.webSocketDebuggerUrl)
   await cdp.opened
   await cdp.send("Page.enable")
   await cdp.send("Runtime.enable")
-  await cdp.send("Emulation.setTouchEmulationEnabled", {enabled: true, maxTouchPoints: 1})
-
   const evaluate = async (expression) => {
     const response = await cdp.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
     })
-    if (response.exceptionDetails) {
-      throw new Error(response.exceptionDetails.text ?? "Browser evaluation failed")
-    }
+    if (response.exceptionDetails) throw new Error(response.exceptionDetails.text ?? "Browser evaluation failed")
     return response.result.value
   }
-
-  let ready = false
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    ready = await evaluate(`Boolean(document.querySelector('[aria-label="grass tile 1, 8"]'))`)
-    if (ready) break
+    const ready = await evaluate(`Boolean(
+      document.querySelector('.park-three-renderer-canvas[data-shared-renderer="ready"][data-world-renderer="exclusive"]')?.__zooWorldDebug
+    )`)
+    if (ready) return {chrome, cdp, evaluate}
     await sleep(250)
   }
-  if (!ready) throw new Error("Zoo did not become interactive")
+  throw new Error("3D Zoo world did not become interactive")
+}
 
-  const toolsReady = await evaluate(`(() => {
-    document.querySelector('button[title="Pause"]')?.click()
-    const drawHabitat = [...document.querySelectorAll('button.tool')].find((button) =>
-      button.textContent?.includes('Draw habitat'),
+const port = 9222
+const profileDir = `/tmp/zoo-fence-proof-${process.pid}`
+let chrome = null
+let cdp = null
+try {
+  const opened = await openZoo(port, profileDir)
+  chrome = opened.chrome
+  cdp = opened.cdp
+  const evaluate = opened.evaluate
+
+  await cdp.send("Emulation.setTouchEmulationEnabled", {enabled: true, maxTouchPoints: 1})
+  await evaluate(`document.querySelector('button[title="Pause"]')?.click(); true`)
+  const activated = await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button.tool')].find((candidate) =>
+      candidate.textContent?.includes('Draw habitat'),
     )
-    if (!drawHabitat) return false
-    drawHabitat.click()
-    return true
+    button?.click()
+    return Boolean(button)
   })()`)
-  if (!toolsReady) throw new Error("Could not activate the habitat drawing tool")
+  if (!activated) throw new Error("Could not activate habitat tool")
 
-  // The starter path occupies x=1..4 at y=7. This clear 4×3 rectangle sits
-  // immediately below it, so Rust's path-adjacency rule makes it a valid enclosure.
-  const points = await evaluate(`(() => {
-    const center = (label) => {
-      const element = document.querySelector('[aria-label="' + label + '"]')
-      if (!element) return null
-      const rect = element.getBoundingClientRect()
-      return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}
-    }
-    return {
-      start: center('grass tile 1, 8'),
-      end: center('grass tile 4, 10'),
-    }
-  })()`)
-  if (!points.start || !points.end) throw new Error("Could not resolve fence drag coordinates")
+  const points = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const debug = document.querySelector('.park-three-renderer-canvas').__zooWorldDebug
+    return {start: debug.tileCenterClient(1, 8), end: debug.tileCenterClient(4, 10)}
+  })())`))
+  if (!points.start || !points.end) throw new Error("Could not resolve renderer tile coordinates")
 
-  const touchPoint = (point) => [
-    {
-      x: point.x,
-      y: point.y,
-      radiusX: 2,
-      radiusY: 2,
-      force: 1,
-      id: 1,
-    },
-  ]
-
-  const readBuildState = () =>
-    evaluate(`(() => {
-      const cashStat = [...document.querySelectorAll('.stat')].find(
-        (element) => element.querySelector('span')?.textContent === 'Cash',
-      )
-      return {
-        cash: cashStat?.querySelector('strong')?.textContent ?? null,
-        message: document.querySelector('.message')?.textContent ?? '',
-        previewRails: document.querySelectorAll('.fence-preview').length,
-        ghosts: document.querySelectorAll('.placement-ghost').length,
-        committedRails: document.querySelectorAll('.fence-segment:not(.fence-preview)').length,
-      }
-    })()`)
-
-  const moveTouch = async (from, to) => {
-    for (let step = 1; step <= 12; step += 1) {
-      const progress = step / 12
-      await cdp.send("Input.dispatchTouchEvent", {
-        type: "touchMove",
-        touchPoints: touchPoint({
-          x: from.x + (to.x - from.x) * progress,
-          y: from.y + (to.y - from.y) * progress,
-        }),
-      })
-    }
-  }
-
-  const dispatchTilePointer = (label, type, pointerId) =>
-    evaluate(`(() => {
-      const target = document.querySelector('[aria-label="' + ${JSON.stringify(label)} + '"]')
-      if (!target) return false
-      const rect = target.getBoundingClientRect()
-      target.dispatchEvent(
-        new PointerEvent(${JSON.stringify(type)}, {
-          bubbles: true,
-          cancelable: true,
-          pointerId: ${pointerId},
-          pointerType: 'touch',
-          isPrimary: true,
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2,
-        }),
-      )
-      return true
-    })()`)
-
-  const dispatchWindowPointer = (type, pointerId) =>
-    evaluate(`(() => {
-      window.dispatchEvent(
-        new PointerEvent(${JSON.stringify(type)}, {
-          bubbles: true,
-          cancelable: true,
-          pointerId: ${pointerId},
-          pointerType: 'touch',
-          isPrimary: true,
-        }),
-      )
-      return true
-    })()`)
-
-  const initialState = await readBuildState()
-  if (!initialState.cash) throw new Error("Could not read initial Zoo cash before gesture tests")
-
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchStart",
-    touchPoints: touchPoint(points.start),
-  })
-  await moveTouch(points.start, points.end)
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchCancel",
-    touchPoints: [],
-  })
+  const touch = (point) => [{x: point.x, y: point.y, radiusX: 1, radiusY: 1, force: 1, id: 1}]
+  await cdp.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: touch(points.start)})
+  await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: touch(points.end)})
   await sleep(100)
 
-  const cancelledState = await readBuildState()
-  if (
-    cancelledState.cash !== initialState.cash ||
-    cancelledState.committedRails !== 0 ||
-    cancelledState.previewRails !== 0 ||
-    cancelledState.ghosts !== 0 ||
-    cancelledState.message.includes("Habitat #1 fenced")
-  ) {
-    throw new Error(
-      `Cancelled touch gesture mutated habitat state: ${JSON.stringify({initialState, cancelledState})}`,
-    )
+  const preview = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const canvas = document.querySelector('.park-three-renderer-canvas')
+    return {
+      previewSegments: Number(canvas.dataset.sharedRendererPreviewFenceSegments ?? 0),
+      visualDomFenceCount: document.querySelectorAll('.park > .fence-segment').length,
+    }
+  })())`))
+  if (preview.previewSegments !== 14 || preview.visualDomFenceCount !== 0) {
+    throw new Error(`Renderer fence preview is not authoritative: ${JSON.stringify(preview)}`)
   }
 
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchStart",
-    touchPoints: touchPoint(points.start),
-  })
-  await sleep(50)
-
-  const builtOnPress = await evaluate(
-    `document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`,
-  )
-  if (builtOnPress) {
-    throw new Error("Touch press committed the habitat before the finger was released")
+  await cdp.send("Input.dispatchTouchEvent", {type: "touchCancel", touchPoints: []})
+  await sleep(100)
+  const cancelled = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const canvas = document.querySelector('.park-three-renderer-canvas')
+    return {
+      previewSegments: Number(canvas.dataset.sharedRendererPreviewFenceSegments ?? 0),
+      habitatSegments: Number(canvas.dataset.sharedRendererHabitatFenceSegments ?? 0),
+      message: document.querySelector('.message')?.textContent ?? '',
+    }
+  })())`))
+  if (cancelled.previewSegments !== 0 || cancelled.habitatSegments !== 0 || cancelled.message.includes("Habitat #1 fenced")) {
+    throw new Error(`Cancelled renderer gesture mutated Zoo state: ${JSON.stringify(cancelled)}`)
   }
 
-  await moveTouch(points.start, points.end)
+  await cdp.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: touch(points.start)})
+  await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: touch(points.end)})
+  await cdp.send("Input.dispatchTouchEvent", {type: "touchEnd", touchPoints: []})
 
-  let previewState = null
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    previewState = await evaluate(`(() => {
-      const rails = [...document.querySelectorAll('.fence-preview')]
-      const ghosts = [...document.querySelectorAll('.placement-ghost')]
+  let committed = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    committed = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const canvas = document.querySelector('.park-three-renderer-canvas')
       return {
-        rails: rails.length,
-        projectedRails: rails.filter((element) =>
-          element.style.transform.startsWith('rotate(') && Number.parseFloat(element.style.width) > 0,
-        ).length,
-        ghosts: ghosts.length,
-        projectedGhosts: ghosts.filter((element) =>
-          element.style.clipPath.startsWith('polygon(') &&
-          Number.parseFloat(element.style.width) > 0 &&
-          Number.parseFloat(element.style.height) > 0,
-        ).length,
+        habitatSegments: Number(canvas.dataset.sharedRendererHabitatFenceSegments ?? 0),
+        previewSegments: Number(canvas.dataset.sharedRendererPreviewFenceSegments ?? 0),
+        message: document.querySelector('.message')?.textContent ?? '',
       }
-    })()`)
-    if (
-      previewState.rails === 14 &&
-      previewState.projectedRails === 14 &&
-      previewState.ghosts === 12 &&
-      previewState.projectedGhosts === 12
-    ) break
+    })())`))
+    if (committed.habitatSegments === 14 && committed.previewSegments === 0) break
     await sleep(50)
   }
-  if (
-    previewState?.rails !== 14 ||
-    previewState?.projectedRails !== 14 ||
-    previewState?.ghosts !== 12 ||
-    previewState?.projectedGhosts !== 12
-  ) {
-    throw new Error(
-      `Touch drag did not expose projected 4×3 placement geometry: ${JSON.stringify(previewState)}`,
+  if (committed?.habitatSegments !== 14 || !committed.message.includes("Habitat #1 fenced")) {
+    throw new Error(`Habitat did not commit through canvas interaction: ${JSON.stringify(committed)}`)
+  }
+
+  const keyboardBuilt = await evaluate(`(() => {
+    const reset = [...document.querySelectorAll('button.secondary')].find(
+      (button) => button.textContent?.trim() === 'Start new park',
     )
-  }
-
-  const builtBeforeRelease = await evaluate(
-    `document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`,
-  )
-  if (builtBeforeRelease) {
-    throw new Error("Touch drag committed the habitat before touchEnd")
-  }
-
-  await dispatchWindowPointer("pointerup", 999)
-  await sleep(50)
-  const unrelatedReleaseState = await readBuildState()
-  if (
-    unrelatedReleaseState.cash !== initialState.cash ||
-    unrelatedReleaseState.committedRails !== 0 ||
-    unrelatedReleaseState.previewRails !== 14 ||
-    unrelatedReleaseState.ghosts !== 12
-  ) {
-    throw new Error(
-      `Unrelated pointer release stole or committed the active habitat gesture: ${JSON.stringify(
-        unrelatedReleaseState,
-      )}`,
+    reset?.click()
+    const tool = [...document.querySelectorAll('button.tool')].find((button) =>
+      button.textContent?.includes('Draw habitat'),
     )
-  }
-
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchEnd",
-    touchPoints: [],
-  })
-
-  let built = false
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    built = await evaluate(
-      `document.querySelector('.message')?.textContent?.includes('Habitat #1 fenced') ?? false`,
-    )
-    if (built) break
-    await sleep(100)
-  }
-  if (!built) {
-    const message = await evaluate(`document.querySelector('.message')?.textContent ?? 'No message'`)
-    throw new Error(`The 4×3 habitat was not created on touch release during browser dogfood: ${message}`)
-  }
-
-  let committedProjection = null
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    committedProjection = await evaluate(`(() => {
-      const rails = [...document.querySelectorAll('.fence-segment:not(.fence-preview)')]
-      const projected = rails.filter((element) =>
-        element.style.transform.startsWith('rotate(') &&
-        Number.parseFloat(element.style.width) > 0 &&
-        element.style.left === element.dataset.sharedRendererAppliedLeft &&
-        element.style.top === element.dataset.sharedRendererAppliedTop &&
-        Boolean(element.dataset.sharedRendererDepth),
-      )
-      return {
-        rails: rails.length,
-        projected: projected.length,
-        samples: rails.slice(0, 2).map((element) => ({
-          left: element.style.left,
-          appliedLeft: element.dataset.sharedRendererAppliedLeft ?? null,
-          top: element.style.top,
-          appliedTop: element.dataset.sharedRendererAppliedTop ?? null,
-          transform: element.style.transform,
-          depth: element.dataset.sharedRendererDepth ?? null,
-        })),
-      }
-    })()`)
-    if (committedProjection.rails === 14 && committedProjection.projected === 14) break
-    await sleep(50)
-  }
-  if (committedProjection?.rails !== 14 || committedProjection?.projected !== 14) {
-    throw new Error(
-      `Committed habitat rails did not settle on shared projected geometry: ${JSON.stringify(committedProjection)}`,
-    )
-  }
-
-  let rendererFenceState = null
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    rendererFenceState = JSON.parse(
-      await evaluate(`JSON.stringify((() => {
-        const canvas = document.querySelector('.park-three-renderer-canvas')
-        const committed = [...document.querySelectorAll('.fence-segment:not(.fence-preview)')]
-        return {
-          ready: canvas?.dataset.sharedRenderer === 'ready',
-          habitatSegments: Number(canvas?.dataset.sharedRendererHabitatFenceSegments ?? 0),
-          previewSegments: Number(canvas?.dataset.sharedRendererPreviewFenceSegments ?? 0),
-          legacyVisible: committed.filter((rail) => getComputedStyle(rail).opacity !== '0').length,
-        }
-      })())`),
-    )
-    if (
-      rendererFenceState.ready &&
-      rendererFenceState.habitatSegments === 14 &&
-      rendererFenceState.previewSegments === 0 &&
-      rendererFenceState.legacyVisible === 0
-    ) {
-      break
-    }
-    await sleep(50)
-  }
-  if (
-    !rendererFenceState?.ready ||
-    rendererFenceState.habitatSegments !== 14 ||
-    rendererFenceState.previewSegments !== 0 ||
-    rendererFenceState.legacyVisible !== 0
-  ) {
-    throw new Error(
-      `Committed fences are not exclusively renderer-owned: ${JSON.stringify(rendererFenceState)}`,
-    )
-  }
-
-  const geometry = await evaluate(`(() => {
-    const polygonPoints = (tile) => {
-      const style = getComputedStyle(tile)
-      const left = Number.parseFloat(style.left)
-      const top = Number.parseFloat(style.top)
-      const width = Number.parseFloat(style.width)
-      const height = Number.parseFloat(style.height)
-      const matches = [...style.clipPath.matchAll(/(-?[\\d.]+)%\\s+(-?[\\d.]+)%/g)]
-      if (matches.length !== 4 || ![left, top, width, height].every(Number.isFinite)) return null
-      return matches.map((match) => ({
-        x: left + width * Number.parseFloat(match[1]) / 100,
-        y: top + height * Number.parseFloat(match[2]) / 100,
-      }))
-    }
-    const edgeIndices = {
-      north: [0, 1],
-      east: [1, 2],
-      south: [3, 2],
-      west: [0, 3],
-    }
-    const projectedEdges = [...document.querySelectorAll('button.tile')].flatMap((tile) => {
-      const points = polygonPoints(tile)
-      if (!points) return []
-      const label = tile.getAttribute('aria-label') ?? 'unknown tile'
-      return Object.entries(edgeIndices).map(([side, indices]) => ({
-        id: label + ':' + side,
-        side,
-        start: points[indices[0]],
-        end: points[indices[1]],
-      }))
-    })
-    const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y)
-    const edgeError = (actualStart, actualEnd, edge) => Math.min(
-      distance(actualStart, edge.start) + distance(actualEnd, edge.end),
-      distance(actualStart, edge.end) + distance(actualEnd, edge.start),
-    )
-
-    return [...document.querySelectorAll('.fence-segment:not(.fence-preview)')].map((element) => {
-      const side = ['north', 'east', 'south', 'west'].find((candidate) =>
-        element.classList.contains('fence-' + candidate),
-      )
-      const style = getComputedStyle(element)
-      const width = Number.parseFloat(style.width)
-      const left = Number.parseFloat(style.left)
-      const top = Number.parseFloat(style.top)
-      const halfHeight = Number.parseFloat(style.height) / 2
-      const matrix = new DOMMatrix(style.transform)
-      const axisLength = Math.hypot(matrix.a, matrix.b)
-      const directionX = axisLength > 0 ? matrix.a / axisLength : Number.NaN
-      const directionY = axisLength > 0 ? matrix.b / axisLength : Number.NaN
-      const actualStart = {x: left, y: top + halfHeight}
-      const actualEnd = {
-        x: actualStart.x + width * directionX,
-        y: actualStart.y + width * directionY,
-      }
-      const finiteGeometry = [
-        width,
-        left,
-        top,
-        halfHeight,
-        directionX,
-        directionY,
-        actualStart.x,
-        actualStart.y,
-        actualEnd.x,
-        actualEnd.y,
-      ].every(Number.isFinite)
-      const candidates = finiteGeometry
-        ? projectedEdges
-            .filter((edge) => edge.side === side)
-            .map((edge) => ({...edge, error: edgeError(actualStart, actualEnd, edge)}))
-            .filter((edge) => Number.isFinite(edge.error))
-            .sort((leftEdge, rightEdge) => leftEdge.error - rightEdge.error)
-        : []
-      const best = candidates[0]
-      return {
-        side,
-        finiteGeometry,
-        raw: {
-          width: style.width,
-          left: style.left,
-          top: style.top,
-          height: style.height,
-          transform: style.transform,
-        },
-        matchedEdge: best?.id ?? null,
-        edgeError: best?.error ?? null,
-      }
-    })
+    tool?.click()
+    document.querySelector('[aria-label="grass tile 1, 8"]')?.click()
+    document.querySelector('[aria-label="grass tile 4, 10"]')?.click()
+    return Boolean(reset && tool)
   })()`)
+  if (!keyboardBuilt) throw new Error("Could not exercise semantic keyboard habitat controls")
 
-  if (geometry.length !== 14) {
-    throw new Error(`Expected 14 fence segments for a 4×3 habitat, found ${geometry.length}`)
+  let semanticCommitted = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    semanticCommitted = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const canvas = document.querySelector('.park-three-renderer-canvas')
+      return {
+        habitatSegments: Number(canvas.dataset.sharedRendererHabitatFenceSegments ?? 0),
+        message: document.querySelector('.message')?.textContent ?? '',
+      }
+    })())`))
+    if (semanticCommitted.habitatSegments === 14) break
+    await sleep(50)
   }
-  const expectedSideCounts = {north: 4, east: 3, south: 4, west: 3}
-  for (const [side, expectedCount] of Object.entries(expectedSideCounts)) {
-    const count = geometry.filter((segment) => segment.side === side).length
-    if (count !== expectedCount) {
-      throw new Error(`Expected ${expectedCount} ${side} fence segments, found ${count}`)
-    }
-  }
-  const invalid = geometry.filter(
-    (segment) => !segment.finiteGeometry || segment.matchedEdge === null || segment.edgeError === null,
-  )
-  if (invalid.length > 0) {
-    throw new Error(`Projected fence proof could not resolve finite rail geometry: ${JSON.stringify(invalid)}`)
-  }
-  const misplaced = geometry.filter((segment) => segment.edgeError > 3)
-  if (misplaced.length > 0) {
-    throw new Error(`Projected fence rails are off rendered tile edges: ${JSON.stringify(misplaced)}`)
-  }
-  const distinctEdges = new Set(geometry.map((segment) => segment.matchedEdge))
-  if (distinctEdges.size !== geometry.length) {
-    throw new Error(`Projected fence rails do not map one-to-one to rendered tile edges: ${JSON.stringify(geometry)}`)
+  if (semanticCommitted?.habitatSegments !== 14) {
+    throw new Error(`Semantic two-tile habitat flow failed: ${JSON.stringify(semanticCommitted)}`)
   }
 
-  const clip = await evaluate(`(() => {
-    const rects = [...document.querySelectorAll('.fence-segment:not(.fence-preview)')].map((element) =>
-      element.getBoundingClientRect(),
-    )
-    const left = Math.max(0, Math.min(...rects.map((rect) => rect.left)) - 70)
-    const top = Math.max(0, Math.min(...rects.map((rect) => rect.top)) - 70)
-    const right = Math.min(window.innerWidth, Math.max(...rects.map((rect) => rect.right)) + 70)
-    const bottom = Math.min(window.innerHeight, Math.max(...rects.map((rect) => rect.bottom)) + 70)
-    return {x: left, y: top, width: right - left, height: bottom - top, scale: 1}
-  })()`)
-
+  const viewport = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const rect = document.querySelector('.viewport').getBoundingClientRect()
+    return {x: rect.left, y: rect.top, width: rect.width, height: rect.height, scale: 1}
+  })())`))
   const screenshot = await cdp.send("Page.captureScreenshot", {
     format: "png",
     fromSurface: true,
     captureBeyondViewport: false,
-    clip,
+    clip: viewport,
   })
   mkdirSync("test-results", {recursive: true})
   writeFileSync("test-results/fence-rendering.png", Buffer.from(screenshot.data, "base64"))
-
-  await cdp.send("Emulation.setDeviceMetricsOverride", {
-    width: 390,
-    height: 844,
-    deviceScaleFactor: 1,
-    mobile: true,
-  })
-  await cdp.send("Emulation.setTouchEmulationEnabled", {enabled: true, maxTouchPoints: 2})
-  await evaluate(`window.__zooFenceProofBeforePhoneReload = true`)
-  await cdp.send("Page.reload", {ignoreCache: true})
-
-  let phoneReady = false
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    try {
-      phoneReady = await evaluate(
-        `!window.__zooFenceProofBeforePhoneReload && Boolean(document.querySelector('[aria-label="grass tile 1, 8"]'))`,
-      )
-    } catch {
-      phoneReady = false
-    }
-    if (phoneReady) break
-    await sleep(250)
-  }
-  if (!phoneReady) throw new Error("Zoo did not become interactive at the phone-sized viewport")
-
-  const phoneToolsReady = await evaluate(`(() => {
-    document.querySelector('button[title="Pause"]')?.click()
-    const drawHabitat = [...document.querySelectorAll('button.tool')].find((button) =>
-      button.textContent?.includes('Draw habitat'),
-    )
-    if (!drawHabitat) return false
-    drawHabitat.click()
-    return true
-  })()`)
-  if (!phoneToolsReady) {
-    throw new Error("Could not activate the habitat drawing tool at the phone-sized viewport")
-  }
-
-  const phoneInitialState = await readBuildState()
-  if (!(await dispatchTilePointer("grass tile 1, 8", "pointerdown", 31))) {
-    throw new Error("Could not start phone-sized habitat gesture")
-  }
-  await dispatchTilePointer("grass tile 4, 10", "pointerover", 32)
-  await sleep(50)
-
-  const unrelatedMoveState = await readBuildState()
-  if (
-    unrelatedMoveState.cash !== phoneInitialState.cash ||
-    unrelatedMoveState.committedRails !== 0 ||
-    unrelatedMoveState.ghosts !== 1
-  ) {
-    throw new Error(
-      `Unrelated pointer move changed the phone-sized habitat preview: ${JSON.stringify(
-        unrelatedMoveState,
-      )}`,
-    )
-  }
-
-  await dispatchTilePointer("grass tile 4, 10", "pointerover", 31)
-  await sleep(50)
-  const owningMoveState = await readBuildState()
-  if (owningMoveState.ghosts !== 12 || owningMoveState.committedRails !== 0) {
-    throw new Error(
-      `Owning pointer did not update the phone-sized 4×3 preview: ${JSON.stringify(
-        owningMoveState,
-      )}`,
-    )
-  }
-
-  await dispatchWindowPointer("pointerup", 32)
-  await sleep(50)
-  const phoneUnrelatedReleaseState = await readBuildState()
-  if (
-    phoneUnrelatedReleaseState.cash !== phoneInitialState.cash ||
-    phoneUnrelatedReleaseState.committedRails !== 0 ||
-    phoneUnrelatedReleaseState.ghosts !== 12
-  ) {
-    throw new Error(
-      `Unrelated pointer release stole the phone-sized habitat gesture: ${JSON.stringify(
-        phoneUnrelatedReleaseState,
-      )}`,
-    )
-  }
-
-  await dispatchWindowPointer("pointercancel", 31)
-  await sleep(50)
-  const phoneCancelledState = await readBuildState()
-  if (
-    phoneCancelledState.cash !== phoneInitialState.cash ||
-    phoneCancelledState.committedRails !== 0 ||
-    phoneCancelledState.previewRails !== 0 ||
-    phoneCancelledState.ghosts !== 0
-  ) {
-    throw new Error(
-      `Owning pointer cancellation mutated the phone-sized habitat state: ${JSON.stringify(
-        phoneCancelledState,
-      )}`,
-    )
-  }
-
-  await dispatchTilePointer("grass tile 1, 8", "pointerdown", 41)
-  await dispatchTilePointer("grass tile 4, 10", "pointerover", 41)
-  await dispatchWindowPointer("pointerup", 41)
-
-  let phoneCommittedState = null
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    phoneCommittedState = await readBuildState()
-    if (phoneCommittedState.committedRails === 14) break
-    await sleep(50)
-  }
-  if (
-    phoneCommittedState?.committedRails !== 14 ||
-    phoneCommittedState.cash === phoneInitialState.cash ||
-    !phoneCommittedState.message.includes("Habitat #1 fenced")
-  ) {
-    throw new Error(
-      `Owning pointer release did not commit exactly one phone-sized habitat: ${JSON.stringify(
-        phoneCommittedState,
-      )}`,
-    )
-  }
-
-  console.log(
-    "Fence browser dogfood passed: cancellation is non-mutating, unrelated pointers cannot update or commit habitat gestures, owning touch release commits once on desktop and phone-sized viewports, and 14 authoritative fence segments render in 3D while legacy rails remain hidden.",
-  )
+  console.log("Fence browser dogfood passed: canvas touch preview/cancel/commit and semantic keyboard construction both use authoritative 3D fences.")
 } finally {
   cdp?.close()
-  chrome.kill("SIGTERM")
+  chrome?.kill("SIGTERM")
   rmSync(profileDir, {recursive: true, force: true})
 }

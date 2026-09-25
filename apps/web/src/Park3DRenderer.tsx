@@ -6,36 +6,29 @@ import {
   type RendererSceneNode,
   type ThreeSceneRenderer,
 } from "@moritzbrantner/three-d-renderer"
-import {useCallback, useEffect, useRef, useState} from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import {createPortal} from "react-dom"
-import type {PlacementEvaluation, Snapshot} from "./App"
+import type {PlacementEvaluation, Snapshot, Tool} from "./App"
 import initScene, {ParkCameraBridge} from "./scene-wasm/zoo_scene"
 
 const RENDER_WIDTH = 1240
 const RENDER_HEIGHT = 720
 const RENDER_ASPECT = RENDER_WIDTH / RENDER_HEIGHT
-const CANVAS_LEFT = 116
-const CANVAS_TOP = -37
-const ISO_ORIGIN_X = 620
-const ISO_ORIGIN_Y = 68
-const ISO_X_STEP = 29
-const ISO_Y_STEP = 15
 const DEFAULT_SHARED_YAW = 45
 const DEFAULT_SHARED_PITCH = 31.15
 const PITCH_STEP = 6
-const PROJECTED_DEPTH_SCALE = 1_000_000
-const PROJECTED_DEPTH_BASE = 1_000
 
-type TileKind = "grass" | "path" | "entrance" | "habitat" | "concession"
+type TileKind = Snapshot["tiles"][number]["kind"]
 type FenceSide = "north" | "east" | "south" | "west"
 type WorldPoint = [number, number, number]
-
-type TileDescriptor = {
-  element: HTMLButtonElement
-  x: number
-  y: number
-  kind: TileKind
-}
+type TilePoint = {x: number; y: number}
 
 type CameraFrame = RendererCamera & {
   yawDegrees: number
@@ -43,20 +36,7 @@ type CameraFrame = RendererCamera & {
   zoom: number
 }
 
-type Targets = {
-  park: HTMLElement
-  viewport: HTMLElement
-}
-
-type OverlayRule = {
-  offsetX: number
-  offsetY: number
-  snap: number
-}
-
-const PROJECTION_VIEWPORT = {
-  x: CANVAS_LEFT,
-  y: CANVAS_TOP,
+const RENDER_VIEWPORT = {
   width: RENDER_WIDTH,
   height: RENDER_HEIGHT,
 }
@@ -66,48 +46,100 @@ const TILE_COLORS: Record<TileKind, `#${string}`> = {
   path: "#d1bb8d",
   entrance: "#d7a45f",
   habitat: "#6f9d49",
-  concession: "#b69464",
+  concession: "#74ad50",
 }
 
-function parseTile(element: Element): TileDescriptor | null {
-  if (!(element instanceof HTMLButtonElement) || !element.classList.contains("tile")) return null
-  const label = element.getAttribute("aria-label")
-  const match = label?.match(/^(grass|path|entrance|habitat|concession) tile (\d+), (\d+)$/)
-  if (!match) return null
-  return {
-    element,
-    kind: match[1] as TileKind,
-    x: Number(match[2]),
-    y: Number(match[3]),
-  }
+function tileCenter(x: number, y: number, height = 0): WorldPoint {
+  return [x + 1, height, y]
 }
 
-function collectTiles(park: HTMLElement) {
-  return [...park.querySelectorAll("button.tile")]
-    .map(parseTile)
-    .filter((tile): tile is TileDescriptor => tile !== null)
-}
-
-function readParkExtent(tiles: TileDescriptor[]) {
-  return {
-    width: Math.max(...tiles.map((tile) => tile.x)) + 1,
-    height: Math.max(...tiles.map((tile) => tile.y)) + 1,
-  }
-}
-
-function renderNodes(tiles: TileDescriptor[]): RendererSceneNode[] {
-  return tiles.map((tile) => ({
-    id: `tile:${tile.x}:${tile.y}`,
-    transform: {
-      // The +1 X offset is Zoo's presentation mapping from its legacy diamond anchor to the
-      // center of the real 3D tile. Camera/projection math remains owned by 3d-lab.
-      translation: [tile.x + 1, -0.06, tile.y],
+function renderTerrainNodes(
+  snapshot: Snapshot,
+  selectedHabitatId: number | null,
+  placement: PlacementEvaluation | null,
+  hoveredTile: TilePoint | null,
+  tool: Tool,
+): RendererSceneNode[] {
+  const nodes: RendererSceneNode[] = [
+    {
+      id: "terrain:outer-foundation",
+      transform: {
+        translation: [(snapshot.width + 1) * 0.5, -0.18, (snapshot.height - 1) * 0.5],
+      },
+      geometry: {kind: "box", size: [snapshot.width + 8, 0.24, snapshot.height + 8]},
+      color: "#496b47",
     },
-    geometry: {kind: "box", size: [1, 0.12, 1]},
-    color: TILE_COLORS[tile.kind],
-  }))
-}
+  ]
 
+  for (const tile of snapshot.tiles) {
+    const raised = tile.kind === "path" || tile.kind === "entrance" ? 0.08 : 0.06
+    nodes.push({
+      id: `tile:${tile.x}:${tile.y}`,
+      transform: {translation: tileCenter(tile.x, tile.y, raised - 0.06)},
+      geometry: {kind: "box", size: [0.98, 0.12, 0.98]},
+      color: TILE_COLORS[tile.kind],
+    })
+
+    if (tile.habitat_id === selectedHabitatId) {
+      nodes.push({
+        id: `selection:habitat:${tile.x}:${tile.y}`,
+        transform: {translation: tileCenter(tile.x, tile.y, 0.075)},
+        geometry: {kind: "box", size: [0.9, 0.035, 0.9]},
+        color: "#f6d36f",
+        opacity: 0.52,
+      })
+    }
+
+    if (
+      hoveredTile?.x === tile.x &&
+      hoveredTile.y === tile.y &&
+      ["select", "path", "habitat", "food", "drink", "bulldoze"].includes(tool)
+    ) {
+      nodes.push({
+        id: `hover:${tile.x}:${tile.y}`,
+        transform: {translation: tileCenter(tile.x, tile.y, 0.105)},
+        geometry: {kind: "box", size: [0.86, 0.025, 0.86]},
+        color: tool === "bulldoze" ? "#d97462" : "#f6d36f",
+        opacity: 0.32,
+      })
+    }
+  }
+
+  if (placement) {
+    for (const tile of placement.occupied_tiles) {
+      nodes.push({
+        id: `placement:${tile.x}:${tile.y}`,
+        transform: {translation: tileCenter(tile.x, tile.y, 0.13)},
+        geometry: {kind: "box", size: [0.9, 0.035, 0.9]},
+        color: placement.ok ? "#9dd56f" : "#c35c50",
+        opacity: 0.44,
+      })
+    }
+  }
+
+  const side = entranceBoundarySide(snapshot)
+  const direction =
+    side === "west"
+      ? {x: -1, z: 0}
+      : side === "east"
+        ? {x: 1, z: 0}
+        : side === "north"
+          ? {x: 0, z: -1}
+          : {x: 0, z: 1}
+  const start = tileCenter(snapshot.entrance.x, snapshot.entrance.y)
+  for (let index = 1; index <= 4; index += 1) {
+    nodes.push({
+      id: `entrance:approach:${index}`,
+      transform: {
+        translation: [start[0] + direction.x * index, 0.02, start[2] + direction.z * index],
+      },
+      geometry: {kind: "box", size: [0.98, 0.12, 0.98]},
+      color: "#d1bb8d",
+    })
+  }
+
+  return nodes
+}
 
 type HexColor = `#${string}`
 
@@ -124,7 +156,19 @@ type RendererInputs = {
   placement: PlacementEvaluation | null
 }
 
-type Props = RendererInputs
+type Props = RendererInputs & {
+  tool: Tool
+  selectedHabitatId: number | null
+  selectedGuestId: number | null
+  selectedDepot: boolean
+  hoveredTile: TilePoint | null
+  onTilePointerDown(pointerId: number, tile: Snapshot["tiles"][number]): void
+  onTilePointerMove(pointerId: number, tile: Snapshot["tiles"][number]): void
+  onTileClick(tile: Snapshot["tiles"][number]): void
+  onHoverTile(tile: TilePoint | null): void
+  onGuestClick(guestId: number): void
+  onDepotClick(): void
+}
 
 function sceneBox(
   id: string,
@@ -132,6 +176,7 @@ function sceneBox(
   size: WorldPoint,
   color: HexColor,
   rotationQuaternion?: [number, number, number, number],
+  opacity?: number,
 ): RendererSceneNode {
   return {
     id,
@@ -141,6 +186,7 @@ function sceneBox(
         : {translation, rotationQuaternion},
     geometry: {kind: "box", size},
     color,
+    ...(opacity === undefined ? {} : {opacity}),
   }
 }
 
@@ -150,11 +196,27 @@ function sceneCylinder(
   radius: number,
   height: number,
   color: HexColor,
+  opacity?: number,
 ): RendererSceneNode {
   return {
     id,
     transform: {translation},
     geometry: {kind: "cylinder", radius, height},
+    color,
+    ...(opacity === undefined ? {} : {opacity}),
+  }
+}
+
+function sceneSphere(
+  id: string,
+  translation: WorldPoint,
+  radius: number,
+  color: HexColor,
+): RendererSceneNode {
+  return {
+    id,
+    transform: {translation},
+    geometry: {kind: "sphere", radius},
     color,
   }
 }
@@ -380,28 +442,43 @@ function buildingCylinder(
   return sceneCylinder(id, [origin.x + offset.x, local[1], origin.z + offset.z], radius, height, color)
 }
 
+function entranceOrigin(snapshot: Snapshot) {
+  const side = entranceBoundarySide(snapshot)
+  const center = tileCenter(snapshot.entrance.x, snapshot.entrance.y)
+  const outward =
+    side === "west"
+      ? {x: -0.9, z: 0}
+      : side === "east"
+        ? {x: 0.9, z: 0}
+        : side === "north"
+          ? {x: 0, z: -0.9}
+          : {x: 0, z: 0.9}
+  return {x: center[0] + outward.x, z: center[2] + outward.z}
+}
+
 function renderEntranceBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
-  const origin = {x: snapshot.entrance.x + 1, z: snapshot.entrance.y}
+  const origin = entranceOrigin(snapshot)
   const yaw = yawForSide(entranceBoundarySide(snapshot))
   const wall: HexColor = "#d8c79d"
   const trim: HexColor = "#eadfbf"
   const roof: HexColor = "#9d4937"
-  const door: HexColor = "#244d45"
+  const dark: HexColor = "#244d45"
 
   return [
-    buildingBox("building:entrance:plinth", origin, [0, 0.06, 0], [1.72, 0.12, 0.94], "#b7aa88", yaw),
-    buildingBox("building:entrance:left-wing", origin, [-0.56, 0.49, 0.01], [0.5, 0.86, 0.68], wall, yaw),
-    buildingBox("building:entrance:right-wing", origin, [0.56, 0.49, 0.01], [0.5, 0.86, 0.68], wall, yaw),
-    buildingBox("building:entrance:center", origin, [0, 0.62, -0.02], [0.58, 1.12, 0.74], wall, yaw),
-    buildingBox("building:entrance:left-roof", origin, [-0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
-    buildingBox("building:entrance:right-roof", origin, [0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
-    buildingBox("building:entrance:left-window", origin, [-0.56, 0.57, 0.352], [0.22, 0.3, 0.035], "#87c7d8", yaw),
-    buildingBox("building:entrance:right-window", origin, [0.56, 0.57, 0.352], [0.22, 0.3, 0.035], "#87c7d8", yaw),
-    buildingCylinder("building:entrance:tower-roof", origin, [0, 1.22, -0.03], 0.42, 0.18, roof),
-    buildingBox("building:entrance:door", origin, [0, 0.39, 0.39], [0.28, 0.54, 0.06], door, yaw),
-    buildingBox("building:entrance:sign", origin, [0, 0.88, 0.405], [0.64, 0.18, 0.05], "#e0bf65", yaw),
-    buildingBox("building:entrance:left-column", origin, [-0.23, 0.46, 0.405], [0.09, 0.68, 0.07], trim, yaw),
-    buildingBox("building:entrance:right-column", origin, [0.23, 0.46, 0.405], [0.09, 0.68, 0.07], trim, yaw),
+    buildingBox("building:entrance:left-plinth", origin, [-0.68, 0.06, 0], [0.72, 0.12, 0.9], "#b7aa88", yaw),
+    buildingBox("building:entrance:right-plinth", origin, [0.68, 0.06, 0], [0.72, 0.12, 0.9], "#b7aa88", yaw),
+    buildingBox("building:entrance:left-wing", origin, [-0.68, 0.52, 0], [0.62, 0.9, 0.72], wall, yaw),
+    buildingBox("building:entrance:right-wing", origin, [0.68, 0.52, 0], [0.62, 0.9, 0.72], wall, yaw),
+    buildingBox("building:entrance:left-roof", origin, [-0.68, 1.02, 0], [0.76, 0.16, 0.86], roof, yaw),
+    buildingBox("building:entrance:right-roof", origin, [0.68, 1.02, 0], [0.76, 0.16, 0.86], roof, yaw),
+    buildingBox("building:entrance:bridge", origin, [0, 1.08, 0.02], [1.7, 0.2, 0.28], roof, yaw),
+    buildingBox("building:entrance:sign", origin, [0, 1.29, 0.05], [0.82, 0.24, 0.08], "#e0bf65", yaw),
+    buildingBox("building:entrance:left-column", origin, [-0.35, 0.58, 0.34], [0.1, 0.92, 0.1], trim, yaw),
+    buildingBox("building:entrance:right-column", origin, [0.35, 0.58, 0.34], [0.1, 0.92, 0.1], trim, yaw),
+    buildingBox("building:entrance:left-window", origin, [-0.68, 0.58, 0.37], [0.24, 0.3, 0.04], "#87c7d8", yaw),
+    buildingBox("building:entrance:right-window", origin, [0.68, 0.58, 0.37], [0.24, 0.3, 0.04], "#87c7d8", yaw),
+    buildingBox("building:entrance:left-turnstile", origin, [-0.18, 0.28, 0.1], [0.08, 0.5, 0.08], dark, yaw),
+    buildingBox("building:entrance:right-turnstile", origin, [0.18, 0.28, 0.1], [0.08, 0.5, 0.08], dark, yaw),
   ]
 }
 
@@ -571,169 +648,13 @@ function relativePitch(pitchDegrees: number) {
   return Number((pitchDegrees - DEFAULT_SHARED_PITCH).toFixed(2))
 }
 
-function pseudoWorldPoint(left: number, top: number): WorldPoint {
-  const horizontal = (left - ISO_ORIGIN_X) / ISO_X_STEP
-  const vertical = (top - ISO_ORIGIN_Y) / ISO_Y_STEP
-  return [(horizontal + vertical) * 0.5, 0, (vertical - horizontal) * 0.5]
-}
-
-function legacyScreenPoint([x, , z]: WorldPoint) {
-  return {
-    left: ISO_ORIGIN_X + (x - z) * ISO_X_STEP,
-    top: ISO_ORIGIN_Y + (x + z) * ISO_Y_STEP,
-  }
-}
-
-function snap(value: number, step: number) {
-  return Math.round(value / step) * step
-}
-
-function inlineNumber(element: HTMLElement, property: "left" | "top") {
-  const value = Number.parseFloat(element.style[property])
-  return Number.isFinite(value) ? value : null
-}
-
-function captureCanonicalPosition(element: HTMLElement) {
-  const left = inlineNumber(element, "left")
-  const top = inlineNumber(element, "top")
-  if (left === null || top === null) return null
-
-  const appliedLeft = element.dataset.sharedRendererAppliedLeft
-  const appliedTop = element.dataset.sharedRendererAppliedTop
-  const currentLeft = element.style.left
-  const currentTop = element.style.top
-  if (
-    element.dataset.sharedRendererBaseLeft === undefined ||
-    currentLeft !== appliedLeft ||
-    currentTop !== appliedTop
-  ) {
-    element.dataset.sharedRendererBaseLeft = String(left)
-    element.dataset.sharedRendererBaseTop = String(top)
-  }
-
-  const baseLeft = Number(element.dataset.sharedRendererBaseLeft)
-  const baseTop = Number(element.dataset.sharedRendererBaseTop)
-  return Number.isFinite(baseLeft) && Number.isFinite(baseTop) ? {left: baseLeft, top: baseTop} : null
-}
-
-function captureCanonicalZIndex(element: HTMLElement) {
-  const current = element.style.zIndex
-  const applied = element.dataset.sharedRendererAppliedZIndex
-  if (element.dataset.sharedRendererBaseZIndex === undefined || current !== applied) {
-    element.dataset.sharedRendererBaseZIndex = current
-  }
-}
-
-function overlayRule(element: HTMLElement): OverlayRule | null {
-  if (element.classList.contains("placement-price")) return {offsetX: 24, offsetY: -52, snap: 1}
-  if (element.classList.contains("entrance-gate")) return {offsetX: -24, offsetY: -48, snap: 1}
-  if (element.classList.contains("care-depot")) return {offsetX: 4, offsetY: -54, snap: 1}
-  if (element.classList.contains("concession")) return {offsetX: 8, offsetY: -42, snap: 1}
-  if (element.classList.contains("litter")) return {offsetX: 20, offsetY: 8, snap: 1}
-  if (element.classList.contains("janitor")) return {offsetX: 22, offsetY: -8, snap: 1}
-  if (element.classList.contains("maintenance-alert")) return {offsetX: 38, offsetY: -50, snap: 1}
-  if (element.classList.contains("mechanic")) return {offsetX: 18, offsetY: -9, snap: 1}
-  if (element.classList.contains("animal")) return {offsetX: 14, offsetY: -16, snap: 1}
-  if (element.classList.contains("empty-habitat-marker")) return {offsetX: 15, offsetY: -10, snap: 0.5}
-  if (element.classList.contains("guest")) return {offsetX: 24, offsetY: -4, snap: 1}
-  if (element.classList.contains("park-entrance-building")) {
-    return {offsetX: 0, offsetY: -64, snap: 1}
-  }
-  return null
-}
-
-function applyStyle(element: HTMLElement, property: keyof CSSStyleDeclaration, value: string) {
-  if (element.style[property] !== value) {
-    ;(element.style[property] as string) = value
-  }
-}
-
-function applyCustomProperty(element: HTMLElement, property: string, value: string) {
-  if (element.style.getPropertyValue(property) !== value) {
-    element.style.setProperty(property, value)
-  }
-}
-
-function applyProjectedDepth(element: HTMLElement, depth: number) {
-  captureCanonicalZIndex(element)
-  const clampedDepth = Number.isFinite(depth) ? Math.min(Math.max(depth, 0), 1) : 1
-  const zIndex = String(
-    PROJECTED_DEPTH_BASE + Math.round((1 - clampedDepth) * PROJECTED_DEPTH_SCALE),
-  )
-  element.dataset.sharedRendererDepth = clampedDepth.toFixed(6)
-  element.dataset.sharedRendererAppliedZIndex = zIndex
-  applyStyle(element, "zIndex", zIndex)
-}
-
 function tileTopCorners(x: number, z: number): WorldPoint[] {
   return [
-    [x + 0.5, 0, z - 0.5],
-    [x + 1.5, 0, z - 0.5],
-    [x + 1.5, 0, z + 0.5],
-    [x + 0.5, 0, z + 0.5],
+    [x + 0.5, 0.07, z - 0.5],
+    [x + 1.5, 0.07, z - 0.5],
+    [x + 1.5, 0.07, z + 0.5],
+    [x + 0.5, 0.07, z + 0.5],
   ]
-}
-
-function projectPolygonFootprint(
-  element: HTMLElement,
-  corners: WorldPoint[],
-  camera: RendererCamera,
-) {
-  const projected = corners.map((corner) => projectWorldPoint(camera, corner, PROJECTION_VIEWPORT))
-  const minX = Math.min(...projected.map((point) => point.x))
-  const maxX = Math.max(...projected.map((point) => point.x))
-  const minY = Math.min(...projected.map((point) => point.y))
-  const maxY = Math.max(...projected.map((point) => point.y))
-  const width = Math.max(maxX - minX, 1)
-  const height = Math.max(maxY - minY, 1)
-  const left = `${Number(minX.toFixed(3))}px`
-  const top = `${Number(minY.toFixed(3))}px`
-  const polygon = projected
-    .map((point) => {
-      const x = ((point.x - minX) / width) * 100
-      const y = ((point.y - minY) / height) * 100
-      return `${Number(x.toFixed(3))}% ${Number(y.toFixed(3))}%`
-    })
-    .join(", ")
-
-  element.dataset.sharedRendererAppliedLeft = left
-  element.dataset.sharedRendererAppliedTop = top
-  applyStyle(element, "left", left)
-  applyStyle(element, "top", top)
-  applyStyle(element, "width", `${Number(width.toFixed(3))}px`)
-  applyStyle(element, "height", `${Number(height.toFixed(3))}px`)
-  applyStyle(element, "clipPath", `polygon(${polygon})`)
-  return projected.reduce((total, point) => total + point.depth, 0) / projected.length
-}
-
-function projectTileFootprint(element: HTMLElement, tile: TileDescriptor, camera: RendererCamera) {
-  projectPolygonFootprint(element, tileTopCorners(tile.x, tile.y), camera)
-}
-
-function canonicalWorldTile(canonical: {left: number; top: number}) {
-  const [rawX, , rawZ] = pseudoWorldPoint(canonical.left, canonical.top)
-  return {x: snap(rawX, 1), z: snap(rawZ, 1)}
-}
-
-function projectCanonicalTileFootprint(
-  element: HTMLElement,
-  canonical: {left: number; top: number},
-  camera: RendererCamera,
-) {
-  const tile = canonicalWorldTile(canonical)
-  return projectPolygonFootprint(element, tileTopCorners(tile.x, tile.z), camera)
-}
-
-function readFenceSide(element: HTMLElement): FenceSide | null {
-  for (const side of ["north", "east", "south", "west"] as const) {
-    if (
-      element.classList.contains(`fence-${side}`) ||
-      element.classList.contains(`park-boundary-fence-${side}`)
-    ) {
-      return side
-    }
-  }
-  return null
 }
 
 function fenceEndpoints(x: number, z: number, side: FenceSide): [WorldPoint, WorldPoint] {
@@ -750,400 +671,609 @@ function fenceEndpoints(x: number, z: number, side: FenceSide): [WorldPoint, Wor
   }
 }
 
-function projectFenceSegment(
-  element: HTMLElement,
-  canonical: {left: number; top: number},
-  camera: RendererCamera,
+function personNodes(
+  id: string,
+  x: number,
+  z: number,
+  shirt: HexColor,
+  trousers: HexColor,
+  head: HexColor = "#d5a57d",
 ) {
-  const side = readFenceSide(element)
-  if (!side) return false
-  const tile = canonicalWorldTile(canonical)
-  const [startWorld, endWorld] = fenceEndpoints(tile.x, tile.z, side)
-  const start = projectWorldPoint(camera, startWorld, PROJECTION_VIEWPORT)
-  const end = projectWorldPoint(camera, endWorld, PROJECTION_VIEWPORT)
-  const deltaX = end.x - start.x
-  const deltaY = end.y - start.y
-  const width = Math.max(Math.hypot(deltaX, deltaY), 1)
-  const angle = (Math.atan2(deltaY, deltaX) * 180) / Math.PI
-  const elementHeight = Number.parseFloat(getComputedStyle(element).height)
-  const halfHeight = Number.isFinite(elementHeight) ? elementHeight / 2 : 2.5
-  const left = `${Number(start.x.toFixed(3))}px`
-  const top = `${Number((start.y - halfHeight).toFixed(3))}px`
-  const postAngle = `${Number((-angle).toFixed(3))}deg`
-
-  element.dataset.sharedRendererAppliedLeft = left
-  element.dataset.sharedRendererAppliedTop = top
-  applyStyle(element, "left", left)
-  applyStyle(element, "top", top)
-  applyStyle(element, "width", `${Number(width.toFixed(3))}px`)
-  applyStyle(element, "transformOrigin", "0 50%")
-  applyStyle(element, "transform", `rotate(${Number(angle.toFixed(3))}deg)`)
-  applyCustomProperty(element, "--fence-post-angle", postAngle)
-  applyCustomProperty(element, "--park-fence-post-angle", postAngle)
-  applyProjectedDepth(element, (start.depth + end.depth) / 2)
-  return true
+  return [
+    sceneCylinder(`${id}:legs`, [x, 0.19, z], 0.075, 0.28, trousers),
+    sceneCylinder(`${id}:body`, [x, 0.46, z], 0.12, 0.42, shirt),
+    sceneSphere(`${id}:head`, [x, 0.78, z], 0.13, head),
+  ]
 }
 
-function inferWorldAnchor(canonical: {left: number; top: number}, rule: OverlayRule) {
-  const [rawX, , rawZ] = pseudoWorldPoint(
-    canonical.left - rule.offsetX,
-    canonical.top - rule.offsetY,
-  )
-  return [snap(rawX, rule.snap), 0, snap(rawZ, rule.snap)] as WorldPoint
-}
-
-function projectWorldHitTarget(
-  element: HTMLElement,
-  anchor: WorldPoint,
-  camera: RendererCamera,
-  width: number,
-  height: number,
-) {
-  const projected = projectWorldPoint(camera, anchor, PROJECTION_VIEWPORT)
-  const left = `${Number((projected.x - width * 0.5).toFixed(3))}px`
-  const top = `${Number((projected.y - height * 0.5).toFixed(3))}px`
-
-  element.dataset.sharedRendererAppliedLeft = left
-  element.dataset.sharedRendererAppliedTop = top
-  element.dataset.sharedRendererWorldX = String(anchor[0])
-  element.dataset.sharedRendererWorldY = String(anchor[1])
-  element.dataset.sharedRendererWorldZ = String(anchor[2])
-  applyStyle(element, "left", left)
-  applyStyle(element, "top", top)
-  applyStyle(element, "width", `${width}px`)
-  applyStyle(element, "height", `${height}px`)
-  applyStyle(element, "clipPath", "none")
-  applyProjectedDepth(element, projected.depth)
-}
-
-function projectOverlay(element: HTMLElement, canonical: {left: number; top: number}, camera: RendererCamera) {
-  const rule = overlayRule(element)
-  if (!rule) return
-  const anchor = inferWorldAnchor(canonical, rule)
-  const legacyAnchor = legacyScreenPoint(anchor)
-  const residualX = canonical.left - rule.offsetX - legacyAnchor.left
-  const residualY = canonical.top - rule.offsetY - legacyAnchor.top
-  const projected = projectWorldPoint(camera, anchor, PROJECTION_VIEWPORT)
-  const left = `${Number((projected.x + rule.offsetX + residualX).toFixed(3))}px`
-  const top = `${Number((projected.y + rule.offsetY + residualY).toFixed(3))}px`
-
-  element.dataset.sharedRendererAppliedLeft = left
-  element.dataset.sharedRendererAppliedTop = top
-  applyStyle(element, "left", left)
-  applyStyle(element, "top", top)
-  applyProjectedDepth(element, projected.depth)
-}
-
-function projectDomOverlay(park: HTMLElement, camera: RendererCamera, snapshot: Snapshot) {
-  for (const element of park.querySelectorAll<HTMLElement>("[style]")) {
-    if (element.classList.contains("park-three-renderer-canvas")) continue
-    const canonical = captureCanonicalPosition(element)
-    if (!canonical) continue
-
-    if (element.classList.contains("concession")) {
-      const concessionId = Number(element.dataset.concessionId)
-      const stand = snapshot.concessions.find((candidate) => candidate.id === concessionId)
-      if (stand) {
-        const origin = concessionOrigin(stand)
-        projectWorldHitTarget(element, [origin.x, 0.48, origin.z], camera, 54, 54)
-        continue
-      }
-    }
-
-    if (element.classList.contains("care-depot")) {
-      const origin = depotOrigin(snapshot)
-      projectWorldHitTarget(element, [origin.x, 0.5, origin.z], camera, 62, 62)
-      continue
-    }
-
-    const tile = parseTile(element)
-    if (tile) {
-      projectTileFootprint(element, tile, camera)
-      continue
-    }
-    if (
-      element.classList.contains("placement-ghost") ||
-      element.classList.contains("park-border-tile")
-    ) {
-      const depth = projectCanonicalTileFootprint(element, canonical, camera)
-      applyProjectedDepth(element, depth)
-      continue
-    }
-    if (
-      (element.classList.contains("fence-segment") ||
-        element.classList.contains("park-boundary-fence")) &&
-      projectFenceSegment(element, canonical, camera)
-    ) {
-      continue
-    }
-    projectOverlay(element, canonical, camera)
+function animalColor(species: Snapshot["animals"][number]["species"]): HexColor {
+  switch (species) {
+    case "capybara":
+      return "#8c6748"
+    case "flamingo":
+      return "#d77f88"
+    case "zebra":
+      return "#e8e4da"
+    case "giraffe":
+      return "#c89c4d"
+    case "elephant":
+      return "#777e7c"
+    case "penguin":
+      return "#30393c"
+    default:
+      return "#8c6748"
   }
 }
 
-function restoreDomOverlay(park: HTMLElement) {
-  for (const element of park.querySelectorAll<HTMLElement>("[data-shared-renderer-base-left]")) {
-    const left = Number(element.dataset.sharedRendererBaseLeft)
-    const top = Number(element.dataset.sharedRendererBaseTop)
-    if (Number.isFinite(left)) element.style.left = `${left}px`
-    if (Number.isFinite(top)) element.style.top = `${top}px`
-    if (
-      element.classList.contains("tile") ||
-      element.classList.contains("placement-ghost") ||
-      element.classList.contains("park-border-tile") ||
-      element.classList.contains("concession") ||
-      element.classList.contains("care-depot")
-    ) {
-      element.style.removeProperty("width")
-      element.style.removeProperty("height")
-      element.style.removeProperty("clip-path")
+function renderAnimalNodes(snapshot: Snapshot) {
+  const nodes: RendererSceneNode[] = []
+
+  for (const animal of snapshot.animals) {
+    const x = animal.x + 1 + ((animal.slot % 3) - 1) * 0.13
+    const z = animal.y + (animal.slot % 2) * 0.13
+    const color = animalColor(animal.species)
+    const id = `animal:${animal.id}`
+
+    if (animal.species === "flamingo") {
+      nodes.push(
+        sceneCylinder(`${id}:legs`, [x, 0.28, z], 0.03, 0.48, "#b56d6d"),
+        sceneSphere(`${id}:body`, [x, 0.6, z], 0.18, color),
+        sceneCylinder(`${id}:neck`, [x + 0.06, 0.86, z], 0.04, 0.36, color),
+        sceneSphere(`${id}:head`, [x + 0.07, 1.06, z], 0.085, color),
+      )
+      continue
     }
-    if (
-      element.classList.contains("fence-segment") ||
-      element.classList.contains("park-boundary-fence")
-    ) {
-      element.style.removeProperty("width")
-      element.style.removeProperty("transform")
-      element.style.removeProperty("transform-origin")
-      element.style.removeProperty("--fence-post-angle")
-      element.style.removeProperty("--park-fence-post-angle")
+
+    if (animal.species === "giraffe") {
+      nodes.push(
+        sceneBox(`${id}:body`, [x, 0.51, z], [0.48, 0.32, 0.28], color),
+        sceneCylinder(`${id}:neck`, [x + 0.13, 1.0, z], 0.06, 0.74, color),
+        sceneSphere(`${id}:head`, [x + 0.15, 1.42, z], 0.11, color),
+        sceneCylinder(`${id}:leg-left`, [x - 0.14, 0.22, z - 0.08], 0.035, 0.42, "#7f6236"),
+        sceneCylinder(`${id}:leg-right`, [x + 0.14, 0.22, z + 0.08], 0.035, 0.42, "#7f6236"),
+      )
+      continue
     }
-    if (element.dataset.sharedRendererBaseZIndex !== undefined) {
-      const baseZIndex = element.dataset.sharedRendererBaseZIndex
-      if (baseZIndex === "") element.style.removeProperty("z-index")
-      else element.style.zIndex = baseZIndex
+
+    if (animal.species === "elephant") {
+      nodes.push(
+        sceneSphere(`${id}:body`, [x, 0.56, z], 0.32, color),
+        sceneSphere(`${id}:head`, [x + 0.28, 0.61, z], 0.23, color),
+        sceneCylinder(`${id}:trunk`, [x + 0.48, 0.37, z], 0.05, 0.42, color),
+        sceneCylinder(`${id}:leg-left`, [x - 0.15, 0.2, z - 0.12], 0.07, 0.38, color),
+        sceneCylinder(`${id}:leg-right`, [x + 0.15, 0.2, z + 0.12], 0.07, 0.38, color),
+      )
+      continue
     }
-    delete element.dataset.sharedRendererBaseLeft
-    delete element.dataset.sharedRendererBaseTop
-    delete element.dataset.sharedRendererBaseZIndex
-    delete element.dataset.sharedRendererAppliedLeft
-    delete element.dataset.sharedRendererAppliedTop
-    delete element.dataset.sharedRendererAppliedZIndex
-    delete element.dataset.sharedRendererWorldX
-    delete element.dataset.sharedRendererWorldY
-    delete element.dataset.sharedRendererWorldZ
-    delete element.dataset.sharedRendererDepth
+
+    if (animal.species === "penguin") {
+      nodes.push(
+        sceneSphere(`${id}:body`, [x, 0.45, z], 0.2, color),
+        sceneSphere(`${id}:belly`, [x + 0.07, 0.44, z], 0.12, "#ece9df"),
+        sceneSphere(`${id}:head`, [x, 0.69, z], 0.14, color),
+      )
+      continue
+    }
+
+    nodes.push(
+      sceneSphere(`${id}:body`, [x, 0.47, z], animal.species === "capybara" ? 0.27 : 0.29, color),
+      sceneSphere(`${id}:head`, [x + 0.25, 0.55, z], 0.15, color),
+      sceneCylinder(`${id}:leg-left`, [x - 0.12, 0.19, z - 0.09], 0.035, 0.28, "#5f503f"),
+      sceneCylinder(`${id}:leg-right`, [x + 0.12, 0.19, z + 0.09], 0.035, 0.28, "#5f503f"),
+    )
+
+    if (animal.species === "zebra") {
+      nodes.push(
+        sceneBox(`${id}:stripe-left`, [x - 0.09, 0.52, z], [0.045, 0.38, 0.3], "#303433"),
+        sceneBox(`${id}:stripe-right`, [x + 0.08, 0.52, z], [0.045, 0.38, 0.3], "#303433"),
+      )
+    }
   }
+
+  return nodes
+}
+
+function renderPeopleNodes(snapshot: Snapshot, selectedGuestId: number | null) {
+  const nodes: RendererSceneNode[] = []
+
+  for (const guest of snapshot.guests) {
+    const x = guest.x + 1
+    const z = guest.y
+    nodes.push(
+      ...personNodes(
+        `guest:${guest.id}`,
+        x,
+        z,
+        guest.state === "viewing" ? "#6e8f73" : "#69809d",
+        "#36424c",
+      ),
+    )
+    if (guest.id === selectedGuestId) {
+      nodes.push(
+        sceneCylinder(`guest:${guest.id}:selection`, [x, 0.09, z], 0.28, 0.035, "#f6d36f", 0.68),
+      )
+    }
+  }
+
+  for (const janitor of snapshot.animal_care_depot.janitors) {
+    nodes.push(
+      ...personNodes(
+        `janitor:${janitor.id}`,
+        janitor.x + 1,
+        janitor.y,
+        "#4d876b",
+        "#2d493b",
+      ),
+    )
+  }
+
+  for (const mechanic of snapshot.animal_care_depot.mechanics) {
+    nodes.push(
+      ...personNodes(
+        `mechanic:${mechanic.id}`,
+        mechanic.x + 1,
+        mechanic.y,
+        "#c78343",
+        "#4a3a31",
+      ),
+    )
+  }
+
+  return nodes
+}
+
+function renderOperationsNodes(snapshot: Snapshot) {
+  const nodes: RendererSceneNode[] = []
+
+  for (const task of snapshot.litter) {
+    nodes.push(
+      sceneBox(`litter:${task.id}:paper`, [task.x + 0.94, 0.13, task.y - 0.04], [0.2, 0.04, 0.13], "#876f4d"),
+      sceneCylinder(`litter:${task.id}:cup`, [task.x + 1.12, 0.16, task.y + 0.06], 0.05, 0.1, "#b88758"),
+    )
+  }
+
+  for (const task of snapshot.maintenance) {
+    nodes.push(
+      sceneCylinder(`maintenance:${task.id}:pole`, [task.x + 1, 0.52, task.y], 0.03, 0.72, "#5b4b3b"),
+      sceneBox(`maintenance:${task.id}:flag`, [task.x + 1.13, 0.77, task.y], [0.24, 0.18, 0.05], "#d26855"),
+    )
+  }
+
+  for (const habitat of snapshot.habitats) {
+    if (habitat.animals !== 0) continue
+    const x = habitat.x + habitat.width * 0.5 + 0.5
+    const z = habitat.y + (habitat.height - 1) * 0.5
+    nodes.push(
+      sceneCylinder(`habitat:${habitat.id}:empty-marker`, [x, 0.22, z], 0.13, 0.3, "#d9d79a"),
+      sceneBox(`habitat:${habitat.id}:empty-cap`, [x, 0.39, z], [0.22, 0.05, 0.22], "#48623e"),
+    )
+  }
+
+  return nodes
+}
+
+function renderSelectionNodes(snapshot: Snapshot, selectedDepot: boolean) {
+  if (!selectedDepot) return []
+  const origin = depotOrigin(snapshot)
+  return [
+    sceneBox(
+      "selection:depot",
+      [origin.x, 0.04, origin.z],
+      [1.48, 0.035, 1.18],
+      "#f6d36f",
+      undefined,
+      0.5,
+    ),
+  ]
+}
+
+function pointInPolygon(point: {x: number; y: number}, polygon: Array<{x: number; y: number}>) {
+  let inside = false
+  for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current++) {
+    const a = polygon[current]
+    const b = polygon[previous]
+    const crosses =
+      a.y > point.y !== b.y > point.y &&
+      point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y || Number.EPSILON) + a.x
+    if (crosses) inside = !inside
+  }
+  return inside
+}
+
+function projectTilePolygon(camera: RendererCamera, x: number, y: number) {
+  return tileTopCorners(x, y).map((corner) => projectWorldPoint(camera, corner, RENDER_VIEWPORT))
+}
+
+function pickTile(snapshot: Snapshot, camera: RendererCamera, point: {x: number; y: number}) {
+  for (const tile of snapshot.tiles) {
+    if (pointInPolygon(point, projectTilePolygon(camera, tile.x, tile.y))) return tile
+  }
+  return null
+}
+
+type WorldPick =
+  | {kind: "guest"; id: number}
+  | {kind: "depot"}
+  | {kind: "tile"; tile: Snapshot["tiles"][number]}
+
+function projectedDistance(camera: RendererCamera, point: {x: number; y: number}, world: WorldPoint) {
+  const projected = projectWorldPoint(camera, world, RENDER_VIEWPORT)
+  return Math.hypot(point.x - projected.x, point.y - projected.y)
+}
+
+function pickWorld(snapshot: Snapshot, camera: RendererCamera, point: {x: number; y: number}): WorldPick | null {
+  let nearestGuest: {id: number; distance: number} | null = null
+  for (const guest of snapshot.guests) {
+    const distance = projectedDistance(camera, point, [guest.x + 1, 0.58, guest.y])
+    if (distance <= 18 && (nearestGuest === null || distance < nearestGuest.distance)) {
+      nearestGuest = {id: guest.id, distance}
+    }
+  }
+  if (nearestGuest) return {kind: "guest", id: nearestGuest.id}
+
+  const depot = depotOrigin(snapshot)
+  if (projectedDistance(camera, point, [depot.x, 0.55, depot.z]) <= 36) {
+    return {kind: "depot"}
+  }
+
+  for (const stand of snapshot.concessions) {
+    const origin = concessionOrigin(stand)
+    if (projectedDistance(camera, point, [origin.x, 0.55, origin.z]) <= 32) {
+      const tile = snapshot.tiles.find((candidate) => candidate.x === stand.x && candidate.y === stand.y)
+      if (tile) return {kind: "tile", tile}
+    }
+  }
+
+  for (const animal of snapshot.animals) {
+    if (projectedDistance(camera, point, [animal.x + 1, 0.55, animal.y]) <= 20) {
+      const tile = snapshot.tiles.find((candidate) => candidate.x === animal.x && candidate.y === animal.y)
+      if (tile) return {kind: "tile", tile}
+    }
+  }
+
+  const tile = pickTile(snapshot, camera, point)
+  return tile ? {kind: "tile", tile} : null
+}
+
+function canvasPoint(canvas: HTMLCanvasElement, clientX: number, clientY: number) {
+  const rect = canvas.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+  return {
+    x: ((clientX - rect.left) / rect.width) * RENDER_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * RENDER_HEIGHT,
+  }
+}
+
+function clientPointForWorld(canvas: HTMLCanvasElement, camera: RendererCamera, world: WorldPoint) {
+  const projected = projectWorldPoint(camera, world, RENDER_VIEWPORT)
+  const rect = canvas.getBoundingClientRect()
+  return {
+    x: rect.left + (projected.x / RENDER_WIDTH) * rect.width,
+    y: rect.top + (projected.y / RENDER_HEIGHT) * rect.height,
+  }
+}
+
+type WorldDebug = {
+  tileCenterClient(x: number, y: number): {x: number; y: number} | null
+  entityCenterClient(kind: "depot" | "guest" | "concession", id?: number): {x: number; y: number} | null
+  state(): {
+    width: number
+    height: number
+    tileCount: number
+    boundaryFenceSegments: number
+    habitatFenceSegments: number
+    concessionCount: number
+    guestCount: number
+  }
+}
+
+type WorldCanvas = HTMLCanvasElement & {
+  __zooWorldDebug?: WorldDebug
 }
 
 function parseCameraFrame(bridge: ParkCameraBridge): CameraFrame {
   return JSON.parse(bridge.frame_json(RENDER_ASPECT)) as CameraFrame
 }
 
-export default function Park3DRenderer({snapshot, placement}: Props) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+export default function Park3DRenderer({
+  snapshot,
+  placement,
+  tool,
+  selectedHabitatId,
+  selectedGuestId,
+  selectedDepot,
+  hoveredTile,
+  onTilePointerDown,
+  onTilePointerMove,
+  onTileClick,
+  onHoverTile,
+  onGuestClick,
+  onDepotClick,
+}: Props) {
+  const canvasRef = useRef<WorldCanvas | null>(null)
   const rendererRef = useRef<ThreeSceneRenderer | null>(null)
   const bridgeRef = useRef<ParkCameraBridge | null>(null)
-  const renderRequestRef = useRef<number | null>(null)
-  const renderInputsRef = useRef<RendererInputs>({snapshot, placement})
-  renderInputsRef.current = {snapshot, placement}
-  const [targets, setTargets] = useState<Targets | null>(null)
+  const cameraRef = useRef<CameraFrame | null>(null)
+  const lastHoverKeyRef = useRef<string | null>(null)
   const [cameraLabel, setCameraLabel] = useState({yaw: 0, pitch: 0})
   const [ready, setReady] = useState(false)
-
-  useEffect(() => {
-    const root = document.getElementById("root")
-    if (!root) return
-
-    const sync = () => {
-      const park = root.querySelector<HTMLElement>(".park")
-      const viewport = root.querySelector<HTMLElement>(".viewport")
-      if (!park || !viewport) return
-      setTargets((current) =>
-        current?.park === park && current.viewport === viewport ? current : {park, viewport},
-      )
-    }
-
-    sync()
-    const observer = new MutationObserver(sync)
-    observer.observe(root, {childList: true, subtree: true})
-    return () => observer.disconnect()
-  }, [])
+  const [failed, setFailed] = useState(false)
 
   const renderCurrent = useCallback(() => {
-    if (!targets || !rendererRef.current || !bridgeRef.current) return false
-    try {
-      const tiles = collectTiles(targets.park)
-      if (tiles.length === 0) return false
+    const canvas = canvasRef.current
+    const renderer = rendererRef.current
+    const bridge = bridgeRef.current
+    if (!canvas || !renderer || !bridge) return false
 
-      const camera = parseCameraFrame(bridgeRef.current)
-      const {snapshot: currentSnapshot, placement: currentPlacement} = renderInputsRef.current
-      const tileNodes = renderNodes(tiles)
-      const fenceFrame = renderFenceNodes(currentSnapshot, currentPlacement)
-      const buildingNodes = renderBuildingNodes(currentSnapshot)
-      const concessionNodes = renderConcessionNodes(currentSnapshot)
+    try {
+      const camera = parseCameraFrame(bridge)
+      cameraRef.current = camera
+
+      const terrainNodes = renderTerrainNodes(
+        snapshot,
+        selectedHabitatId,
+        placement,
+        hoveredTile,
+        tool,
+      )
+      const fenceFrame = renderFenceNodes(snapshot, placement)
+      const buildingNodes = renderBuildingNodes(snapshot)
+      const concessionNodes = renderConcessionNodes(snapshot)
+      const animalNodes = renderAnimalNodes(snapshot)
+      const peopleNodes = renderPeopleNodes(snapshot, selectedGuestId)
+      const operationsNodes = renderOperationsNodes(snapshot)
+      const selectionNodes = renderSelectionNodes(snapshot, selectedDepot)
+
       const frame: RendererFrame = {
         camera,
-        nodes: [...tileNodes, ...fenceFrame.nodes, ...buildingNodes, ...concessionNodes],
+        nodes: [
+          ...terrainNodes,
+          ...fenceFrame.nodes,
+          ...buildingNodes,
+          ...concessionNodes,
+          ...animalNodes,
+          ...peopleNodes,
+          ...operationsNodes,
+          ...selectionNodes,
+        ],
       }
-      rendererRef.current.render(frame)
-      if (canvasRef.current) {
-        canvasRef.current.dataset.sharedRendererFenceNodes = String(fenceFrame.nodes.length)
-        canvasRef.current.dataset.sharedRendererBoundaryFenceSegments = String(fenceFrame.counts.boundary)
-        canvasRef.current.dataset.sharedRendererHabitatFenceSegments = String(fenceFrame.counts.habitat)
-        canvasRef.current.dataset.sharedRendererPreviewFenceSegments = String(fenceFrame.counts.preview)
-        canvasRef.current.dataset.sharedRendererBuildingNodes = String(buildingNodes.length)
-        canvasRef.current.dataset.sharedRendererConcessionNodes = String(concessionNodes.length)
-      }
-      projectDomOverlay(targets.park, camera, currentSnapshot)
+      renderer.render(frame)
 
+      canvas.dataset.sharedRenderer = "ready"
+      canvas.dataset.worldRenderer = "exclusive"
+      canvas.dataset.sharedRendererNodeCount = String(frame.nodes.length)
+      canvas.dataset.sharedRendererTileNodes = String(
+        frame.nodes.filter((node) => node.id.startsWith("tile:")).length,
+      )
+      canvas.dataset.sharedRendererFenceNodes = String(fenceFrame.nodes.length)
+      canvas.dataset.sharedRendererBoundaryFenceSegments = String(fenceFrame.counts.boundary)
+      canvas.dataset.sharedRendererHabitatFenceSegments = String(fenceFrame.counts.habitat)
+      canvas.dataset.sharedRendererPreviewFenceSegments = String(fenceFrame.counts.preview)
+      canvas.dataset.sharedRendererBuildingNodes = String(buildingNodes.length)
+      canvas.dataset.sharedRendererConcessionNodes = String(concessionNodes.length)
+      canvas.dataset.sharedRendererAnimalNodes = String(animalNodes.length)
+      canvas.dataset.sharedRendererGuestCount = String(snapshot.guests.length)
+      canvas.dataset.sharedRendererJanitorCount = String(snapshot.animal_care_depot.janitors.length)
+      canvas.dataset.sharedRendererMechanicCount = String(snapshot.animal_care_depot.mechanics.length)
+      canvas.dataset.sharedRendererLitterCount = String(snapshot.litter.length)
+      canvas.dataset.sharedRendererMaintenanceCount = String(snapshot.maintenance.length)
+
+      const park = canvas.parentElement
       const yaw = relativeYaw(camera.yawDegrees)
       const pitch = relativePitch(camera.pitchDegrees)
-      targets.park.dataset.cameraYaw = String(yaw)
-      targets.park.dataset.cameraPitch = String(pitch)
-      const inverseYaw = `${-yaw}deg`
-      const inversePitch = `${-pitch}deg`
-      if (targets.park.style.getPropertyValue("--zoo-camera-yaw-inverse").trim() !== inverseYaw) {
-        targets.park.style.setProperty("--zoo-camera-yaw-inverse", inverseYaw)
-      }
-      if (targets.park.style.getPropertyValue("--zoo-camera-pitch-inverse").trim() !== inversePitch) {
-        targets.park.style.setProperty("--zoo-camera-pitch-inverse", inversePitch)
+      if (park instanceof HTMLElement) {
+        park.dataset.cameraYaw = String(yaw)
+        park.dataset.cameraPitch = String(pitch)
       }
       setCameraLabel((current) =>
         current.yaw === yaw && current.pitch === pitch ? current : {yaw, pitch},
       )
-      if (!targets.park.classList.contains("shared-three-renderer")) {
-        targets.park.classList.add("shared-three-renderer")
+
+      canvas.__zooWorldDebug = {
+        tileCenterClient(x, y) {
+          const activeCamera = cameraRef.current
+          if (!activeCamera || !snapshot.tiles.some((tile) => tile.x === x && tile.y === y)) {
+            return null
+          }
+          return clientPointForWorld(canvas, activeCamera, tileCenter(x, y, 0.08))
+        },
+        entityCenterClient(kind, id) {
+          const activeCamera = cameraRef.current
+          if (!activeCamera) return null
+          if (kind === "depot") {
+            const origin = depotOrigin(snapshot)
+            return clientPointForWorld(canvas, activeCamera, [origin.x, 0.55, origin.z])
+          }
+          if (kind === "guest") {
+            const guest = snapshot.guests.find((candidate) => candidate.id === id)
+            return guest
+              ? clientPointForWorld(canvas, activeCamera, [guest.x + 1, 0.58, guest.y])
+              : null
+          }
+          const stand = snapshot.concessions.find((candidate) => candidate.id === id)
+          if (!stand) return null
+          const origin = concessionOrigin(stand)
+          return clientPointForWorld(canvas, activeCamera, [origin.x, 0.55, origin.z])
+        },
+        state() {
+          return {
+            width: snapshot.width,
+            height: snapshot.height,
+            tileCount: snapshot.tiles.length,
+            boundaryFenceSegments: fenceFrame.counts.boundary,
+            habitatFenceSegments: fenceFrame.counts.habitat,
+            concessionCount: snapshot.concessions.length,
+            guestCount: snapshot.guests.length,
+          }
+        },
       }
+
+      setFailed(false)
       setReady(true)
       return true
     } catch (error) {
-      console.error("Shared 3d-lab renderer frame rejected; failing closed", error)
-      rendererRef.current?.dispose()
-      rendererRef.current = null
-      bridgeRef.current?.free()
-      bridgeRef.current = null
-      if (canvasRef.current) {
-        canvasRef.current.style.visibility = "hidden"
-        canvasRef.current.dataset.sharedRenderer = "failed"
-      }
-      targets.park.classList.add("shared-three-renderer")
-      targets.park.dataset.sharedRendererFailure = "true"
-      targets.park.inert = true
-      targets.park.style.visibility = "hidden"
+      console.error("3D Zoo world frame rejected", error)
+      canvas.dataset.sharedRenderer = "failed"
+      canvas.dataset.worldRenderer = "failed"
       setReady(false)
+      setFailed(true)
       return false
     }
-  }, [targets])
-
-  const scheduleRender = useCallback(() => {
-    if (renderRequestRef.current !== null) return
-    renderRequestRef.current = window.requestAnimationFrame(() => {
-      renderRequestRef.current = null
-      renderCurrent()
-    })
-  }, [renderCurrent])
+  }, [
+    hoveredTile,
+    placement,
+    selectedDepot,
+    selectedGuestId,
+    selectedHabitatId,
+    snapshot,
+    tool,
+  ])
 
   const resetCamera = useCallback(() => {
-    if (!targets) return
-    const {snapshot: currentSnapshot} = renderInputsRef.current
     bridgeRef.current?.free()
-    bridgeRef.current = new ParkCameraBridge(currentSnapshot.width, currentSnapshot.height)
+    bridgeRef.current = new ParkCameraBridge(snapshot.width, snapshot.height)
     renderCurrent()
-  }, [renderCurrent, targets])
+  }, [renderCurrent, snapshot.height, snapshot.width])
 
   useEffect(() => {
-    if (!targets) return
     const canvas = canvasRef.current
     if (!canvas) return
     let cancelled = false
-    let mutationObserver: MutationObserver | null = null
-    let transformObserver: MutationObserver | null = null
-    let lastInlineTransform = ""
-
-    const syncBaseTransform = () => {
-      const next = targets.park.style.transform || "translate(0px, 0px) scale(1)"
-      if (next === lastInlineTransform) return
-      lastInlineTransform = next
-      if (targets.park.style.getPropertyValue("--zoo-base-transform").trim() !== next) {
-        targets.park.style.setProperty("--zoo-base-transform", next)
-      }
-    }
 
     void initScene()
       .then(() => {
         if (cancelled) return
-        const tiles = collectTiles(targets.park)
-        if (tiles.length === 0) throw new Error("Zoo renderer requires tile scene data")
-        const {snapshot: currentSnapshot} = renderInputsRef.current
-        bridgeRef.current = new ParkCameraBridge(currentSnapshot.width, currentSnapshot.height)
-        rendererRef.current = createThreeSceneRenderer(canvas, {alpha: true})
-        rendererRef.current.setSize(RENDER_WIDTH, RENDER_HEIGHT, window.devicePixelRatio || 1)
-        syncBaseTransform()
-        renderCurrent()
-
-        mutationObserver = new MutationObserver(scheduleRender)
-        mutationObserver.observe(targets.park, {
-          attributes: true,
-          attributeFilter: ["aria-label", "class", "style"],
-          childList: true,
-          subtree: true,
+        bridgeRef.current = new ParkCameraBridge(snapshot.width, snapshot.height)
+        rendererRef.current = createThreeSceneRenderer(canvas, {
+          alpha: false,
+          antialias: true,
+          background: "#315d43",
+          shadows: true,
+          pixelRatioLimit: 2,
         })
-        transformObserver = new MutationObserver(syncBaseTransform)
-        transformObserver.observe(targets.park, {attributes: true, attributeFilter: ["style"]})
+        rendererRef.current.setSize(RENDER_WIDTH, RENDER_HEIGHT, window.devicePixelRatio || 1)
+        setReady(true)
       })
       .catch((error) => {
-        console.error("Shared 3d-lab renderer failed; failing closed", error)
-        rendererRef.current?.dispose()
-        rendererRef.current = null
-        bridgeRef.current?.free()
-        bridgeRef.current = null
-        canvas.style.visibility = "hidden"
+        console.error("3D Zoo world failed to initialize", error)
         canvas.dataset.sharedRenderer = "failed"
-        targets.park.classList.add("shared-three-renderer")
-        targets.park.dataset.sharedRendererFailure = "true"
-        targets.park.inert = true
-        targets.park.style.visibility = "hidden"
+        canvas.dataset.worldRenderer = "failed"
+        setFailed(true)
         setReady(false)
       })
 
-    const resetFromTopBar = () => {
-      window.requestAnimationFrame(resetCamera)
-    }
-    const resetButton = document.querySelector<HTMLButtonElement>(".camera-reset")
-    resetButton?.addEventListener("click", resetFromTopBar)
-
-    const resetForNewPark = (event: MouseEvent) => {
-      if (!(event.target instanceof Element)) return
-      const button = event.target.closest<HTMLButtonElement>("button.secondary")
-      if (button?.textContent?.trim() === "Start new park") {
-        window.requestAnimationFrame(resetCamera)
-      }
-    }
-    document.addEventListener("click", resetForNewPark)
-
     return () => {
       cancelled = true
-      mutationObserver?.disconnect()
-      transformObserver?.disconnect()
-      resetButton?.removeEventListener("click", resetFromTopBar)
-      document.removeEventListener("click", resetForNewPark)
-      if (renderRequestRef.current !== null) {
-        window.cancelAnimationFrame(renderRequestRef.current)
-        renderRequestRef.current = null
-      }
       rendererRef.current?.dispose()
       rendererRef.current = null
       bridgeRef.current?.free()
       bridgeRef.current = null
-      targets.park.inert = false
-      targets.park.style.removeProperty("visibility")
-      delete targets.park.dataset.sharedRendererFailure
-      canvas.style.removeProperty("visibility")
-      delete canvas.dataset.sharedRendererFenceNodes
-      delete canvas.dataset.sharedRendererBoundaryFenceSegments
-      delete canvas.dataset.sharedRendererHabitatFenceSegments
-      delete canvas.dataset.sharedRendererPreviewFenceSegments
-      delete canvas.dataset.sharedRendererBuildingNodes
-      delete canvas.dataset.sharedRendererConcessionNodes
-      restoreDomOverlay(targets.park)
-      targets.park.classList.remove("shared-three-renderer")
+      cameraRef.current = null
+      delete canvas.__zooWorldDebug
       setReady(false)
     }
-  }, [renderCurrent, resetCamera, scheduleRender, targets])
+  }, [snapshot.height, snapshot.width])
 
   useEffect(() => {
-    if (ready) scheduleRender()
-  }, [placement, ready, scheduleRender, snapshot])
+    if (ready) renderCurrent()
+  }, [ready, renderCurrent])
+
+  useEffect(() => {
+    const reset = () => window.requestAnimationFrame(resetCamera)
+    const topBarReset = document.querySelector<HTMLButtonElement>(".camera-reset")
+    topBarReset?.addEventListener("click", reset)
+
+    const resetForNewPark = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return
+      const button = event.target.closest<HTMLButtonElement>("button.secondary")
+      if (button?.textContent?.trim() === "Start new park") reset()
+    }
+    document.addEventListener("click", resetForNewPark)
+
+    return () => {
+      topBarReset?.removeEventListener("click", reset)
+      document.removeEventListener("click", resetForNewPark)
+    }
+  }, [resetCamera])
+
+  const pointFromPointer = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current
+    const camera = cameraRef.current
+    if (!canvas || !camera) return null
+    const point = canvasPoint(canvas, event.clientX, event.clientY)
+    return point ? {canvas, camera, point} : null
+  }
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (tool === "pan") return
+    const context = pointFromPointer(event)
+    if (!context) return
+    const tile = pickTile(snapshot, context.camera, context.point)
+    if (!tile) return
+
+    if (tool === "path" || tool === "habitat") {
+      event.preventDefault()
+      event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      onTilePointerDown(event.pointerId, tile)
+    }
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const context = pointFromPointer(event)
+    if (!context) return
+    const tile = pickTile(snapshot, context.camera, context.point)
+    const key = tile ? `${tile.x}:${tile.y}` : null
+    if (key !== lastHoverKeyRef.current) {
+      lastHoverKeyRef.current = key
+      onHoverTile(tile ? {x: tile.x, y: tile.y} : null)
+    }
+    if (tile && (tool === "path" || tool === "habitat")) {
+      onTilePointerMove(event.pointerId, tile)
+    }
+  }
+
+  const handlePointerLeave = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) return
+    lastHoverKeyRef.current = null
+    onHoverTile(null)
+  }
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const handleClick = (event: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (tool === "pan" || tool === "path" || tool === "habitat") return
+    const canvas = canvasRef.current
+    const camera = cameraRef.current
+    if (!canvas || !camera) return
+    const point = canvasPoint(canvas, event.clientX, event.clientY)
+    if (!point) return
+
+    // Construction is ground-authoritative: nearby rendered actors/buildings must not steal
+    // the tile the user is explicitly trying to build on.
+    if (tool === "food" || tool === "drink") {
+      const tile = pickTile(snapshot, camera, point)
+      if (tile) onTileClick(tile)
+      return
+    }
+
+    const pick = pickWorld(snapshot, camera, point)
+    if (!pick) return
+
+    if (pick.kind === "guest") {
+      onGuestClick(pick.id)
+      return
+    }
+    if (pick.kind === "depot") {
+      onDepotClick()
+      return
+    }
+    onTileClick(pick.tile)
+  }
 
   const rotate = (steps: number) => {
     bridgeRef.current?.rotate_steps(steps)
@@ -1155,75 +1285,88 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
     renderCurrent()
   }
 
-  if (!targets) return null
+  const viewport =
+    typeof document === "undefined" ? null : document.querySelector<HTMLElement>(".viewport")
 
   return (
     <>
-      {createPortal(
-        <canvas
-          ref={canvasRef}
-          className="park-three-renderer-canvas"
-          width={RENDER_WIDTH}
-          height={RENDER_HEIGHT}
-          aria-hidden="true"
-          data-shared-renderer={ready ? "ready" : "loading"}
-        />,
-        targets.park,
+      <canvas
+        ref={canvasRef}
+        className={`park-three-renderer-canvas world-tool-${tool}`}
+        width={RENDER_WIDTH}
+        height={RENDER_HEIGHT}
+        tabIndex={0}
+        role="application"
+        aria-label="3D Zoo world. Use the build toolbar to select a tool, then interact with the park."
+        data-shared-renderer={failed ? "failed" : ready ? "ready" : "loading"}
+        data-world-renderer="exclusive"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onPointerLeave={handlePointerLeave}
+        onClick={handleClick}
+      />
+      {failed && (
+        <div className="renderer-failure" role="alert">
+          3D renderer unavailable
+        </div>
       )}
-      {createPortal(
-        <div className="camera-orbit-controls bevel" aria-label="3D camera orientation">
-          <span className="camera-orbit-label">View</span>
-          <button
-            type="button"
-            className="camera-orbit-left"
-            onClick={() => rotate(-1)}
-            title="Rotate camera left"
-            aria-label="Rotate camera left"
-          >
-            ↶
-          </button>
-          <button
-            type="button"
-            className="camera-orbit-right"
-            onClick={() => rotate(1)}
-            title="Rotate camera right"
-            aria-label="Rotate camera right"
-          >
-            ↷
-          </button>
-          <button
-            type="button"
-            className="camera-tilt-up"
-            onClick={() => tilt(PITCH_STEP)}
-            title="Lower camera"
-            aria-label="Lower camera"
-          >
-            ▾
-          </button>
-          <button
-            type="button"
-            className="camera-tilt-down"
-            onClick={() => tilt(-PITCH_STEP)}
-            title="Raise camera"
-            aria-label="Raise camera"
-          >
-            ▴
-          </button>
-          <button
-            type="button"
-            className="camera-orbit-reset"
-            onClick={resetCamera}
-            title="Reset 3D view"
-            aria-label="Reset 3D view"
-          >
-            ⌂
-          </button>
-          <small aria-live="polite">
-            {cameraLabel.yaw}° · {cameraLabel.pitch}°
-          </small>
-        </div>,
-        targets.viewport,
-      )}
+      {viewport &&
+        createPortal(
+          <div className="camera-orbit-controls bevel" aria-label="3D camera orientation">
+            <span className="camera-orbit-label">View</span>
+            <button
+              type="button"
+              className="camera-orbit-left"
+              onClick={() => rotate(-1)}
+              title="Rotate camera left"
+              aria-label="Rotate camera left"
+            >
+              ↶
+            </button>
+            <button
+              type="button"
+              className="camera-orbit-right"
+              onClick={() => rotate(1)}
+              title="Rotate camera right"
+              aria-label="Rotate camera right"
+            >
+              ↷
+            </button>
+            <button
+              type="button"
+              className="camera-tilt-up"
+              onClick={() => tilt(PITCH_STEP)}
+              title="Lower camera"
+              aria-label="Lower camera"
+            >
+              ▾
+            </button>
+            <button
+              type="button"
+              className="camera-tilt-down"
+              onClick={() => tilt(-PITCH_STEP)}
+              title="Raise camera"
+              aria-label="Raise camera"
+            >
+              ▴
+            </button>
+            <button
+              type="button"
+              className="camera-orbit-reset"
+              onClick={resetCamera}
+              title="Reset 3D view"
+              aria-label="Reset 3D view"
+            >
+              ⌂
+            </button>
+            <small aria-live="polite">
+              {cameraLabel.yaw}° · {cameraLabel.pitch}°
+            </small>
+          </div>,
+          viewport,
+        )}
     </>
   )
 }
