@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from "react"
+import {lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState} from "react"
 import type {
   ActionResult,
   Guest,
@@ -10,9 +10,15 @@ import type {
   Speed,
   Tool,
 } from "./game-types"
-import ParkView, {type ParkPick} from "./ParkView"
+import type {ParkPick} from "./ParkView"
 import type {SceneOverlay} from "./park-scene"
 import init, {ZooGame} from "./wasm/zoo_core"
+
+// The 3D park view (three.js renderer + zoo-scene WASM) is its own chunk so the HUD and the
+// simulation can start without it. The request starts at module load, in parallel with the
+// zoo-core WASM, rather than waiting for the first render.
+const parkViewModule = import("./ParkView")
+const ParkView = lazy(() => parkViewModule)
 
 function money(cents: number) {
   return new Intl.NumberFormat("en-US", {
@@ -461,19 +467,21 @@ export default function App() {
       </header>
 
       <section className="workspace">
-        <ParkView
-          snapshot={snapshot}
-          overlay={overlay}
-          paused={speed === 0}
-          dragTool={tool === "path" || tool === "habitat"}
-          resetToken={cameraResetToken}
-          tooltip={tooltip}
-          onTileDown={onTileDown}
-          onTileDrag={onTileDrag}
-          onToolGestureEnd={onToolGestureEnd}
-          onHover={setHoveredTile}
-          onPick={onPick}
-        />
+        <Suspense fallback={<div className="park-view park-view-loading">Loading 3D park…</div>}>
+          <ParkView
+            snapshot={snapshot}
+            overlay={overlay}
+            paused={speed === 0}
+            dragTool={tool === "path" || tool === "habitat"}
+            resetToken={cameraResetToken}
+            tooltip={tooltip}
+            onTileDown={onTileDown}
+            onTileDrag={onTileDrag}
+            onToolGestureEnd={onToolGestureEnd}
+            onHover={setHoveredTile}
+            onPick={onPick}
+          />
+        </Suspense>
 
         <aside className="side-panel bevel">
           {selectedDepot ? (

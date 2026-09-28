@@ -6,5 +6,16 @@ export default defineConfig({
   base: "./",
   build: {
     target: "es2022",
+    // three.js' WebGL core is ~540 kB minified on its own and cannot be split further; it is
+    // isolated in a vendor chunk (below) and loaded lazily with the park view.
+    chunkSizeWarningLimit: 600,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          // Keep three.js in its own long-lived chunk so Zoo-only changes don't invalidate it.
+          groups: [{name: "three", test: /node_modules[\\/]three[\\/]/}],
+        },
+      },
+    },
   },
 })

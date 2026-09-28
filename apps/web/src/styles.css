@@ -566,6 +566,13 @@ dd {
   color: #9b3a2f;
 }
 
+.park-view-loading {
+  display: grid;
+  place-items: center;
+  color: #1f352d;
+  font-weight: 800;
+}
+
 .park-view-error {
   position: absolute;
   inset: 0;
