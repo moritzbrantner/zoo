@@ -6,8 +6,17 @@ import {
 } from "@moritzbrantner/three-d-renderer"
 import {useEffect, useRef, useState, type ReactNode} from "react"
 import type {Point, Snapshot} from "./game-types"
-import type {RendererSceneNode} from "@moritzbrantner/three-d-renderer"
-import {buildActorFrame, buildStaticNodes, type PickAnchor, type SceneOverlay, type Vec3} from "./park-scene"
+import type {RendererInstanceBatch} from "@moritzbrantner/three-d-renderer"
+import {
+  buildActorFrame,
+  buildSceneryNodes,
+  buildStaticNodes,
+  sceneryKey,
+  type PickAnchor,
+  type SceneOverlay,
+  type Vec3,
+} from "./park-scene"
+import {batchNodes} from "./scene-batching"
 import initScene, {ParkCameraBridge} from "./scene-wasm/zoo_scene"
 
 // Browser adapter for the Zoo park view. It owns pointer/touch/keyboard gesture interpretation
@@ -77,7 +86,10 @@ type ViewDebugHook = {
   camera: () => {yawDegrees: number; pitchDegrees: number; zoom: number; target: Vec3} | null
   projectWorld: (point: Vec3) => {x: number; y: number; visible: boolean} | null
   parkFootprintInFrame: () => boolean
+  /** Scene parts submitted, counting each instance. */
   nodeCount: () => number
+  /** Renderer objects submitted: individual nodes plus one per instance batch. */
+  drawCount: () => number
 }
 
 declare global {
@@ -117,8 +129,11 @@ export default function ParkView(props: Props) {
     let viewport = {width: 1, height: 1}
     let anchors: PickAnchor[] = []
     let nodeCount = 0
+    let drawCount = 0
     let staticKey: {snapshot: Snapshot; overlay: SceneOverlay} | null = null
-    let staticNodes: RendererSceneNode[] = []
+    let staticGeneration = 0
+    let staticBatches: RendererInstanceBatch[] = []
+    let scenery: {key: string; batches: RendererInstanceBatch[]} | null = null
     let lastTime = performance.now()
     let hoverClient: [number, number] | null = null
     let hoverKey = ""
@@ -222,7 +237,16 @@ export default function ParkView(props: Props) {
           for (const actor of actors.values()) actor.seen = false
           if (staticKey?.snapshot !== current.snapshot || staticKey.overlay !== current.overlay) {
             staticKey = {snapshot: current.snapshot, overlay: current.overlay}
-            staticNodes = buildStaticNodes(current.snapshot, current.overlay)
+            staticGeneration += 1
+            staticBatches = batchNodes(
+              "static",
+              buildStaticNodes(current.snapshot, current.overlay),
+              String(staticGeneration),
+            )
+            const key = sceneryKey(current.snapshot)
+            if (scenery?.key !== key) {
+              scenery = {key, batches: batchNodes("scenery", buildSceneryNodes(current.snapshot), key)}
+            }
           }
           const frame = buildActorFrame({
             snapshot: current.snapshot,
@@ -233,9 +257,12 @@ export default function ParkView(props: Props) {
           })
           for (const [key, actor] of actors) if (!actor.seen) actors.delete(key)
           anchors = frame.anchors
-          const nodes = staticNodes.concat(frame.nodes)
-          nodeCount = nodes.length
-          renderer.render({camera, nodes})
+          const instanceBatches = scenery ? scenery.batches.concat(staticBatches) : staticBatches
+          nodeCount =
+            frame.nodes.length +
+            instanceBatches.reduce((sum, batch) => sum + batch.instances.length, 0)
+          drawCount = frame.nodes.length + instanceBatches.length
+          renderer.render({camera, nodes: frame.nodes, instanceBatches})
         } else if (cameraChanged) {
           renderer.renderCamera(camera)
         }
@@ -555,6 +582,7 @@ export default function ParkView(props: Props) {
           })
         },
         nodeCount: () => nodeCount,
+        drawCount: () => drawCount,
       }
     }
 
