@@ -32,14 +32,18 @@ type FenceSegment = Point & {
 function readPosition(element: HTMLElement): ScreenPoint | null {
   const left = Number.parseFloat(element.style.left)
   const top = Number.parseFloat(element.style.top)
-  if (!Number.isFinite(left) || !Number.isFinite(top)) return null
+  if (!Number.isFinite(left) || !Number.isFinite(top)) {
+    return null
+  }
   return { left, top }
 }
 
 function readTile(element: HTMLElement) {
   const label = element.getAttribute("aria-label")
   const match = label?.match(/^(?:grass|path|entrance|habitat) tile (\d+), (\d+)$/)
-  if (!match) return null
+  if (!match || match[1] === undefined || match[2] === undefined) {
+    return null
+  }
   return {
     x: Number.parseInt(match[1], 10),
     y: Number.parseInt(match[2], 10),
@@ -66,23 +70,31 @@ function sameMetrics(current: FrameMetrics | null, next: FrameMetrics) {
 
 function measureFrame(): FrameMetrics | null {
   const park = document.querySelector<HTMLElement>(".park")
-  if (!park) return null
+  if (!park) {
+    return null
+  }
 
   const tiles = [...park.querySelectorAll<HTMLElement>(".tile[aria-label]")]
     .map(readTile)
     .filter((tile): tile is NonNullable<ReturnType<typeof readTile>> => tile !== null)
-  if (tiles.length === 0) return null
+  if (tiles.length === 0) {
+    return null
+  }
 
   const originTile = tiles.find((tile) => tile.x === 0 && tile.y === 0)
   const xTile = tiles.find((tile) => tile.x === 1 && tile.y === 0)
   const yTile = tiles.find((tile) => tile.x === 0 && tile.y === 1)
   const entranceTile = tiles.find((tile) => tile.entrance)
-  if (!originTile || !xTile || !yTile || !entranceTile) return null
+  if (!originTile || !xTile || !yTile || !entranceTile) {
+    return null
+  }
 
   const origin = readPosition(originTile.element)
   const xPosition = readPosition(xTile.element)
   const yPosition = readPosition(yTile.element)
-  if (!origin || !xPosition || !yPosition) return null
+  if (!origin || !xPosition || !yPosition) {
+    return null
+  }
 
   return {
     park,
@@ -109,9 +121,15 @@ function project(frame: FrameMetrics, point: Point): ScreenPoint {
 }
 
 function entranceSide(frame: FrameMetrics): FenceSide {
-  if (frame.entrance.x === 0) return "west"
-  if (frame.entrance.x === frame.width - 1) return "east"
-  if (frame.entrance.y === 0) return "north"
+  if (frame.entrance.x === 0) {
+    return "west"
+  }
+  if (frame.entrance.x === frame.width - 1) {
+    return "east"
+  }
+  if (frame.entrance.y === 0) {
+    return "north"
+  }
   return "south"
 }
 
@@ -141,15 +159,17 @@ function outsideTiles(frame: FrameMetrics) {
   for (let y = -OUTSIDE_BORDER_TILES; y < frame.height + OUTSIDE_BORDER_TILES; y += 1) {
     for (let x = -OUTSIDE_BORDER_TILES; x < frame.width + OUTSIDE_BORDER_TILES; x += 1) {
       const inside = x >= 0 && y >= 0 && x < frame.width && y < frame.height
-      if (!inside) tiles.push({ x, y })
+      if (!inside) {
+        tiles.push({ x, y })
+      }
     }
   }
   return tiles.sort((a, b) => a.x + a.y - (b.x + b.y))
 }
 
 function ringDepth(point: Point, frame: FrameMetrics) {
-  const horizontal = point.x < 0 ? -point.x : point.x >= frame.width ? point.x - frame.width + 1 : 0
-  const vertical = point.y < 0 ? -point.y : point.y >= frame.height ? point.y - frame.height + 1 : 0
+  const horizontal = Math.max(-point.x, point.x - frame.width + 1, 0)
+  const vertical = Math.max(-point.y, point.y - frame.height + 1, 0)
   return Math.max(horizontal, vertical)
 }
 
@@ -168,7 +188,9 @@ function isEntranceApproach(point: Point, frame: FrameMetrics) {
 
 function mutationTouchesTiles(record: MutationRecord) {
   return [...record.addedNodes, ...record.removedNodes].some((node) => {
-    if (!(node instanceof Element)) return false
+    if (!(node instanceof Element)) {
+      return false
+    }
     return node.matches(".tile") || node.querySelector(".tile") !== null
   })
 }
@@ -178,17 +200,23 @@ export default function ParkFrameOverlay() {
 
   useEffect(() => {
     const root = document.getElementById("root")
-    if (!root) return
+    if (!root) {
+      return
+    }
 
     const sync = () => {
       const next = measureFrame()
-      if (!next) return
+      if (!next) {
+        return
+      }
       setFrame((current) => (sameMetrics(current, next) ? current : next))
     }
 
     sync()
     const observer = new MutationObserver((records) => {
-      if (records.some(mutationTouchesTiles)) sync()
+      if (records.some(mutationTouchesTiles)) {
+        sync()
+      }
     })
     observer.observe(root, { childList: true, subtree: true })
     return () => observer.disconnect()
@@ -198,7 +226,9 @@ export default function ParkFrameOverlay() {
   const fence = useMemo(() => (frame ? fenceSegments(frame) : []), [frame])
 
   useEffect(() => {
-    if (!frame) return
+    if (!frame) {
+      return
+    }
     const projected = outer.map((point) => project(frame, point))
     const maxLeft = Math.max(...projected.map((point) => point.left), frame.origin.left)
     const maxTop = Math.max(...projected.map((point) => point.top), frame.origin.top)
@@ -206,7 +236,9 @@ export default function ParkFrameOverlay() {
     frame.park.style.minHeight = `${Math.ceil(maxTop + 90)}px`
   }, [frame, outer])
 
-  if (!frame) return null
+  if (!frame) {
+    return null
+  }
 
   const entrancePosition = project(frame, frame.entrance)
   const side = entranceSide(frame)

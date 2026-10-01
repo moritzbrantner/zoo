@@ -21,12 +21,11 @@ The simulation core owns the game rules. Presentation code does not duplicate pl
 
 ## Run
 
-Requirements: Rust, `wasm-pack`, Bun 1.4.
+Requirements: stable Rust with the `wasm32-unknown-unknown` target, `wasm-pack`, and Bun 1.4.0 (declared in `apps/web/package.json`).
 
 ```sh
-cargo test
+make install
 cd apps/web
-bun install
 bun run dev
 ```
 
@@ -40,3 +39,11 @@ bun run dev
 6. Run the clock and watch guests, staff, animals, and operations react.
 
 The product roadmap starts at GitHub issue #20. Architecture convergence is part of the roadmap rather than deferred generalized-engine work.
+
+## Development checks
+
+Run `make verify` for the repository gate. It installs the committed Bun graph in frozen mode, builds both WASM adapters once, and checks Rust formatting, strict Clippy, workspace tests, web formatting, type-aware linting, strict TypeScript, and the production build. Cargo commands use the committed lockfile.
+
+Use `make format` to write formatting changes; verification never fixes source or rewrites lockfiles. `make format-check`, `make lint`, and `make typecheck` provide focused checks; typechecking requires `make wasm` after a clean checkout. Shared coding-tooling uses the same Bun package scripts through `.coding-tooling.json`.
+
+Engineering policy is resolved from the live shared `coding-agent-conventions` authority as described in `AGENTS.md`. Zoo retains its game and foundation authority boundaries. Generated bindings, dependencies, builds, browser captures, and agent run state remain ignored local output.
