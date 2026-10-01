@@ -10,7 +10,8 @@
   --zoo-camera-pitch: 0deg;
   --zoo-camera-pitch-inverse: 0deg;
   --zoo-camera-scale: 1;
-  transform: var(--zoo-base-transform) scale(var(--zoo-camera-scale)) rotateX(var(--zoo-camera-pitch)) rotateZ(var(--zoo-camera-yaw)) !important;
+  transform: var(--zoo-base-transform) scale(var(--zoo-camera-scale))
+    rotateX(var(--zoo-camera-pitch)) rotateZ(var(--zoo-camera-yaw)) !important;
   transform-origin: 50% 48% !important;
   transform-style: preserve-3d;
   transition: transform 220ms ease-out;
@@ -189,7 +190,8 @@
     transform: translateZ(28px) rotateX(var(--zoo-camera-pitch-inverse)) translateY(0) rotate(-2deg);
   }
   50% {
-    transform: translateZ(31px) rotateX(var(--zoo-camera-pitch-inverse)) translateY(-3px) rotate(2deg);
+    transform: translateZ(31px) rotateX(var(--zoo-camera-pitch-inverse)) translateY(-3px)
+      rotate(2deg);
   }
 }
 
@@ -199,7 +201,8 @@
     transform: translateZ(28px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(-4deg);
   }
   50% {
-    transform: translateZ(30px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(5deg) translateY(-2px);
+    transform: translateZ(30px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(5deg)
+      translateY(-2px);
   }
 }
 
@@ -209,7 +212,8 @@
     transform: translateZ(28px) rotateX(var(--zoo-camera-pitch-inverse)) translateY(0) rotate(-2deg);
   }
   50% {
-    transform: translateZ(33px) rotateX(var(--zoo-camera-pitch-inverse)) translateY(-5px) rotate(2deg);
+    transform: translateZ(33px) rotateX(var(--zoo-camera-pitch-inverse)) translateY(-5px)
+      rotate(2deg);
   }
 }
 
@@ -219,20 +223,24 @@
     transform: translateZ(30px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(-1deg) translateY(0);
   }
   45% {
-    transform: translateZ(30px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(6deg) translateY(1px);
+    transform: translateZ(30px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(6deg)
+      translateY(1px);
   }
   65% {
-    transform: translateZ(34px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(2deg) translateY(-3px);
+    transform: translateZ(34px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(2deg)
+      translateY(-3px);
   }
 }
 
 @keyframes animal-lumber {
   0%,
   100% {
-    transform: translateZ(28px) rotateX(var(--zoo-camera-pitch-inverse)) translateX(-2px) rotate(-2deg);
+    transform: translateZ(28px) rotateX(var(--zoo-camera-pitch-inverse)) translateX(-2px)
+      rotate(-2deg);
   }
   50% {
-    transform: translateZ(30px) rotateX(var(--zoo-camera-pitch-inverse)) translateX(2px) rotate(2deg);
+    transform: translateZ(30px) rotateX(var(--zoo-camera-pitch-inverse)) translateX(2px)
+      rotate(2deg);
   }
 }
 
@@ -242,7 +250,8 @@
     transform: translateZ(28px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(-8deg) translateY(0);
   }
   50% {
-    transform: translateZ(30px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(8deg) translateY(-2px);
+    transform: translateZ(30px) rotateX(var(--zoo-camera-pitch-inverse)) rotate(8deg)
+      translateY(-2px);
   }
 }
 

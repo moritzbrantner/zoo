@@ -6,8 +6,9 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react"
+
 import Park3DRenderer from "./Park3DRenderer"
-import init, {ZooGame} from "./wasm/zoo_core"
+import init, { ZooGame } from "./wasm/zoo_core"
 
 type Tool = "select" | "pan" | "path" | "habitat" | "food" | "drink" | "bulldoze"
 type Speed = 0 | 1 | 2 | 4
@@ -331,7 +332,7 @@ function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot
   for (let y = top; y <= bottom; y += 1) {
     for (let x = left; x <= right; x += 1) {
       if (x >= 0 && y >= 0 && x < snapshot.width && y < snapshot.height) {
-        tiles.push({x, y})
+        tiles.push({ x, y })
       }
     }
   }
@@ -367,7 +368,7 @@ export default function App() {
   const [fenceStart, setFenceStart] = useState<Point | null>(null)
   const [fenceEnd, setFenceEnd] = useState<Point | null>(null)
   const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState<Point>({x: 0, y: 0})
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 })
 
   const clearFenceGesture = useCallback(() => {
     drawingFenceRef.current = false
@@ -505,7 +506,7 @@ export default function App() {
       event.stopPropagation()
       if (drawingFenceRef.current) return
 
-      const point = {x: tile.x, y: tile.y}
+      const point = { x: tile.x, y: tile.y }
       drawingFenceRef.current = true
       fencePointerIdRef.current = event.pointerId
       fenceStartRef.current = point
@@ -516,7 +517,7 @@ export default function App() {
   }
 
   const onTilePointerEnter = (event: ReactPointerEvent<HTMLButtonElement>, tile: Tile) => {
-    const point = {x: tile.x, y: tile.y}
+    const point = { x: tile.x, y: tile.y }
     setHoveredTile(point)
     if (tool === "path" && paintingRef.current) {
       paintPath(tile)
@@ -646,7 +647,7 @@ export default function App() {
     setSelectedDepot(false)
     setHoveredTile(null)
     setZoom(1)
-    setPan({x: 0, y: 0})
+    setPan({ x: 0, y: 0 })
     setMessage("New park started.")
     setMessageKind("info")
     refresh()
@@ -707,7 +708,7 @@ export default function App() {
             className="camera-reset"
             onClick={() => {
               setZoom(1)
-              setPan({x: 0, y: 0})
+              setPan({ x: 0, y: 0 })
             }}
             title="Reset camera"
           >
@@ -879,7 +880,9 @@ export default function App() {
                     setSelectedHabitatId(null)
                     setSelectedDepot(true)
                     setTool("select")
-                    setMessage("Central operations depot selected · stock animal feed and hire park staff here.")
+                    setMessage(
+                      "Central operations depot selected · stock animal feed and hire park staff here.",
+                    )
                     setMessageKind("info")
                   }}
                 >
@@ -975,8 +978,6 @@ export default function App() {
                 </span>
               )
             })}
-
-
 
             {snapshot.maintenance.map((task) => {
               const position = isoPosition(task.x, task.y)
@@ -1334,7 +1335,7 @@ export default function App() {
                   </div>
                 </dl>
                 <div className="meter">
-                  <span style={{width: `${selectedHabitat.welfare}%`}} />
+                  <span style={{ width: `${selectedHabitat.welfare}%` }} />
                 </div>
 
                 <h3>Care</h3>
@@ -1417,7 +1418,8 @@ export default function App() {
                         <span>
                           <b>{offer.label}</b>
                           <small>
-                            Group {offer.minimum_social_group}+ · {offer.space_per_animal} space each
+                            Group {offer.minimum_social_group}+ · {offer.space_per_animal} space
+                            each
                           </small>
                         </span>
                       </span>
@@ -1575,9 +1577,7 @@ export default function App() {
 
       <footer className="bottom-dock">
         <div className="message-stack">
-          <div className={`message bevel ${messageKind === "error" ? "error" : ""}`}>
-            {message}
-          </div>
+          <div className={`message bevel ${messageKind === "error" ? "error" : ""}`}>{message}</div>
           <div className="tool-hint">{toolHint(tool)}</div>
         </div>
         <nav className="toolbar bevel" aria-label="Build tools">
@@ -1665,7 +1665,7 @@ function NeedBar({
         <strong>{value}%</strong>
       </div>
       <div className="need-track">
-        <span style={{width: `${value}%`}} />
+        <span style={{ width: `${value}%` }} />
       </div>
     </div>
   )

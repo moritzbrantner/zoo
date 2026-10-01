@@ -6,10 +6,11 @@ import {
   type RendererSceneNode,
   type ThreeSceneRenderer,
 } from "@moritzbrantner/three-d-renderer"
-import {useCallback, useEffect, useRef, useState} from "react"
-import {createPortal} from "react-dom"
-import type {PlacementEvaluation, Snapshot} from "./App"
-import initScene, {ParkCameraBridge} from "./scene-wasm/zoo_scene"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
+
+import type { PlacementEvaluation, Snapshot } from "./App"
+import initScene, { ParkCameraBridge } from "./scene-wasm/zoo_scene"
 
 const RENDER_WIDTH = 1240
 const RENDER_HEIGHT = 720
@@ -103,11 +104,10 @@ function renderNodes(tiles: TileDescriptor[]): RendererSceneNode[] {
       // center of the real 3D tile. Camera/projection math remains owned by 3d-lab.
       translation: [tile.x + 1, -0.06, tile.y],
     },
-    geometry: {kind: "box", size: [1, 0.12, 1]},
+    geometry: { kind: "box", size: [1, 0.12, 1] },
     color: TILE_COLORS[tile.kind],
   }))
 }
-
 
 type HexColor = `#${string}`
 
@@ -136,10 +136,8 @@ function sceneBox(
   return {
     id,
     transform:
-      rotationQuaternion === undefined
-        ? {translation}
-        : {translation, rotationQuaternion},
-    geometry: {kind: "box", size},
+      rotationQuaternion === undefined ? { translation } : { translation, rotationQuaternion },
+    geometry: { kind: "box", size },
     color,
   }
 }
@@ -153,8 +151,8 @@ function sceneCylinder(
 ): RendererSceneNode {
   return {
     id,
-    transform: {translation},
-    geometry: {kind: "cylinder", radius, height},
+    transform: { translation },
+    geometry: { kind: "cylinder", radius, height },
     color,
   }
 }
@@ -182,22 +180,22 @@ function boundaryFenceSegments(snapshot: Snapshot) {
   for (let x = 0; x < snapshot.width; x += 1) {
     if (!(entranceSide === "north" && x === snapshot.entrance.x)) {
       const [start, end] = fenceEndpoints(x, 0, "north")
-      segments.push({id: `boundary:north:${x}`, start, end, boundary: true, preview: false})
+      segments.push({ id: `boundary:north:${x}`, start, end, boundary: true, preview: false })
     }
     if (!(entranceSide === "south" && x === snapshot.entrance.x)) {
       const [start, end] = fenceEndpoints(x, snapshot.height - 1, "south")
-      segments.push({id: `boundary:south:${x}`, start, end, boundary: true, preview: false})
+      segments.push({ id: `boundary:south:${x}`, start, end, boundary: true, preview: false })
     }
   }
 
   for (let z = 0; z < snapshot.height; z += 1) {
     if (!(entranceSide === "west" && z === snapshot.entrance.y)) {
       const [start, end] = fenceEndpoints(0, z, "west")
-      segments.push({id: `boundary:west:${z}`, start, end, boundary: true, preview: false})
+      segments.push({ id: `boundary:west:${z}`, start, end, boundary: true, preview: false })
     }
     if (!(entranceSide === "east" && z === snapshot.entrance.y)) {
       const [start, end] = fenceEndpoints(snapshot.width - 1, z, "east")
-      segments.push({id: `boundary:east:${z}`, start, end, boundary: true, preview: false})
+      segments.push({ id: `boundary:east:${z}`, start, end, boundary: true, preview: false })
     }
   }
 
@@ -253,7 +251,7 @@ function renderFenceNodes(snapshot: Snapshot, placement: PlacementEvaluation | n
   const committedSegments = [...committed.values()]
   const segments = [...committedSegments, ...preview]
   const nodes: RendererSceneNode[] = []
-  const posts = new Map<string, {point: WorldPoint; boundary: boolean; preview: boolean}>()
+  const posts = new Map<string, { point: WorldPoint; boundary: boolean; preview: boolean }>()
 
   for (const segment of segments) {
     const deltaX = segment.end[0] - segment.start[0]
@@ -279,7 +277,11 @@ function renderFenceNodes(snapshot: Snapshot, placement: PlacementEvaluation | n
     for (const point of [segment.start, segment.end]) {
       const key = worldPointKey(point)
       const existing = posts.get(key)
-      if (!existing || segment.boundary || (!existing.boundary && !segment.preview && existing.preview)) {
+      if (
+        !existing ||
+        segment.boundary ||
+        (!existing.boundary && !segment.preview && existing.preview)
+      ) {
         posts.set(key, {
           point,
           boundary: segment.boundary || existing?.boundary === true,
@@ -289,7 +291,9 @@ function renderFenceNodes(snapshot: Snapshot, placement: PlacementEvaluation | n
     }
   }
 
-  for (const [key, post] of [...posts.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [key, post] of [...posts.entries()].sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
     const color: HexColor = post.preview
       ? placement?.ok
         ? "#e8d276"
@@ -352,7 +356,7 @@ function rotateLocalOffset(x: number, z: number, yaw: number) {
 
 function buildingBox(
   id: string,
-  origin: {x: number; z: number},
+  origin: { x: number; z: number },
   local: WorldPoint,
   size: WorldPoint,
   color: HexColor,
@@ -370,18 +374,24 @@ function buildingBox(
 
 function buildingCylinder(
   id: string,
-  origin: {x: number; z: number},
+  origin: { x: number; z: number },
   local: WorldPoint,
   radius: number,
   height: number,
   color: HexColor,
 ) {
   const offset = rotateLocalOffset(local[0], local[2], 0)
-  return sceneCylinder(id, [origin.x + offset.x, local[1], origin.z + offset.z], radius, height, color)
+  return sceneCylinder(
+    id,
+    [origin.x + offset.x, local[1], origin.z + offset.z],
+    radius,
+    height,
+    color,
+  )
 }
 
 function renderEntranceBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
-  const origin = {x: snapshot.entrance.x + 1, z: snapshot.entrance.y}
+  const origin = { x: snapshot.entrance.x + 1, z: snapshot.entrance.y }
   const yaw = yawForSide(entranceBoundarySide(snapshot))
   const wall: HexColor = "#d8c79d"
   const trim: HexColor = "#eadfbf"
@@ -389,29 +399,106 @@ function renderEntranceBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
   const door: HexColor = "#244d45"
 
   return [
-    buildingBox("building:entrance:plinth", origin, [0, 0.06, 0], [1.72, 0.12, 0.94], "#b7aa88", yaw),
-    buildingBox("building:entrance:left-wing", origin, [-0.56, 0.49, 0.01], [0.5, 0.86, 0.68], wall, yaw),
-    buildingBox("building:entrance:right-wing", origin, [0.56, 0.49, 0.01], [0.5, 0.86, 0.68], wall, yaw),
-    buildingBox("building:entrance:center", origin, [0, 0.62, -0.02], [0.58, 1.12, 0.74], wall, yaw),
-    buildingBox("building:entrance:left-roof", origin, [-0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
-    buildingBox("building:entrance:right-roof", origin, [0.56, 0.96, 0], [0.62, 0.12, 0.82], roof, yaw),
-    buildingBox("building:entrance:left-window", origin, [-0.56, 0.57, 0.352], [0.22, 0.3, 0.035], "#87c7d8", yaw),
-    buildingBox("building:entrance:right-window", origin, [0.56, 0.57, 0.352], [0.22, 0.3, 0.035], "#87c7d8", yaw),
+    buildingBox(
+      "building:entrance:plinth",
+      origin,
+      [0, 0.06, 0],
+      [1.72, 0.12, 0.94],
+      "#b7aa88",
+      yaw,
+    ),
+    buildingBox(
+      "building:entrance:left-wing",
+      origin,
+      [-0.56, 0.49, 0.01],
+      [0.5, 0.86, 0.68],
+      wall,
+      yaw,
+    ),
+    buildingBox(
+      "building:entrance:right-wing",
+      origin,
+      [0.56, 0.49, 0.01],
+      [0.5, 0.86, 0.68],
+      wall,
+      yaw,
+    ),
+    buildingBox(
+      "building:entrance:center",
+      origin,
+      [0, 0.62, -0.02],
+      [0.58, 1.12, 0.74],
+      wall,
+      yaw,
+    ),
+    buildingBox(
+      "building:entrance:left-roof",
+      origin,
+      [-0.56, 0.96, 0],
+      [0.62, 0.12, 0.82],
+      roof,
+      yaw,
+    ),
+    buildingBox(
+      "building:entrance:right-roof",
+      origin,
+      [0.56, 0.96, 0],
+      [0.62, 0.12, 0.82],
+      roof,
+      yaw,
+    ),
+    buildingBox(
+      "building:entrance:left-window",
+      origin,
+      [-0.56, 0.57, 0.352],
+      [0.22, 0.3, 0.035],
+      "#87c7d8",
+      yaw,
+    ),
+    buildingBox(
+      "building:entrance:right-window",
+      origin,
+      [0.56, 0.57, 0.352],
+      [0.22, 0.3, 0.035],
+      "#87c7d8",
+      yaw,
+    ),
     buildingCylinder("building:entrance:tower-roof", origin, [0, 1.22, -0.03], 0.42, 0.18, roof),
     buildingBox("building:entrance:door", origin, [0, 0.39, 0.39], [0.28, 0.54, 0.06], door, yaw),
-    buildingBox("building:entrance:sign", origin, [0, 0.88, 0.405], [0.64, 0.18, 0.05], "#e0bf65", yaw),
-    buildingBox("building:entrance:left-column", origin, [-0.23, 0.46, 0.405], [0.09, 0.68, 0.07], trim, yaw),
-    buildingBox("building:entrance:right-column", origin, [0.23, 0.46, 0.405], [0.09, 0.68, 0.07], trim, yaw),
+    buildingBox(
+      "building:entrance:sign",
+      origin,
+      [0, 0.88, 0.405],
+      [0.64, 0.18, 0.05],
+      "#e0bf65",
+      yaw,
+    ),
+    buildingBox(
+      "building:entrance:left-column",
+      origin,
+      [-0.23, 0.46, 0.405],
+      [0.09, 0.68, 0.07],
+      trim,
+      yaw,
+    ),
+    buildingBox(
+      "building:entrance:right-column",
+      origin,
+      [0.23, 0.46, 0.405],
+      [0.09, 0.68, 0.07],
+      trim,
+      yaw,
+    ),
   ]
 }
 
 function depotOrigin(snapshot: Snapshot) {
   const depot = snapshot.animal_care_depot
-  return {x: depot.x + 1, z: depot.y}
+  return { x: depot.x + 1, z: depot.y }
 }
 
 function concessionOrigin(stand: Snapshot["concessions"][number]) {
-  return {x: stand.x + 1, z: stand.y}
+  return { x: stand.x + 1, z: stand.y }
 }
 
 function renderDepotBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
@@ -420,10 +507,29 @@ function renderDepotBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
     buildingBox("building:depot:plinth", origin, [0, 0.06, 0], [1.3, 0.12, 1.02], "#a9a68f"),
     buildingBox("building:depot:shell", origin, [0, 0.49, 0], [1.18, 0.86, 0.9], "#c9c4ae"),
     buildingBox("building:depot:roof", origin, [0, 0.98, 0], [1.32, 0.12, 1.04], "#5c716f"),
-    buildingBox("building:depot:garage-door", origin, [0, 0.39, 0.475], [0.72, 0.56, 0.05], "#42695f"),
+    buildingBox(
+      "building:depot:garage-door",
+      origin,
+      [0, 0.39, 0.475],
+      [0.72, 0.56, 0.05],
+      "#42695f",
+    ),
     buildingBox("building:depot:sign", origin, [0, 0.84, 0.495], [0.62, 0.17, 0.05], "#d7c891"),
-    buildingCylinder("building:depot:roof-vent", origin, [-0.28, 1.16, -0.08], 0.075, 0.22, "#6f7e7b"),
-    buildingBox("building:depot:side-window", origin, [0.39, 0.64, 0.458], [0.24, 0.2, 0.025], "#87c7d8"),
+    buildingCylinder(
+      "building:depot:roof-vent",
+      origin,
+      [-0.28, 1.16, -0.08],
+      0.075,
+      0.22,
+      "#6f7e7b",
+    ),
+    buildingBox(
+      "building:depot:side-window",
+      origin,
+      [0.39, 0.64, 0.458],
+      [0.24, 0.2, 0.025],
+      "#87c7d8",
+    ),
   ]
 
   for (const [index, y] of [0.18, 0.31, 0.44, 0.57].entries()) {
@@ -455,7 +561,13 @@ function renderConcessionNodes(snapshot: Snapshot): RendererSceneNode[] {
           : accent
 
     nodes.push(
-      buildingBox(`concession:${stand.id}:counter`, origin, [0, 0.38, 0], [0.82, 0.7, 0.62], accent),
+      buildingBox(
+        `concession:${stand.id}:counter`,
+        origin,
+        [0, 0.38, 0],
+        [0.82, 0.7, 0.62],
+        accent,
+      ),
       buildingBox(
         `concession:${stand.id}:service-window`,
         origin,
@@ -564,7 +676,7 @@ function renderBuildingNodes(snapshot: Snapshot): RendererSceneNode[] {
 }
 
 function relativeYaw(yawDegrees: number) {
-  return ((yawDegrees - DEFAULT_SHARED_YAW) % 360 + 360) % 360
+  return (((yawDegrees - DEFAULT_SHARED_YAW) % 360) + 360) % 360
 }
 
 function relativePitch(pitchDegrees: number) {
@@ -613,7 +725,9 @@ function captureCanonicalPosition(element: HTMLElement) {
 
   const baseLeft = Number(element.dataset.sharedRendererBaseLeft)
   const baseTop = Number(element.dataset.sharedRendererBaseTop)
-  return Number.isFinite(baseLeft) && Number.isFinite(baseTop) ? {left: baseLeft, top: baseTop} : null
+  return Number.isFinite(baseLeft) && Number.isFinite(baseTop)
+    ? { left: baseLeft, top: baseTop }
+    : null
 }
 
 function captureCanonicalZIndex(element: HTMLElement) {
@@ -625,19 +739,20 @@ function captureCanonicalZIndex(element: HTMLElement) {
 }
 
 function overlayRule(element: HTMLElement): OverlayRule | null {
-  if (element.classList.contains("placement-price")) return {offsetX: 24, offsetY: -52, snap: 1}
-  if (element.classList.contains("entrance-gate")) return {offsetX: -24, offsetY: -48, snap: 1}
-  if (element.classList.contains("care-depot")) return {offsetX: 4, offsetY: -54, snap: 1}
-  if (element.classList.contains("concession")) return {offsetX: 8, offsetY: -42, snap: 1}
-  if (element.classList.contains("litter")) return {offsetX: 20, offsetY: 8, snap: 1}
-  if (element.classList.contains("janitor")) return {offsetX: 22, offsetY: -8, snap: 1}
-  if (element.classList.contains("maintenance-alert")) return {offsetX: 38, offsetY: -50, snap: 1}
-  if (element.classList.contains("mechanic")) return {offsetX: 18, offsetY: -9, snap: 1}
-  if (element.classList.contains("animal")) return {offsetX: 14, offsetY: -16, snap: 1}
-  if (element.classList.contains("empty-habitat-marker")) return {offsetX: 15, offsetY: -10, snap: 0.5}
-  if (element.classList.contains("guest")) return {offsetX: 24, offsetY: -4, snap: 1}
+  if (element.classList.contains("placement-price")) return { offsetX: 24, offsetY: -52, snap: 1 }
+  if (element.classList.contains("entrance-gate")) return { offsetX: -24, offsetY: -48, snap: 1 }
+  if (element.classList.contains("care-depot")) return { offsetX: 4, offsetY: -54, snap: 1 }
+  if (element.classList.contains("concession")) return { offsetX: 8, offsetY: -42, snap: 1 }
+  if (element.classList.contains("litter")) return { offsetX: 20, offsetY: 8, snap: 1 }
+  if (element.classList.contains("janitor")) return { offsetX: 22, offsetY: -8, snap: 1 }
+  if (element.classList.contains("maintenance-alert")) return { offsetX: 38, offsetY: -50, snap: 1 }
+  if (element.classList.contains("mechanic")) return { offsetX: 18, offsetY: -9, snap: 1 }
+  if (element.classList.contains("animal")) return { offsetX: 14, offsetY: -16, snap: 1 }
+  if (element.classList.contains("empty-habitat-marker"))
+    return { offsetX: 15, offsetY: -10, snap: 0.5 }
+  if (element.classList.contains("guest")) return { offsetX: 24, offsetY: -4, snap: 1 }
   if (element.classList.contains("park-entrance-building")) {
-    return {offsetX: 0, offsetY: -64, snap: 1}
+    return { offsetX: 0, offsetY: -64, snap: 1 }
   }
   return null
 }
@@ -710,14 +825,14 @@ function projectTileFootprint(element: HTMLElement, tile: TileDescriptor, camera
   projectPolygonFootprint(element, tileTopCorners(tile.x, tile.y), camera)
 }
 
-function canonicalWorldTile(canonical: {left: number; top: number}) {
+function canonicalWorldTile(canonical: { left: number; top: number }) {
   const [rawX, , rawZ] = pseudoWorldPoint(canonical.left, canonical.top)
-  return {x: snap(rawX, 1), z: snap(rawZ, 1)}
+  return { x: snap(rawX, 1), z: snap(rawZ, 1) }
 }
 
 function projectCanonicalTileFootprint(
   element: HTMLElement,
-  canonical: {left: number; top: number},
+  canonical: { left: number; top: number },
   camera: RendererCamera,
 ) {
   const tile = canonicalWorldTile(canonical)
@@ -752,7 +867,7 @@ function fenceEndpoints(x: number, z: number, side: FenceSide): [WorldPoint, Wor
 
 function projectFenceSegment(
   element: HTMLElement,
-  canonical: {left: number; top: number},
+  canonical: { left: number; top: number },
   camera: RendererCamera,
 ) {
   const side = readFenceSide(element)
@@ -784,7 +899,7 @@ function projectFenceSegment(
   return true
 }
 
-function inferWorldAnchor(canonical: {left: number; top: number}, rule: OverlayRule) {
+function inferWorldAnchor(canonical: { left: number; top: number }, rule: OverlayRule) {
   const [rawX, , rawZ] = pseudoWorldPoint(
     canonical.left - rule.offsetX,
     canonical.top - rule.offsetY,
@@ -816,7 +931,11 @@ function projectWorldHitTarget(
   applyProjectedDepth(element, projected.depth)
 }
 
-function projectOverlay(element: HTMLElement, canonical: {left: number; top: number}, camera: RendererCamera) {
+function projectOverlay(
+  element: HTMLElement,
+  canonical: { left: number; top: number },
+  camera: RendererCamera,
+) {
   const rule = overlayRule(element)
   if (!rule) return
   const anchor = inferWorldAnchor(canonical, rule)
@@ -929,15 +1048,15 @@ function parseCameraFrame(bridge: ParkCameraBridge): CameraFrame {
   return JSON.parse(bridge.frame_json(RENDER_ASPECT)) as CameraFrame
 }
 
-export default function Park3DRenderer({snapshot, placement}: Props) {
+export default function Park3DRenderer({ snapshot, placement }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<ThreeSceneRenderer | null>(null)
   const bridgeRef = useRef<ParkCameraBridge | null>(null)
   const renderRequestRef = useRef<number | null>(null)
-  const renderInputsRef = useRef<RendererInputs>({snapshot, placement})
-  renderInputsRef.current = {snapshot, placement}
+  const renderInputsRef = useRef<RendererInputs>({ snapshot, placement })
+  renderInputsRef.current = { snapshot, placement }
   const [targets, setTargets] = useState<Targets | null>(null)
-  const [cameraLabel, setCameraLabel] = useState({yaw: 0, pitch: 0})
+  const [cameraLabel, setCameraLabel] = useState({ yaw: 0, pitch: 0 })
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -949,13 +1068,13 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
       const viewport = root.querySelector<HTMLElement>(".viewport")
       if (!park || !viewport) return
       setTargets((current) =>
-        current?.park === park && current.viewport === viewport ? current : {park, viewport},
+        current?.park === park && current.viewport === viewport ? current : { park, viewport },
       )
     }
 
     sync()
     const observer = new MutationObserver(sync)
-    observer.observe(root, {childList: true, subtree: true})
+    observer.observe(root, { childList: true, subtree: true })
     return () => observer.disconnect()
   }, [])
 
@@ -966,7 +1085,7 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
       if (tiles.length === 0) return false
 
       const camera = parseCameraFrame(bridgeRef.current)
-      const {snapshot: currentSnapshot, placement: currentPlacement} = renderInputsRef.current
+      const { snapshot: currentSnapshot, placement: currentPlacement } = renderInputsRef.current
       const tileNodes = renderNodes(tiles)
       const fenceFrame = renderFenceNodes(currentSnapshot, currentPlacement)
       const buildingNodes = renderBuildingNodes(currentSnapshot)
@@ -978,9 +1097,15 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
       rendererRef.current.render(frame)
       if (canvasRef.current) {
         canvasRef.current.dataset.sharedRendererFenceNodes = String(fenceFrame.nodes.length)
-        canvasRef.current.dataset.sharedRendererBoundaryFenceSegments = String(fenceFrame.counts.boundary)
-        canvasRef.current.dataset.sharedRendererHabitatFenceSegments = String(fenceFrame.counts.habitat)
-        canvasRef.current.dataset.sharedRendererPreviewFenceSegments = String(fenceFrame.counts.preview)
+        canvasRef.current.dataset.sharedRendererBoundaryFenceSegments = String(
+          fenceFrame.counts.boundary,
+        )
+        canvasRef.current.dataset.sharedRendererHabitatFenceSegments = String(
+          fenceFrame.counts.habitat,
+        )
+        canvasRef.current.dataset.sharedRendererPreviewFenceSegments = String(
+          fenceFrame.counts.preview,
+        )
         canvasRef.current.dataset.sharedRendererBuildingNodes = String(buildingNodes.length)
         canvasRef.current.dataset.sharedRendererConcessionNodes = String(concessionNodes.length)
       }
@@ -995,11 +1120,13 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
       if (targets.park.style.getPropertyValue("--zoo-camera-yaw-inverse").trim() !== inverseYaw) {
         targets.park.style.setProperty("--zoo-camera-yaw-inverse", inverseYaw)
       }
-      if (targets.park.style.getPropertyValue("--zoo-camera-pitch-inverse").trim() !== inversePitch) {
+      if (
+        targets.park.style.getPropertyValue("--zoo-camera-pitch-inverse").trim() !== inversePitch
+      ) {
         targets.park.style.setProperty("--zoo-camera-pitch-inverse", inversePitch)
       }
       setCameraLabel((current) =>
-        current.yaw === yaw && current.pitch === pitch ? current : {yaw, pitch},
+        current.yaw === yaw && current.pitch === pitch ? current : { yaw, pitch },
       )
       if (!targets.park.classList.contains("shared-three-renderer")) {
         targets.park.classList.add("shared-three-renderer")
@@ -1035,7 +1162,7 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
 
   const resetCamera = useCallback(() => {
     if (!targets) return
-    const {snapshot: currentSnapshot} = renderInputsRef.current
+    const { snapshot: currentSnapshot } = renderInputsRef.current
     bridgeRef.current?.free()
     bridgeRef.current = new ParkCameraBridge(currentSnapshot.width, currentSnapshot.height)
     renderCurrent()
@@ -1064,9 +1191,9 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
         if (cancelled) return
         const tiles = collectTiles(targets.park)
         if (tiles.length === 0) throw new Error("Zoo renderer requires tile scene data")
-        const {snapshot: currentSnapshot} = renderInputsRef.current
+        const { snapshot: currentSnapshot } = renderInputsRef.current
         bridgeRef.current = new ParkCameraBridge(currentSnapshot.width, currentSnapshot.height)
-        rendererRef.current = createThreeSceneRenderer(canvas, {alpha: true})
+        rendererRef.current = createThreeSceneRenderer(canvas, { alpha: true })
         rendererRef.current.setSize(RENDER_WIDTH, RENDER_HEIGHT, window.devicePixelRatio || 1)
         syncBaseTransform()
         renderCurrent()
@@ -1079,7 +1206,7 @@ export default function Park3DRenderer({snapshot, placement}: Props) {
           subtree: true,
         })
         transformObserver = new MutationObserver(syncBaseTransform)
-        transformObserver.observe(targets.park, {attributes: true, attributeFilter: ["style"]})
+        transformObserver.observe(targets.park, { attributes: true, attributeFilter: ["style"] })
       })
       .catch((error) => {
         console.error("Shared 3d-lab renderer failed; failing closed", error)

@@ -1,5 +1,5 @@
-import {useEffect, useMemo, useState} from "react"
-import {createPortal} from "react-dom"
+import { useEffect, useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 
 const OUTSIDE_BORDER_TILES = 4
 
@@ -33,7 +33,7 @@ function readPosition(element: HTMLElement): ScreenPoint | null {
   const left = Number.parseFloat(element.style.left)
   const top = Number.parseFloat(element.style.top)
   if (!Number.isFinite(left) || !Number.isFinite(top)) return null
-  return {left, top}
+  return { left, top }
 }
 
 function readTile(element: HTMLElement) {
@@ -88,7 +88,7 @@ function measureFrame(): FrameMetrics | null {
     park,
     width: Math.max(...tiles.map((tile) => tile.x)) + 1,
     height: Math.max(...tiles.map((tile) => tile.y)) + 1,
-    entrance: {x: entranceTile.x, y: entranceTile.y},
+    entrance: { x: entranceTile.x, y: entranceTile.y },
     origin,
     xStep: {
       left: xPosition.left - origin.left,
@@ -126,12 +126,12 @@ function isEntranceFenceGap(segment: FenceSegment, frame: FrameMetrics) {
 function fenceSegments(frame: FrameMetrics) {
   const segments: FenceSegment[] = []
   for (let x = 0; x < frame.width; x += 1) {
-    segments.push({x, y: 0, side: "north"})
-    segments.push({x, y: frame.height - 1, side: "south"})
+    segments.push({ x, y: 0, side: "north" })
+    segments.push({ x, y: frame.height - 1, side: "south" })
   }
   for (let y = 0; y < frame.height; y += 1) {
-    segments.push({x: 0, y, side: "west"})
-    segments.push({x: frame.width - 1, y, side: "east"})
+    segments.push({ x: 0, y, side: "west" })
+    segments.push({ x: frame.width - 1, y, side: "east" })
   }
   return segments.filter((segment) => !isEntranceFenceGap(segment, frame))
 }
@@ -141,7 +141,7 @@ function outsideTiles(frame: FrameMetrics) {
   for (let y = -OUTSIDE_BORDER_TILES; y < frame.height + OUTSIDE_BORDER_TILES; y += 1) {
     for (let x = -OUTSIDE_BORDER_TILES; x < frame.width + OUTSIDE_BORDER_TILES; x += 1) {
       const inside = x >= 0 && y >= 0 && x < frame.width && y < frame.height
-      if (!inside) tiles.push({x, y})
+      if (!inside) tiles.push({ x, y })
     }
   }
   return tiles.sort((a, b) => a.x + a.y - (b.x + b.y))
@@ -190,7 +190,7 @@ export default function ParkFrameOverlay() {
     const observer = new MutationObserver((records) => {
       if (records.some(mutationTouchesTiles)) sync()
     })
-    observer.observe(root, {childList: true, subtree: true})
+    observer.observe(root, { childList: true, subtree: true })
     return () => observer.disconnect()
   }, [])
 

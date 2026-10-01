@@ -27,6 +27,6 @@ export function installTouchTileDragSupport() {
       // Path/Habitat drags with preventDefault().
       window.setTimeout(releaseImplicitCapture, 0)
     },
-    {capture: true},
+    { capture: true },
   )
 }
