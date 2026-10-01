@@ -1,7 +1,6 @@
 .tile-concession {
   background:
-    radial-gradient(circle at 42% 40%, rgb(255 255 255 / 9%) 0 7%, transparent 8%),
-    #74ad50;
+    radial-gradient(circle at 42% 40%, rgb(255 255 255 / 9%) 0 7%, transparent 8%), #74ad50;
 }
 
 .concession {
@@ -82,7 +81,6 @@
   box-shadow: inset 0 -3px 0 rgb(73 55 34 / 14%);
 }
 
-
 .care-depot {
   position: absolute;
   width: 62px;
@@ -131,7 +129,6 @@
   font-weight: 900;
   letter-spacing: 0.8px;
 }
-
 
 .litter {
   position: absolute;
@@ -211,7 +208,6 @@
   transform: rotate(15deg);
   transform-origin: 50% 0;
 }
-
 
 .concession-degraded {
   filter: saturate(0.68) brightness(0.92);

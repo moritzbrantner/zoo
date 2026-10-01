@@ -1,15 +1,18 @@
 {
   "name": "@zoo/web",
-  "private": true,
   "version": "0.1.0",
+  "private": true,
   "type": "module",
-  "packageManager": "bun@1.4.0",
   "scripts": {
-    "wasm": "cd ../../crates/zoo-core && wasm-pack build --target web --out-dir ../../apps/web/src/wasm --out-name zoo_core && cd ../zoo-scene && wasm-pack build --target web --out-dir ../../apps/web/src/scene-wasm --out-name zoo_scene",
+    "wasm": "cd ../../crates/zoo-core && wasm-pack build --target web --out-dir ../../apps/web/src/wasm --out-name zoo_core --locked && cd ../zoo-scene && wasm-pack build --target web --out-dir ../../apps/web/src/scene-wasm --out-name zoo_scene --locked",
     "dev": "bun run wasm && vite",
     "typecheck": "tsc --noEmit",
-    "build": "bun run wasm && tsc && vite build",
-    "preview": "vite preview"
+    "build": "bun run wasm && bun run build:web",
+    "preview": "vite preview",
+    "format": "oxfmt src vite.config.ts package.json tsconfig.json .oxlintrc.json .oxfmtrc.json",
+    "format:check": "oxfmt --check src vite.config.ts package.json tsconfig.json .oxlintrc.json .oxfmtrc.json",
+    "lint": "oxlint --type-aware --deny-warnings src vite.config.ts",
+    "build:web": "tsc --noEmit && vite build"
   },
   "dependencies": {
     "@moritzbrantner/three-d-renderer": "github:moritzbrantner/3d-lab#6a18cb2d1fe9efdbae619c144b2180fdeb472172",
@@ -20,7 +23,11 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "6.1.1",
+    "oxfmt": "^0.71.0",
+    "oxlint": "^1.86.0",
+    "oxlint-tsgolint": "^7.0.2003",
     "typescript": "7.0.2",
     "vite": "8.2.2"
-  }
+  },
+  "packageManager": "bun@1.4.0"
 }

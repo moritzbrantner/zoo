@@ -86,8 +86,11 @@
 }
 
 .placement-ghost.invalid {
-  background:
-    repeating-linear-gradient(45deg, rgb(150 42 42 / 48%) 0 5px, rgb(244 176 132 / 55%) 5px 9px);
+  background: repeating-linear-gradient(
+    45deg,
+    rgb(150 42 42 / 48%) 0 5px,
+    rgb(244 176 132 / 55%) 5px 9px
+  );
 }
 
 .placement-price {
@@ -130,8 +133,7 @@
   height: 5px;
   border-radius: 3px;
   pointer-events: none;
-  background:
-    repeating-linear-gradient(90deg, #825d37 0 8px, #a67a4d 8px 11px);
+  background: repeating-linear-gradient(90deg, #825d37 0 8px, #a67a4d 8px 11px);
   box-shadow:
     0 2px 0 #4d3825,
     0 4px 5px rgb(0 0 0 / 24%);

@@ -6,8 +6,9 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react"
+
 import Park3DRenderer from "./Park3DRenderer"
-import init, {ZooGame} from "./wasm/zoo_core"
+import init, { ZooGame } from "./wasm/zoo_core"
 
 type Tool = "select" | "pan" | "path" | "habitat" | "food" | "drink" | "bulldoze"
 type Speed = 0 | 1 | 2 | 4
@@ -279,13 +280,15 @@ function speciesGlyph(species: SpeciesKey) {
       return "🐘"
     case "penguin":
       return "🐧"
-    default:
+    case "capybara":
       return "C"
   }
 }
 
 function speciesLabel(species: SpeciesKey | null, catalog: SpeciesOffer[]) {
-  if (!species) return "Empty habitat"
+  if (!species) {
+    return "Empty habitat"
+  }
   return catalog.find((offer) => offer.key === species)?.label ?? species
 }
 
@@ -297,7 +300,7 @@ function guestStateLabel(state: Guest["state"]) {
       return "Walking to habitat"
     case "viewing":
       return "Viewing animals"
-    default:
+    case "walking_to_exit":
       return "Walking to exit"
   }
 }
@@ -316,13 +319,15 @@ function toolHint(tool: Tool) {
       return "Click clear grass beside a path to build a drink stand · $140."
     case "bulldoze":
       return "Click a path or any tile inside a habitat to remove it."
-    default:
+    case "select":
       return "Click a habitat, guest, animal, or ground tile to inspect it."
   }
 }
 
 function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot) {
-  if (!start || !end) return []
+  if (!start || !end) {
+    return []
+  }
   const left = Math.min(start.x, end.x)
   const right = Math.max(start.x, end.x)
   const top = Math.min(start.y, end.y)
@@ -331,7 +336,7 @@ function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot
   for (let y = top; y <= bottom; y += 1) {
     for (let x = left; x <= right; x += 1) {
       if (x >= 0 && y >= 0 && x < snapshot.width && y < snapshot.height) {
-        tiles.push({x, y})
+        tiles.push({ x, y })
       }
     }
   }
@@ -367,7 +372,7 @@ export default function App() {
   const [fenceStart, setFenceStart] = useState<Point | null>(null)
   const [fenceEnd, setFenceEnd] = useState<Point | null>(null)
   const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState<Point>({x: 0, y: 0})
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 })
 
   const clearFenceGesture = useCallback(() => {
     drawingFenceRef.current = false
@@ -380,7 +385,9 @@ export default function App() {
 
   const refresh = useCallback(() => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     setSnapshot(JSON.parse(game.snapshot_json()) as Snapshot)
   }, [])
 
@@ -397,18 +404,30 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
-    void init().then(() => {
-      if (cancelled) return
-      gameRef.current = new ZooGame()
-      refresh()
-    })
+    init()
+      .then(() => {
+        if (cancelled) {
+          return
+        }
+        gameRef.current = new ZooGame()
+        refresh()
+      })
+      .catch((error: unknown) => {
+        console.error("Zoo simulation initialization failed", error)
+        if (!cancelled) {
+          setMessage("The park simulation could not load. Reload to try again.")
+          setMessageKind("error")
+        }
+      })
     return () => {
       cancelled = true
     }
   }, [refresh])
 
   useEffect(() => {
-    if (!snapshot || speed === 0) return
+    if (!snapshot || speed === 0) {
+      return
+    }
     const handle = window.setInterval(() => {
       gameRef.current?.tick(speed)
       refresh()
@@ -421,7 +440,9 @@ export default function App() {
       paintingRef.current = false
       paintedTilesRef.current.clear()
 
-      if (!drawingFenceRef.current || fencePointerIdRef.current !== event.pointerId) return
+      if (!drawingFenceRef.current || fencePointerIdRef.current !== event.pointerId) {
+        return
+      }
 
       const game = gameRef.current
       const start = fenceStartRef.current
@@ -472,7 +493,9 @@ export default function App() {
 
   const placement = useMemo(() => {
     const game = gameRef.current
-    if (!game || !snapshot || tool !== "habitat" || !fenceStart || !fenceEnd) return null
+    if (!game || !snapshot || tool !== "habitat" || !fenceStart || !fenceEnd) {
+      return null
+    }
     return JSON.parse(
       game.evaluate_habitat_rect(fenceStart.x, fenceStart.y, fenceEnd.x, fenceEnd.y),
     ) as PlacementEvaluation
@@ -481,9 +504,13 @@ export default function App() {
   const paintPath = useCallback(
     (tile: Tile) => {
       const game = gameRef.current
-      if (!game) return
+      if (!game) {
+        return
+      }
       const key = `${tile.x}:${tile.y}`
-      if (paintedTilesRef.current.has(key)) return
+      if (paintedTilesRef.current.has(key)) {
+        return
+      }
       paintedTilesRef.current.add(key)
       perform(() => game.place_path(tile.x, tile.y))
     },
@@ -503,9 +530,11 @@ export default function App() {
     if (tool === "habitat") {
       event.preventDefault()
       event.stopPropagation()
-      if (drawingFenceRef.current) return
+      if (drawingFenceRef.current) {
+        return
+      }
 
-      const point = {x: tile.x, y: tile.y}
+      const point = { x: tile.x, y: tile.y }
       drawingFenceRef.current = true
       fencePointerIdRef.current = event.pointerId
       fenceStartRef.current = point
@@ -516,7 +545,7 @@ export default function App() {
   }
 
   const onTilePointerEnter = (event: ReactPointerEvent<HTMLButtonElement>, tile: Tile) => {
-    const point = {x: tile.x, y: tile.y}
+    const point = { x: tile.x, y: tile.y }
     setHoveredTile(point)
     if (tool === "path" && paintingRef.current) {
       paintPath(tile)
@@ -533,20 +562,22 @@ export default function App() {
 
   const onTileClick = (tile: Tile) => {
     const game = gameRef.current
-    if (!game || tool === "path" || tool === "pan" || tool === "habitat") return
+    if (!game || tool === "path" || tool === "pan" || tool === "habitat") {
+      return
+    }
 
     if (tool === "select") {
       setSelectedGuestId(null)
       setSelectedDepot(false)
       setSelectedHabitatId(tile.habitat_id)
       const stand = snapshot?.concessions.find((candidate) => candidate.id === tile.concession_id)
-      setMessage(
-        tile.habitat_id
-          ? `Habitat #${tile.habitat_id} selected`
-          : stand
-            ? `${stand.kind === "food" ? "Food" : "Drink"} stand #${stand.id} · ${stand.sales_today} sales today`
-            : "Ground selected",
-      )
+      let selectionMessage = "Ground selected"
+      if (tile.habitat_id) {
+        selectionMessage = `Habitat #${tile.habitat_id} selected`
+      } else if (stand) {
+        selectionMessage = `${stand.kind === "food" ? "Food" : "Drink"} stand #${stand.id} · ${stand.sales_today} sales today`
+      }
+      setMessage(selectionMessage)
       setMessageKind("info")
       return
     }
@@ -557,11 +588,15 @@ export default function App() {
     }
 
     perform(() => game.bulldoze(tile.x, tile.y))
-    if (tile.habitat_id === selectedHabitatId) setSelectedHabitatId(null)
+    if (tile.habitat_id === selectedHabitatId) {
+      setSelectedHabitatId(null)
+    }
   }
 
   const beginPan = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (tool !== "pan") return
+    if (tool !== "pan") {
+      return
+    }
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     panSessionRef.current = {
@@ -574,7 +609,9 @@ export default function App() {
 
   const movePan = (event: ReactPointerEvent<HTMLDivElement>) => {
     const session = panSessionRef.current
-    if (!session || session.pointerId !== event.pointerId) return
+    if (!session || session.pointerId !== event.pointerId) {
+      return
+    }
     setPan({
       x: session.origin.x + event.clientX - session.startX,
       y: session.origin.y + event.clientY - session.startY,
@@ -582,7 +619,9 @@ export default function App() {
   }
 
   const endPan = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (panSessionRef.current?.pointerId !== event.pointerId) return
+    if (panSessionRef.current?.pointerId !== event.pointerId) {
+      return
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
@@ -591,45 +630,65 @@ export default function App() {
 
   const adopt = (species: SpeciesKey) => {
     const game = gameRef.current
-    if (!game || selectedHabitatId === null) return
+    if (!game || selectedHabitatId === null) {
+      return
+    }
     perform(() => game.adopt(selectedHabitatId, species))
   }
 
   const careForHabitat = (action: "water" | "clean" | "shelter") => {
     const game = gameRef.current
-    if (!game || selectedHabitatId === null) return
-    if (action === "water") perform(() => game.refill_water(selectedHabitatId))
-    if (action === "clean") perform(() => game.clean_habitat(selectedHabitatId))
-    if (action === "shelter") perform(() => game.add_shelter(selectedHabitatId))
+    if (!game || selectedHabitatId === null) {
+      return
+    }
+    if (action === "water") {
+      perform(() => game.refill_water(selectedHabitatId))
+    }
+    if (action === "clean") {
+      perform(() => game.clean_habitat(selectedHabitatId))
+    }
+    if (action === "shelter") {
+      perform(() => game.add_shelter(selectedHabitatId))
+    }
   }
 
   const scheduleKeeper = () => {
     const game = gameRef.current
-    if (!game || selectedHabitatId === null) return
+    if (!game || selectedHabitatId === null) {
+      return
+    }
     perform(() => game.schedule_keeper(selectedHabitatId))
   }
 
   const buyAnimalFeed = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.buy_animal_feed())
   }
 
   const hireKeeper = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.hire_keeper())
   }
 
   const hireJanitor = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.hire_janitor())
   }
 
   const hireMechanic = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.hire_mechanic())
   }
 
@@ -646,7 +705,7 @@ export default function App() {
     setSelectedDepot(false)
     setHoveredTile(null)
     setZoom(1)
-    setPan({x: 0, y: 0})
+    setPan({ x: 0, y: 0 })
     setMessage("New park started.")
     setMessageKind("info")
     refresh()
@@ -657,7 +716,11 @@ export default function App() {
   }
 
   if (!snapshot) {
-    return <main className="loading">Preparing the park simulation…</main>
+    return (
+      <main className="loading">
+        {messageKind === "error" ? message : "Preparing the park simulation…"}
+      </main>
+    )
   }
 
   const selectedTileIds = new Set<number>(
@@ -707,7 +770,7 @@ export default function App() {
             className="camera-reset"
             onClick={() => {
               setZoom(1)
-              setPan({x: 0, y: 0})
+              setPan({ x: 0, y: 0 })
             }}
             title="Reset camera"
           >
@@ -869,7 +932,9 @@ export default function App() {
                   aria-label="Central operations depot"
                   onClick={(event) => {
                     event.stopPropagation()
-                    if (tool === "pan") return
+                    if (tool === "pan") {
+                      return
+                    }
                     if (tool === "bulldoze") {
                       setMessage("The central animal-care depot cannot be demolished.")
                       setMessageKind("error")
@@ -879,7 +944,9 @@ export default function App() {
                     setSelectedHabitatId(null)
                     setSelectedDepot(true)
                     setTool("select")
-                    setMessage("Central operations depot selected · stock animal feed and hire park staff here.")
+                    setMessage(
+                      "Central operations depot selected · stock animal feed and hire park staff here.",
+                    )
                     setMessageKind("info")
                   }}
                 >
@@ -914,7 +981,9 @@ export default function App() {
                       perform(() => game.bulldoze(stand.x, stand.y))
                       return
                     }
-                    if (tool === "pan") return
+                    if (tool === "pan") {
+                      return
+                    }
                     setSelectedGuestId(null)
                     setSelectedHabitatId(null)
                     setSelectedDepot(false)
@@ -927,13 +996,7 @@ export default function App() {
                 >
                   <span className="concession-awning" />
                   <strong>{label}</strong>
-                  <small>
-                    {stand.service_state === "failed"
-                      ? "CLOSED"
-                      : stand.kind === "food"
-                        ? "FOOD"
-                        : "DRINK"}
-                  </small>
+                  <small>{stand.service_state === "failed" ? "CLOSED" : label.toUpperCase()}</small>
                   <span className="concession-counter" />
                 </button>
               )
@@ -975,8 +1038,6 @@ export default function App() {
                 </span>
               )
             })}
-
-
 
             {snapshot.maintenance.map((task) => {
               const position = isoPosition(task.x, task.y)
@@ -1037,7 +1098,9 @@ export default function App() {
                     animal.habitat_id
                   }`}
                   onClick={() => {
-                    if (tool === "pan") return
+                    if (tool === "pan") {
+                      return
+                    }
                     setSelectedGuestId(null)
                     setSelectedHabitatId(animal.habitat_id)
                     setSelectedDepot(false)
@@ -1067,7 +1130,9 @@ export default function App() {
                       zIndex: 500 + habitat.x + habitat.y,
                     }}
                     onClick={() => {
-                      if (tool === "pan") return
+                      if (tool === "pan") {
+                        return
+                      }
                       setSelectedGuestId(null)
                       setSelectedHabitatId(habitat.id)
                       setSelectedDepot(false)
@@ -1096,7 +1161,9 @@ export default function App() {
                   }}
                   title={`Guest #${guest.id} · ${guest.thought}`}
                   onClick={() => {
-                    if (tool === "pan") return
+                    if (tool === "pan") {
+                      return
+                    }
                     setSelectedGuestId(guest.id)
                     setSelectedHabitatId(null)
                     setSelectedDepot(false)
@@ -1112,7 +1179,7 @@ export default function App() {
         </div>
 
         <aside className="side-panel bevel">
-          {selectedDepot ? (
+          {selectedDepot && (
             <>
               <div className="window-title">
                 <span>Central operations depot</span>
@@ -1257,7 +1324,8 @@ export default function App() {
                 )}
               </div>
             </>
-          ) : selectedGuest ? (
+          )}
+          {!selectedDepot && selectedGuest && (
             <>
               <div className="window-title">
                 <span>Guest #{selectedGuest.id}</span>
@@ -1286,7 +1354,8 @@ export default function App() {
                 <NeedBar label="Value" value={selectedGuest.value_perception} />
               </div>
             </>
-          ) : selectedHabitat ? (
+          )}
+          {!selectedDepot && !selectedGuest && selectedHabitat && (
             <>
               <div className="window-title">
                 <span>Habitat #{selectedHabitat.id}</span>
@@ -1334,7 +1403,7 @@ export default function App() {
                   </div>
                 </dl>
                 <div className="meter">
-                  <span style={{width: `${selectedHabitat.welfare}%`}} />
+                  <span style={{ width: `${selectedHabitat.welfare}%` }} />
                 </div>
 
                 <h3>Care</h3>
@@ -1417,7 +1486,8 @@ export default function App() {
                         <span>
                           <b>{offer.label}</b>
                           <small>
-                            Group {offer.minimum_social_group}+ · {offer.space_per_animal} space each
+                            Group {offer.minimum_social_group}+ · {offer.space_per_animal} space
+                            each
                           </small>
                         </span>
                       </span>
@@ -1427,7 +1497,8 @@ export default function App() {
                 })}
               </div>
             </>
-          ) : (
+          )}
+          {!selectedDepot && !selectedGuest && !selectedHabitat && (
             <>
               <div className="window-title">
                 <span>Park manager</span>
@@ -1575,9 +1646,7 @@ export default function App() {
 
       <footer className="bottom-dock">
         <div className="message-stack">
-          <div className={`message bevel ${messageKind === "error" ? "error" : ""}`}>
-            {message}
-          </div>
+          <div className={`message bevel ${messageKind === "error" ? "error" : ""}`}>{message}</div>
           <div className="tool-hint">{toolHint(tool)}</div>
         </div>
         <nav className="toolbar bevel" aria-label="Build tools">
@@ -1665,7 +1734,7 @@ function NeedBar({
         <strong>{value}%</strong>
       </div>
       <div className="need-track">
-        <span style={{width: `${value}%`}} />
+        <span style={{ width: `${value}%` }} />
       </div>
     </div>
   )

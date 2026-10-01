@@ -5,13 +5,17 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@v7
       - name: Checkout pinned asset-tooling
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@v7
         with:
           repository: moritzbrantner/asset-tooling
           ref: a9184128839b9c411103e958703c2d1c03dfc9a8
@@ -31,20 +35,10 @@ jobs:
           bun "$tool" validate "$spec"
           bun "$tool" generate "$spec" --receipt .asset-tooling/zoo-park-texture.receipt.json
           bun "$tool" verify "$spec" --receipt .asset-tooling/zoo-park-texture.receipt.json
-      - name: Rust format
-        run: cargo fmt --all --check
-      - name: Rust lint
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Rust tests
-        run: cargo test --workspace
       - name: Install wasm-pack
         run: cargo install wasm-pack --locked
-      - name: Install web dependencies
-        working-directory: apps/web
-        run: bun install
-      - name: Build web
-        working-directory: apps/web
-        run: bun run build
+      - name: Verify repository
+        run: make verify
       - name: Browser visual dogfood
         if: github.event_name == 'pull_request'
         working-directory: apps/web
@@ -70,7 +64,7 @@ jobs:
           bun scripts/capture-3d-camera-proof.mjs
       - name: Upload fence visual proof
         if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@v7
         with:
           name: zoo-fence-visual-proof
           path: apps/web/test-results/fence-rendering.png
@@ -78,7 +72,7 @@ jobs:
           retention-days: 7
       - name: Upload park-frame visual proof
         if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@v7
         with:
           name: zoo-park-frame-visual-proof
           path: apps/web/test-results/park-frame.png
@@ -86,7 +80,7 @@ jobs:
           retention-days: 7
       - name: Upload concession visual proof
         if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@v7
         with:
           name: zoo-concession-visual-proof
           path: apps/web/test-results/concessions.png
@@ -94,7 +88,7 @@ jobs:
           retention-days: 7
       - name: Upload animal-care visual proof
         if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@v7
         with:
           name: zoo-animal-care-visual-proof
           path: apps/web/test-results/animal-care-depot.png
@@ -102,7 +96,7 @@ jobs:
           retention-days: 7
       - name: Upload maintenance visual proof
         if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@v7
         with:
           name: zoo-maintenance-visual-proof
           path: apps/web/test-results/maintenance.png
@@ -110,7 +104,7 @@ jobs:
           retention-days: 7
       - name: Upload 3D camera visual proof
         if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@v7
         with:
           name: zoo-3d-camera-visual-proof
           path: apps/web/test-results/3d-camera.png
@@ -118,7 +112,7 @@ jobs:
           retention-days: 7
       - name: Upload playable web preview
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@v7
         with:
           name: zoo-playable-preview
           path: apps/web/dist
