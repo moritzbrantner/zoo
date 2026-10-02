@@ -693,6 +693,8 @@ impl PlacementEvaluation {
         }
     }
 
+    /// A rejection before the candidate is known to be a bounded rectangle inside the park, so
+    /// no geometry is materialized for it.
     fn invalid(message: impl Into<String>, x: u32, y: u32, width: u32, height: u32) -> Self {
         Self {
             ok: false,
@@ -705,6 +707,25 @@ impl PlacementEvaluation {
             cost_cents: habitat_cost(width, height),
             occupied_tiles: Vec::new(),
             fence_segments: Vec::new(),
+        }
+    }
+
+    /// A rejection of an in-park, area-bounded candidate. It keeps the candidate footprint and
+    /// fence so the preview can show where the rejected loop would have gone.
+    fn rejected(
+        message: impl Into<String>,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        occupied_tiles: Vec<Position>,
+    ) -> Self {
+        Self {
+            ok: false,
+            message: message.into(),
+            fence_segments: fence_segments(x, y, width, height),
+            occupied_tiles,
+            ..Self::invalid("", x, y, width, height)
         }
     }
 }
@@ -1007,12 +1028,13 @@ impl GameState {
             .iter()
             .any(|tile| self.tile(tile.x, tile.y) != Some(TileKind::Grass))
         {
-            return PlacementEvaluation::invalid(
+            return PlacementEvaluation::rejected(
                 "The enclosed area must be clear grass",
                 x,
                 y,
                 width,
                 height,
+                occupied_tiles,
             );
         }
 
@@ -1025,18 +1047,26 @@ impl GameState {
             })
         });
         if !touches_path {
-            return PlacementEvaluation::invalid(
+            return PlacementEvaluation::rejected(
                 "The fence needs at least one path along its outside edge",
                 x,
                 y,
                 width,
                 height,
+                occupied_tiles,
             );
         }
 
         let cost = habitat_cost(width, height);
         if self.cash_cents < cost {
-            return PlacementEvaluation::invalid("Not enough cash", x, y, width, height);
+            return PlacementEvaluation::rejected(
+                "Not enough cash",
+                x,
+                y,
+                width,
+                height,
+                occupied_tiles,
+            );
         }
 
         PlacementEvaluation::valid(
@@ -3479,6 +3509,63 @@ mod tests {
         let overlap = state.evaluate_habitat_rect(4, 9, 8, 12);
         assert!(!overlap.ok);
         assert_eq!(overlap.message, "The enclosed area must be clear grass");
+    }
+
+    #[test]
+    fn rejected_in_park_candidates_keep_their_preview_geometry() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat_rect(3, 8, 6, 10).ok);
+
+        let overlap = state.evaluate_habitat_rect(4, 9, 8, 12);
+        let disconnected = state.evaluate_habitat_rect(10, 1, 13, 4);
+        state.cash_cents = 0;
+        let unaffordable = state.evaluate_habitat_rect(3, 3, 5, 6);
+
+        for (evaluation, message) in [
+            (&overlap, "The enclosed area must be clear grass"),
+            (
+                &disconnected,
+                "The fence needs at least one path along its outside edge",
+            ),
+            (&unaffordable, "Not enough cash"),
+        ] {
+            assert!(!evaluation.ok);
+            assert_eq!(evaluation.message, message);
+            let (width, height) = (evaluation.width, evaluation.height);
+            assert_eq!(
+                evaluation.occupied_tiles.len(),
+                (width * height) as usize,
+                "{message}"
+            );
+            assert_eq!(
+                evaluation.fence_segments,
+                fence_segments(evaluation.x, evaluation.y, width, height),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejected_unbounded_candidates_materialize_no_geometry() {
+        let state = GameState::default();
+        for evaluation in [
+            state.evaluate_habitat_rect(3, 8, 4, 9),
+            state.evaluate_habitat_rect(0, 0, u32::MAX, u32::MAX),
+            state.evaluate_habitat_rect(17, 10, 21, 12),
+        ] {
+            assert!(!evaluation.ok);
+            assert!(evaluation.occupied_tiles.is_empty());
+            assert!(evaluation.fence_segments.is_empty());
+        }
+    }
+
+    #[test]
+    fn releasing_a_rejected_candidate_changes_nothing() {
+        let mut state = GameState::default();
+        let before = serde_json::to_string(&state.snapshot()).expect("snapshot serializes");
+        assert!(!state.place_habitat_rect(3, 5, 5, 8).ok);
+        let after = serde_json::to_string(&state.snapshot()).expect("snapshot serializes");
+        assert_eq!(before, after);
     }
 
     #[test]

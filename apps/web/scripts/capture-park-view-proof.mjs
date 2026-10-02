@@ -256,6 +256,31 @@ try {
   assert(await clickButton("Draw habitat"), "Habitat tool missing")
   await drag(await tile(6, 1), await tile(11, 5))
   assert((await message()).includes("Habitat #1 fenced"), "Habitat drag did not fence", await message())
+  // A rejected fence keeps its candidate footprint in red, and releasing it builds nothing.
+  assert(await clickButton("Ⅱ"), "Pause control missing")
+  await frame()
+  const stats = () => evaluate(`[...document.querySelectorAll('.stat strong')].map((node) => node.textContent).join('|')`)
+  const statsBeforeRejected = await stats()
+  const nodesBeforeRejected = await evaluate(`window.__zooParkView.nodeCount()`)
+  const rejectedFrom = await tile(3, 5)
+  const rejectedTo = await tile(5, 8)
+  await mouse("mouseMoved", rejectedFrom)
+  await mouse("mousePressed", rejectedFrom, {button: "left", buttons: 1, clickCount: 1})
+  await mouse("mouseMoved", rejectedTo, {button: "left", buttons: 1})
+  await waitFor("the rejected placement explanation",
+    `document.querySelector('.invalid')?.textContent.includes('clear grass') ?? false`)
+  await frame()
+  const rejectedPreviewNodes = (await evaluate(`window.__zooParkView.nodeCount()`)) - nodesBeforeRejected
+  // 12 ghost tiles plus two rails per fence segment (14) and posts; without fence geometry only
+  // the ghost tiles would be added.
+  assert(rejectedPreviewNodes >= 12 + 14 * 2, "Rejected placement lost its fence preview", {rejectedPreviewNodes})
+  await screenshot("test-results/park-view-rejected-placement.png")
+  await mouse("mouseReleased", rejectedTo, {button: "left", buttons: 0, clickCount: 1})
+  await frame()
+  assert((await message()).includes("clear grass"), "Rejected fence release was not explained", await message())
+  assert((await stats()) === statsBeforeRejected, "Rejected fence release changed the park",
+    {statsBeforeRejected, after: await stats()})
+  assert(await clickButton("1×"), "Resume control missing")
   assert(await clickButton("Food stand"), "Food tool missing")
   await click(await tile(5, 8))
   assert((await message()).includes("Food stand #1 built"), "Food stand was not placed", await message())
