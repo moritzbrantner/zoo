@@ -65,6 +65,7 @@ jobs:
           path: |
             apps/web/test-results/park-view-desktop.png
             apps/web/test-results/park-view-phone.png
+            apps/web/test-results/park-view-rejected-placement.png
           if-no-files-found: error
           retention-days: 7
       - name: Upload playable web preview
