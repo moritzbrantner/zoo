@@ -55,7 +55,11 @@ jobs:
           cp candidate/crates/zoo-core/examples/profile_simulation.rs \
             reference/crates/zoo-core/examples/profile_simulation.rs
           cp candidate/profiles/runtime-profiler/simulation.json reference/profiles/runtime-profiler/simulation.json
-          cp candidate/Cargo.lock reference/Cargo.lock
+          # Keep the base's own lockfile when it has one: it matches the base manifests, while
+          # the candidate's lockfile fails --locked whenever the candidate changes dependencies.
+          if [ ! -f reference/Cargo.lock ]; then
+            cp candidate/Cargo.lock reference/Cargo.lock
+          fi
           git -C reference add \
             crates/zoo-core/examples/profile_simulation.rs \
             profiles/runtime-profiler/simulation.json \
