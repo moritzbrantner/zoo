@@ -776,7 +776,6 @@ struct GameState {
     feed_crates: u32,
     day: u32,
     minute_of_day: u32,
-    rating: u32,
     next_habitat_id: u32,
     next_concession_id: u32,
     next_keeper_id: u32,
@@ -810,7 +809,6 @@ impl Default for GameState {
             feed_crates: 0,
             day: 1,
             minute_of_day: 9 * 60,
-            rating: 400,
             next_habitat_id: 1,
             next_concession_id: 1,
             next_keeper_id: 1,
@@ -1238,7 +1236,6 @@ impl GameState {
         let habitat = &mut self.habitats[index];
         habitat.species = Some(species);
         habitat.animals += 1;
-        self.recalculate_rating();
         ActionResult::ok(format!(
             "{} adopted into habitat #{habitat_id}",
             species.label()
@@ -1511,7 +1508,6 @@ impl GameState {
             }
 
             self.advance_viewing();
-            self.recalculate_rating();
         }
     }
 
@@ -2389,7 +2385,9 @@ impl GameState {
             .record_expense(ExpenseCategory::MechanicWages, mechanic_wages);
     }
 
-    fn recalculate_rating(&mut self) {
+    /// Park rating derived from the current state, so every command and tick reports a
+    /// self-consistent value without a separate refresh step.
+    fn rating(&self) -> u32 {
         let appeal: u32 = self.habitats.iter().map(Habitat::appeal).sum();
         let welfare = if self.habitats.iter().any(|habitat| habitat.animals > 0) {
             let total: u32 = self
@@ -2413,9 +2411,9 @@ impl GameState {
             self.guests.iter().map(|guest| guest.happiness).sum::<u32>() / self.guests.len() as u32
         };
         let cleanliness_penalty = (100_u32.saturating_sub(self.park_cleanliness())) * 2;
-        self.rating = (250 + appeal / 3 + welfare * 2 + guest_happiness)
+        (250 + appeal / 3 + welfare * 2 + guest_happiness)
             .saturating_sub(cleanliness_penalty)
-            .clamp(0, 999);
+            .clamp(0, 999)
     }
 
     fn neighbors(&self, position: Position) -> Vec<Position> {
@@ -2949,7 +2947,7 @@ impl GameState {
             day: self.day,
             minute_of_day: self.minute_of_day,
             cash_cents: self.cash_cents,
-            rating: self.rating,
+            rating: self.rating(),
             guest_count: self.guests.len() as u32,
             entrance: EntranceView {
                 x: ENTRANCE_X,
@@ -3767,14 +3765,12 @@ mod tests {
     #[test]
     fn unstaffed_litter_degrades_cleanliness_and_rating_over_time() {
         let mut state = GameState::default();
-        state.recalculate_rating();
-        let clean_rating = state.rating;
+        let clean_rating = state.rating();
         assert!(state.add_litter(Position {
             x: 2,
             y: ENTRANCE_Y,
         }));
-        state.recalculate_rating();
-        let dirty_rating = state.rating;
+        let dirty_rating = state.rating();
 
         assert!(state.park_cleanliness() < 100);
         assert!(dirty_rating < clean_rating);
@@ -4187,6 +4183,78 @@ mod tests {
         assert!(state.bulldoze(3, 8).ok);
         assert!(state.habitats.is_empty());
         assert_eq!(state.keepers[0].assigned_habitat_id, None);
+    }
+
+    /// Rating of a park with no habitats, no guests and no litter.
+    const EMPTY_CLEAN_PARK_RATING: u32 = 250 + 50 * 2 + 60;
+
+    #[test]
+    fn demolishing_the_last_habitat_updates_the_rating_immediately() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "zebra").ok);
+        assert!(state.adopt(habitat_id, "zebra").ok);
+        assert_ne!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+
+        let (cash, ledger, day, minute) = (
+            state.cash_cents,
+            state.finance_today,
+            state.day,
+            state.minute_of_day,
+        );
+        assert!(state.bulldoze(3, 8).ok);
+
+        assert!(state.habitats.is_empty());
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+        assert_eq!(state.cash_cents, cash);
+        assert_eq!(state.finance_today, ledger);
+        assert_eq!((state.day, state.minute_of_day), (day, minute));
+    }
+
+    #[test]
+    fn demolition_that_removes_guests_updates_the_rating_immediately() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "zebra").ok);
+        let mut ticks = 0;
+        while !state
+            .guests
+            .iter()
+            .any(|guest| guest.target_habitat == habitat_id)
+        {
+            state.tick(1);
+            ticks += 1;
+            assert!(ticks < 24 * 60, "no guest targeted the habitat");
+        }
+        state
+            .guests
+            .retain(|guest| guest.target_habitat == habitat_id);
+        state.litter.clear();
+
+        assert!(state.bulldoze(3, 8).ok);
+
+        assert!(state.guests.is_empty());
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+    }
+
+    #[test]
+    fn demolishing_a_littered_path_updates_the_rating_immediately() {
+        let mut state = GameState::default();
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+        assert!(state.add_litter(Position {
+            x: 4,
+            y: ENTRANCE_Y,
+        }));
+        assert!(state.snapshot().rating < EMPTY_CLEAN_PARK_RATING);
+
+        assert!(state.bulldoze(4, ENTRANCE_Y).ok);
+
+        assert!(state.litter.is_empty());
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
     }
 
     #[test]
