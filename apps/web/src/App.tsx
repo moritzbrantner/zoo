@@ -47,13 +47,15 @@ function speciesGlyph(species: SpeciesKey) {
       return "🐘"
     case "penguin":
       return "🐧"
-    default:
+    case "capybara":
       return "C"
   }
 }
 
 function speciesLabel(species: SpeciesKey | null, catalog: SpeciesOffer[]) {
-  if (!species) return "Empty habitat"
+  if (!species) {
+    return "Empty habitat"
+  }
   return catalog.find((offer) => offer.key === species)?.label ?? species
 }
 
@@ -65,7 +67,7 @@ function guestStateLabel(state: Guest["state"]) {
       return "Walking to habitat"
     case "viewing":
       return "Viewing animals"
-    default:
+    case "walking_to_exit":
       return "Walking to exit"
   }
 }
@@ -82,13 +84,15 @@ function toolHint(tool: Tool) {
       return "Click clear grass beside a path to build a drink stand · $140."
     case "bulldoze":
       return "Click a path or any tile inside a habitat to remove it."
-    default:
+    case "select":
       return "Click to inspect · drag to pan · right-drag or two-finger twist to rotate · scroll or pinch to zoom."
   }
 }
 
 function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot) {
-  if (!start || !end) return []
+  if (!start || !end) {
+    return []
+  }
   const left = Math.min(start.x, end.x)
   const right = Math.max(start.x, end.x)
   const top = Math.min(start.y, end.y)
@@ -134,7 +138,9 @@ export default function App() {
 
   const refresh = useCallback(() => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     setSnapshot(JSON.parse(game.snapshot_json()) as Snapshot)
   }, [])
 
@@ -151,18 +157,30 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
-    void init().then(() => {
-      if (cancelled) return
-      gameRef.current = new ZooGame()
-      refresh()
-    })
+    init()
+      .then(() => {
+        if (cancelled) {
+          return
+        }
+        gameRef.current = new ZooGame()
+        refresh()
+      })
+      .catch((error: unknown) => {
+        console.error("Zoo simulation initialization failed", error)
+        if (!cancelled) {
+          setMessage("The park simulation could not load. Reload to try again.")
+          setMessageKind("error")
+        }
+      })
     return () => {
       cancelled = true
     }
   }, [refresh])
 
   useEffect(() => {
-    if (!snapshot || speed === 0) return
+    if (!snapshot || speed === 0) {
+      return
+    }
     const handle = window.setInterval(() => {
       gameRef.current?.tick(speed)
       refresh()
@@ -172,7 +190,9 @@ export default function App() {
 
   useEffect(() => {
     paintedTilesRef.current.clear()
-    if (tool !== "habitat") clearFenceGesture()
+    if (tool !== "habitat") {
+      clearFenceGesture()
+    }
   }, [clearFenceGesture, tool])
 
   const selectedHabitat = useMemo(
@@ -187,7 +207,9 @@ export default function App() {
 
   const placement = useMemo(() => {
     const game = gameRef.current
-    if (!game || !snapshot || tool !== "habitat" || !fenceStart || !fenceEnd) return null
+    if (!game || !snapshot || tool !== "habitat" || !fenceStart || !fenceEnd) {
+      return null
+    }
     return JSON.parse(
       game.evaluate_habitat_rect(fenceStart.x, fenceStart.y, fenceEnd.x, fenceEnd.y),
     ) as PlacementEvaluation
@@ -214,9 +236,13 @@ export default function App() {
   const paintPath = useCallback(
     (tile: Point) => {
       const game = gameRef.current
-      if (!game) return
+      if (!game) {
+        return
+      }
       const key = `${tile.x}:${tile.y}`
-      if (paintedTilesRef.current.has(key)) return
+      if (paintedTilesRef.current.has(key)) {
+        return
+      }
       paintedTilesRef.current.add(key)
       perform(() => game.place_path(tile.x, tile.y))
     },
@@ -246,7 +272,9 @@ export default function App() {
 
   const onToolGestureEnd = (commit: boolean) => {
     paintedTilesRef.current.clear()
-    if (tool !== "habitat") return
+    if (tool !== "habitat") {
+      return
+    }
     const game = gameRef.current
     const start = fenceStartRef.current
     const end = fenceEndRef.current
@@ -276,7 +304,9 @@ export default function App() {
 
   const describeStand = (standId: number) => {
     const stand = snapshot?.concessions.find((candidate) => candidate.id === standId)
-    if (!stand) return
+    if (!stand) {
+      return
+    }
     const label = stand.kind === "food" ? "Food" : "Drink"
     inform(
       `${label} stand #${stand.id} · ${stand.condition}% condition · ${stand.service_state} · ${stand.maintenance_status}`,
@@ -285,7 +315,9 @@ export default function App() {
 
   const onPick = (pick: ParkPick) => {
     const game = gameRef.current
-    if (!game || !snapshot) return
+    if (!game || !snapshot) {
+      return
+    }
     const depot = snapshot.animal_care_depot
     const isDepotTile = (tile: Point | null) => tile?.x === depot.x && tile?.y === depot.y
 
@@ -316,12 +348,16 @@ export default function App() {
             (candidate) => candidate.x === pick.tile.x && candidate.y === pick.tile.y,
           )
           selectHabitat(tile?.habitat_id ?? null)
-          if (tile?.habitat_id) inform(`Habitat #${tile.habitat_id} selected`)
-          else if (tile?.concession_id) describeStand(tile.concession_id)
-          else inform("Ground selected")
+          if (tile?.habitat_id) {
+            inform(`Habitat #${tile.habitat_id} selected`)
+          } else if (tile?.concession_id) {
+            describeStand(tile.concession_id)
+          } else {
+            inform("Ground selected")
+          }
           return
         }
-        default:
+        case "none":
           selectHabitat(null)
           return
       }
@@ -334,13 +370,16 @@ export default function App() {
         setMessageKind("error")
         return
       }
-      if (!target) return
+      if (!target) {
+        return
+      }
       const tile = snapshot.tiles.find(
         (candidate) => candidate.x === target.x && candidate.y === target.y,
       )
       perform(() => game.bulldoze(target.x, target.y))
-      if (tile?.habitat_id != null && tile.habitat_id === selectedHabitatId)
+      if (tile?.habitat_id != null && tile.habitat_id === selectedHabitatId) {
         setSelectedHabitatId(null)
+      }
       return
     }
 
@@ -351,45 +390,65 @@ export default function App() {
 
   const adopt = (species: SpeciesKey) => {
     const game = gameRef.current
-    if (!game || selectedHabitatId === null) return
+    if (!game || selectedHabitatId === null) {
+      return
+    }
     perform(() => game.adopt(selectedHabitatId, species))
   }
 
   const careForHabitat = (action: "water" | "clean" | "shelter") => {
     const game = gameRef.current
-    if (!game || selectedHabitatId === null) return
-    if (action === "water") perform(() => game.refill_water(selectedHabitatId))
-    if (action === "clean") perform(() => game.clean_habitat(selectedHabitatId))
-    if (action === "shelter") perform(() => game.add_shelter(selectedHabitatId))
+    if (!game || selectedHabitatId === null) {
+      return
+    }
+    if (action === "water") {
+      perform(() => game.refill_water(selectedHabitatId))
+    }
+    if (action === "clean") {
+      perform(() => game.clean_habitat(selectedHabitatId))
+    }
+    if (action === "shelter") {
+      perform(() => game.add_shelter(selectedHabitatId))
+    }
   }
 
   const scheduleKeeper = () => {
     const game = gameRef.current
-    if (!game || selectedHabitatId === null) return
+    if (!game || selectedHabitatId === null) {
+      return
+    }
     perform(() => game.schedule_keeper(selectedHabitatId))
   }
 
   const buyAnimalFeed = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.buy_animal_feed())
   }
 
   const hireKeeper = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.hire_keeper())
   }
 
   const hireJanitor = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.hire_janitor())
   }
 
   const hireMechanic = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.hire_mechanic())
   }
 
@@ -488,7 +547,7 @@ export default function App() {
         </Suspense>
 
         <aside className="side-panel bevel">
-          {selectedDepot ? (
+          {selectedDepot && (
             <>
               <div className="window-title">
                 <span>Central operations depot</span>
@@ -633,7 +692,8 @@ export default function App() {
                 )}
               </div>
             </>
-          ) : selectedGuest ? (
+          )}
+          {!selectedDepot && selectedGuest && (
             <>
               <div className="window-title">
                 <span>Guest #{selectedGuest.id}</span>
@@ -662,7 +722,8 @@ export default function App() {
                 <NeedBar label="Value" value={selectedGuest.value_perception} />
               </div>
             </>
-          ) : selectedHabitat ? (
+          )}
+          {!selectedDepot && !selectedGuest && selectedHabitat && (
             <>
               <div className="window-title">
                 <span>Habitat #{selectedHabitat.id}</span>
@@ -804,7 +865,8 @@ export default function App() {
                 })}
               </div>
             </>
-          ) : (
+          )}
+          {!selectedDepot && !selectedGuest && !selectedHabitat && (
             <>
               <div className="window-title">
                 <span>Park manager</span>

@@ -202,11 +202,10 @@ const BLOB = facetedMesh(
       return [Math.cos(angle) * radius, 0.12 * (i % 3), Math.sin(angle) * radius] as Vec3
     })
     const triangles: Triangle[] = []
-    for (let i = 0; i < ring.length; i += 1) {
-      const a = ring[i]
-      const b = ring[(i + 1) % ring.length]
+    ring.forEach((a, i) => {
+      const b = ring[(i + 1) % ring.length] ?? a
       triangles.push([a, b, top], [a, bottom, b])
-    }
+    })
     return triangles
   })(),
 )
@@ -224,11 +223,16 @@ function node(
   options: PartOptions = {},
 ): RendererSceneNode {
   const transform: { translation: Vec3; rotationQuaternion?: Quat; scale?: Vec3 } = { translation }
-  if (options.rotation && options.rotation !== IDENTITY)
+  if (options.rotation && options.rotation !== IDENTITY) {
     transform.rotationQuaternion = options.rotation
-  if (options.scale) transform.scale = options.scale
+  }
+  if (options.scale) {
+    transform.scale = options.scale
+  }
   const result: RendererSceneNode = { id, transform, geometry, color }
-  if (options.opacity !== undefined && options.opacity < 1) result.opacity = options.opacity
+  if (options.opacity !== undefined && options.opacity < 1) {
+    result.opacity = options.opacity
+  }
   return result
 }
 
@@ -330,7 +334,7 @@ function tileColor(tile: Tile, habitatSpecies: Map<number, SpeciesKey | null>): 
       const base = HABITAT_GROUND[species ?? "empty"]
       return hash(tile.x, tile.y, 7) > 0.5 ? base : shade(base, -0.04)
     }
-    default:
+    case "grass":
       return (tile.x + tile.y) % 2 === 0 ? GRASS_A : GRASS_B
   }
 }
@@ -397,24 +401,35 @@ function sceneryNodes(snapshot: Snapshot): RendererSceneNode[] {
   for (let gx = -reach; gx < snapshot.width + reach; gx += 1) {
     for (let gz = -reach; gz < snapshot.height + reach; gz += 1) {
       const inside = gx >= -1 && gz >= -1 && gx <= snapshot.width && gz <= snapshot.height
-      if (inside) continue
+      if (inside) {
+        continue
+      }
       const roll = hash(gx, gz, 1)
       const edgeDistance = Math.max(-gx - 1, gx - snapshot.width, -gz - 1, gz - snapshot.height)
       const density = edgeDistance < 2 ? 0.18 : 0.34
-      if (roll > density) continue
+      if (roll > density) {
+        continue
+      }
       const x = gx + 0.5 + (hash(gx, gz, 2) - 0.5) * 0.7
       const z = gz + 0.5 + (hash(gx, gz, 3) - 0.5) * 0.7
       // Keep the approach road and a little breathing room around it clear.
       const alongRoad = (x - entrance.x) * outward.x + (z - entrance.z) * outward.z
       const acrossRoad = Math.abs((x - entrance.x) * outward.z - (z - entrance.z) * outward.x)
-      if (alongRoad > -0.5 && acrossRoad < 2.2) continue
+      if (alongRoad > -0.5 && acrossRoad < 2.2) {
+        continue
+      }
       const variant = hash(gx, gz, 4)
       const scale = 0.75 + hash(gx, gz, 5) * 0.6
       const id = `scenery:${gx}:${gz}`
-      if (variant < 0.45) nodes.push(...roundTree(id, x, z, scale, hash(gx, gz, 6)))
-      else if (variant < 0.8) nodes.push(...pineTree(id, x, z, scale))
-      else if (variant < 0.93) nodes.push(...bush(id, x, z, scale))
-      else nodes.push(rock(id, x, z, scale, hash(gx, gz, 7)))
+      if (variant < 0.45) {
+        nodes.push(...roundTree(id, x, z, scale, hash(gx, gz, 6)))
+      } else if (variant < 0.8) {
+        nodes.push(...pineTree(id, x, z, scale))
+      } else if (variant < 0.93) {
+        nodes.push(...bush(id, x, z, scale))
+      } else {
+        nodes.push(rock(id, x, z, scale, hash(gx, gz, 7)))
+      }
     }
   }
   // Sparse outer woodland (trees only) so framings that fit a narrow viewport by width, such as
@@ -424,16 +439,23 @@ function sceneryNodes(snapshot: Snapshot): RendererSceneNode[] {
     for (let gz = -farReach; gz < snapshot.height + farReach; gz += 1) {
       const nearRing =
         gx >= -reach && gz >= -reach && gx < snapshot.width + reach && gz < snapshot.height + reach
-      if (nearRing || hash(gx, gz, 11) > 0.09) continue
+      if (nearRing || hash(gx, gz, 11) > 0.09) {
+        continue
+      }
       const x = gx + 0.5 + (hash(gx, gz, 12) - 0.5) * 0.8
       const z = gz + 0.5 + (hash(gx, gz, 13) - 0.5) * 0.8
       const alongRoad = (x - entrance.x) * outward.x + (z - entrance.z) * outward.z
       const acrossRoad = Math.abs((x - entrance.x) * outward.z - (z - entrance.z) * outward.x)
-      if (alongRoad > -0.5 && acrossRoad < 2.2) continue
+      if (alongRoad > -0.5 && acrossRoad < 2.2) {
+        continue
+      }
       const scale = 1 + hash(gx, gz, 14) * 0.6
       const id = `scenery:far:${gx}:${gz}`
-      if (hash(gx, gz, 15) < 0.5) nodes.push(...roundTree(id, x, z, scale, hash(gx, gz, 16)))
-      else nodes.push(...pineTree(id, x, z, scale))
+      if (hash(gx, gz, 15) < 0.5) {
+        nodes.push(...roundTree(id, x, z, scale, hash(gx, gz, 16)))
+      } else {
+        nodes.push(...pineTree(id, x, z, scale))
+      }
     }
   }
   return nodes
@@ -533,9 +555,15 @@ const pointKey = ([x, , z]: Vec3) => `${x}:${z}`
 const edgeKey = (a: Vec3, b: Vec3) => [pointKey(a), pointKey(b)].sort().join("--")
 
 export function entranceSide(snapshot: Snapshot): FenceSide {
-  if (snapshot.entrance.y <= 0) return "north"
-  if (snapshot.entrance.y >= snapshot.height - 1) return "south"
-  if (snapshot.entrance.x <= 0) return "west"
+  if (snapshot.entrance.y <= 0) {
+    return "north"
+  }
+  if (snapshot.entrance.y >= snapshot.height - 1) {
+    return "south"
+  }
+  if (snapshot.entrance.x <= 0) {
+    return "west"
+  }
   return "east"
 }
 
@@ -572,7 +600,9 @@ function fenceRuns(snapshot: Snapshot, placement: PlacementEvaluation | null): F
   const push = (run: FenceRun) => {
     const key = edgeKey(run.start, run.end)
     const existing = committed.get(key)
-    if (!existing || run.kind === "boundary") committed.set(key, run)
+    if (!existing || run.kind === "boundary") {
+      committed.set(key, run)
+    }
   }
 
   for (const habitat of snapshot.habitats) {
@@ -584,7 +614,9 @@ function fenceRuns(snapshot: Snapshot, placement: PlacementEvaluation | null): F
 
   const boundary = (x: number, z: number, edge: FenceSide) => {
     const isGate = edge === side && x === snapshot.entrance.x && z === snapshot.entrance.y
-    if (isGate) return
+    if (isGate) {
+      return
+    }
     const [start, end] = fenceEndpoints(x, z, edge)
     push({ id: `boundary:${edge}:${x}:${z}`, start, end, kind: "boundary" })
   }
@@ -640,8 +672,9 @@ function fenceNodes(snapshot: Snapshot, placement: PlacementEvaluation | null) {
     for (const point of [run.start, run.end]) {
       const key = pointKey(point)
       const existing = posts.get(key)
-      if (!existing || rank[run.kind] > rank[existing.kind])
+      if (!existing || rank[run.kind] > rank[existing.kind]) {
         posts.set(key, { point, kind: run.kind })
+      }
     }
   }
 
@@ -714,9 +747,13 @@ function entranceGateNodes(snapshot: Snapshot): RendererSceneNode[] {
   )
   // "ZOO" lettering as raised blocks on the outward face of the sign.
   const letter = (part: string, x: number, y: number, w: number, h: number, tilt = 0) =>
-    m.box(`letter-${part}`, [x, 1.68 + y, 0.13], [w, h, 0.02], "#2f4a3d", {
-      rotation: tilt === 0 ? undefined : axisQuaternion("z", tilt),
-    })
+    m.box(
+      `letter-${part}`,
+      [x, 1.68 + y, 0.13],
+      [w, h, 0.02],
+      "#2f4a3d",
+      tilt === 0 ? {} : { rotation: axisQuaternion("z", tilt) },
+    )
   nodes.push(
     letter("z-top", -0.3, 0.07, 0.18, 0.035),
     letter("z-mid", -0.3, 0, 0.035, 0.2, -0.85),
@@ -774,12 +811,12 @@ function concessionNodes(snapshot: Snapshot): RendererSceneNode[] {
     const yaw = facingNearestPath(snapshot, stand.x, stand.y)
     const m = model(`concession:${stand.id}`, { x, z }, yaw)
     const accent: Hex = stand.kind === "food" ? "#e0913f" : "#4fa9c7"
-    const awning: Hex =
-      stand.service_state === "failed"
-        ? "#7c4a44"
-        : stand.service_state === "degraded"
-          ? shade(accent, -0.3)
-          : accent
+    let awning: Hex = accent
+    if (stand.service_state === "failed") {
+      awning = "#7c4a44"
+    } else if (stand.service_state === "degraded") {
+      awning = shade(accent, -0.3)
+    }
 
     nodes.push(
       blobShadow(`concession:${stand.id}:shadow`, x, z, 0.5, 0.16),
@@ -831,15 +868,21 @@ function facingNearestPath(snapshot: Snapshot, x: number, y: number) {
   ]
   for (const [side, tx, ty] of candidates) {
     const tile = tileAt(snapshot, tx, ty)
-    if (tile && (tile.kind === "path" || tile.kind === "entrance")) return yawFacing(side)
+    if (tile && (tile.kind === "path" || tile.kind === "entrance")) {
+      return yawFacing(side)
+    }
   }
   return 0
 }
 
 function tileAt(snapshot: Snapshot, x: number, y: number): Tile | undefined {
-  if (x < 0 || y < 0 || x >= snapshot.width || y >= snapshot.height) return undefined
+  if (x < 0 || y < 0 || x >= snapshot.width || y >= snapshot.height) {
+    return undefined
+  }
   const tile = snapshot.tiles[y * snapshot.width + x]
-  if (tile && tile.x === x && tile.y === y) return tile
+  if (tile && tile.x === x && tile.y === y) {
+    return tile
+  }
   return snapshot.tiles.find((candidate) => candidate.x === x && candidate.y === y)
 }
 
@@ -963,15 +1006,19 @@ function legs(
   radius: number,
   color: Hex,
 ) {
-  return [
+  const feet: [number, number][] = [
     [-spreadX, -spreadZ],
     [spreadX, -spreadZ],
     [-spreadX, spreadZ],
     [spreadX, spreadZ],
-  ].map(([lx, lz], index) =>
+  ]
+  return feet.map(([lx, lz], index) =>
     m.cylinder(`leg:${index}`, [lx, height / 2, lz], radius, height, color),
   )
 }
+
+const ANIMAL_SHADOW_SIZE: Partial<Record<SpeciesKey, number>> = { elephant: 0.4, giraffe: 0.3 }
+const ANIMAL_PICK_HEIGHT: Partial<Record<SpeciesKey, number>> = { giraffe: 0.7, elephant: 0.45 }
 
 function animalFigure(m: Figure, species: SpeciesKey, stride: number): RendererSceneNode[] {
   switch (species) {
@@ -1058,12 +1105,12 @@ function animalNodes(animals: Animal[], input: SceneFrameInput) {
     const stride = input.animate ? Math.sin(input.timeSeconds * 4 + phase) : 0
     const yaw = phase + wander
     const m = model(`animal:${animal.id}`, { x, z }, yaw)
-    const size = animal.species === "elephant" ? 0.4 : animal.species === "giraffe" ? 0.3 : 0.22
+    const size = ANIMAL_SHADOW_SIZE[animal.species] ?? 0.22
     nodes.push(
       blobShadow(`animal:${animal.id}:shadow`, x, z, size),
       ...animalFigure(m, animal.species, stride),
     )
-    const height = animal.species === "giraffe" ? 0.7 : animal.species === "elephant" ? 0.45 : 0.25
+    const height = ANIMAL_PICK_HEIGHT[animal.species] ?? 0.25
     anchors.push({
       kind: "animal",
       habitatId: animal.habitat_id,
@@ -1104,7 +1151,9 @@ function person(
     m.cylinder("torso", [0, 0.25, 0], 0.06, 0.16, colors.shirt),
     m.sphere("head", [0, 0.39, 0], 0.055, colors.skin),
   ]
-  if (colors.hat) nodes.push(m.cylinder("hat", [0, 0.445, 0], 0.058, 0.03, colors.hat))
+  if (colors.hat) {
+    nodes.push(m.cylinder("hat", [0, 0.445, 0], 0.058, 0.03, colors.hat))
+  }
   return nodes
 }
 
@@ -1129,8 +1178,8 @@ function guestNodes(guests: Guest[], input: SceneFrameInput) {
     const yaw = hash(guest.id, Math.floor(input.timeSeconds / 3)) * Math.PI * 2
     nodes.push(
       ...person(key, x, z, yaw, bob, {
-        shirt: SHIRTS[guest.id % SHIRTS.length],
-        skin: SKIN[(guest.id * 7) % SKIN.length],
+        shirt: SHIRTS[guest.id % SHIRTS.length] ?? "#ffffff",
+        skin: SKIN[(guest.id * 7) % SKIN.length] ?? "#f1c9a5",
         legs: "#3d4b63",
       }),
     )
@@ -1165,7 +1214,7 @@ function staffNodes(snapshot: Snapshot, input: SceneFrameInput): RendererSceneNo
     nodes.push(
       ...person(key, x, z, yaw, 0, {
         shirt: "#3f8f5f",
-        skin: SKIN[janitor.id % SKIN.length],
+        skin: SKIN[janitor.id % SKIN.length] ?? "#f1c9a5",
         legs: "#2e5e43",
         hat: "#2e5e43",
       }),
@@ -1185,7 +1234,7 @@ function staffNodes(snapshot: Snapshot, input: SceneFrameInput): RendererSceneNo
     nodes.push(
       ...person(key, x, z, yaw, 0, {
         shirt: "#e0873a",
-        skin: SKIN[(mechanic.id + 2) % SKIN.length],
+        skin: SKIN[(mechanic.id + 2) % SKIN.length] ?? "#f1c9a5",
         legs: "#40506a",
         hat: "#f2c14e",
       }),
@@ -1240,7 +1289,7 @@ function toolColor(tool: Tool): Hex {
     case "drink":
     case "habitat":
       return "#f6d36f"
-    default:
+    case "select":
       return "#ffffff"
   }
 }

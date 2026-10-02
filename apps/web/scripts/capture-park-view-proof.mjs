@@ -322,6 +322,31 @@ try {
   assert(panEnd.target.join() !== panStart.target.join(), "One-finger drag did not pan", {panStart, panEnd})
   await key("Home")
   assert(await footprintInFrame(), "Phone reset does not frame the whole park")
+  // With the Path tool active, the first finger of a two-finger camera gesture must not place
+  // (and pay for) a path; a single-finger tap on the same tile still does.
+  const cash = () => evaluate(`document.querySelector('.stat strong')?.textContent ?? ''`)
+  assert(await clickButton("Path"), "Path tool missing on phone")
+  const pathTile = await tile(13, 7)
+  const cashBeforePinch = await cash()
+  await touch("touchStart", [[pathTile.x, pathTile.y]])
+  await frame()
+  await touch("touchStart", [[pathTile.x, pathTile.y], [pathTile.x + 80, pathTile.y]])
+  for (let step = 1; step <= 8; step += 1) {
+    await touch("touchMove", [[pathTile.x - step * 4, pathTile.y], [pathTile.x + 80 + step * 4, pathTile.y]])
+  }
+  await touch("touchEnd", [])
+  await frame()
+  assert((await cash()) === cashBeforePinch, "Two-finger gesture with the Path tool placed a path",
+    {cashBeforePinch, cashAfter: await cash()})
+  await key("Home")
+  const tapTile = await tile(13, 7)
+  await touch("touchStart", [[tapTile.x, tapTile.y]])
+  await touch("touchEnd", [])
+  await frame()
+  assert((await cash()) !== cashBeforePinch, "Single-finger tap with the Path tool did not place a path",
+    {cashBeforePinch, message: await message()})
+  assert(await clickButton("Inspect"), "Inspect tool missing on phone")
+  await key("Home")
   const depot = await project([2.5, 0.5, 6.5])
   await touch("touchStart", [[depot.x, depot.y]])
   await touch("touchEnd", [])
