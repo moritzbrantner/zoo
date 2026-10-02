@@ -21,21 +21,21 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out exact candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
           fetch-depth: 0
 
       - name: Check out exact base
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: reference
           fetch-depth: 0
 
       - name: Check out pinned Moonlight
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@v7
         with:
           repository: moritzbrantner/moonlight
           ref: ${{ env.MOONLIGHT_REV }}
@@ -55,9 +55,11 @@ jobs:
           cp candidate/crates/zoo-core/examples/profile_simulation.rs \
             reference/crates/zoo-core/examples/profile_simulation.rs
           cp candidate/profiles/runtime-profiler/simulation.json reference/profiles/runtime-profiler/simulation.json
+          cp candidate/Cargo.lock reference/Cargo.lock
           git -C reference add \
             crates/zoo-core/examples/profile_simulation.rs \
-            profiles/runtime-profiler/simulation.json
+            profiles/runtime-profiler/simulation.json \
+            Cargo.lock
           if ! git -C reference diff --cached --quiet; then
             git -C reference \
               -c user.name='runtime-profiler' \
@@ -67,8 +69,8 @@ jobs:
 
       - name: Prime deterministic workload
         run: |
-          (cd reference && cargo build --release -p zoo-core --example profile_simulation && rm -f Cargo.lock)
-          (cd candidate && cargo build --release -p zoo-core --example profile_simulation && rm -f Cargo.lock)
+          (cd reference && cargo build --locked --release -p zoo-core --example profile_simulation)
+          (cd candidate && cargo build --locked --release -p zoo-core --example profile_simulation)
           test -z "$(git -C reference status --porcelain)"
           test -z "$(git -C candidate status --porcelain)"
 
@@ -124,7 +126,7 @@ jobs:
 
       - name: Upload evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v7
         with:
           name: zoo-runtime-moonlight-${{ github.event.pull_request.head.sha }}
           path: |

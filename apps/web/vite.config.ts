@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react"
-import {defineConfig} from "vite"
+import { defineConfig } from "vite"
 
 export default defineConfig({
   plugins: [react()],
@@ -13,7 +13,7 @@ export default defineConfig({
       output: {
         codeSplitting: {
           // Keep three.js in its own long-lived chunk so Zoo-only changes don't invalidate it.
-          groups: [{name: "three", test: /node_modules[\\/]three[\\/]/}],
+          groups: [{ name: "three", test: /node_modules[\\/]three[\\/]/ }],
         },
       },
     },

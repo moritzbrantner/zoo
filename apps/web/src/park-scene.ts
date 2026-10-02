@@ -1,4 +1,5 @@
-import type {RendererSceneNode} from "@moritzbrantner/three-d-renderer"
+import type { RendererSceneNode } from "@moritzbrantner/three-d-renderer"
+
 import type {
   Animal,
   FenceSide,
@@ -22,7 +23,7 @@ type Hex = `#${string}`
 type Quat = [number, number, number, number]
 type Triangle = [Vec3, Vec3, Vec3]
 
-type MeshGeometry = Extract<RendererSceneNode["geometry"], {kind: "mesh"}>
+type MeshGeometry = Extract<RendererSceneNode["geometry"], { kind: "mesh" }>
 
 export type SceneOverlay = {
   tool: Tool
@@ -47,10 +48,10 @@ export type SceneFrameInput = {
 
 /** Screen-pickable anchors for entities that do not map 1:1 to a clicked ground tile. */
 export type PickAnchor =
-  | {kind: "guest"; id: number; point: Vec3; radius: number}
-  | {kind: "animal"; habitatId: number; point: Vec3; radius: number}
-  | {kind: "concession"; id: number; tile: Point; point: Vec3; radius: number}
-  | {kind: "depot"; point: Vec3; radius: number}
+  | { kind: "guest"; id: number; point: Vec3; radius: number }
+  | { kind: "animal"; habitatId: number; point: Vec3; radius: number }
+  | { kind: "concession"; id: number; tile: Point; point: Vec3; radius: number }
+  | { kind: "depot"; point: Vec3; radius: number }
 
 export type SceneFrame = {
   nodes: RendererSceneNode[]
@@ -127,19 +128,51 @@ function facetedMesh(resourceKey: string, triangles: Triangle[]): MeshGeometry {
     positions.push(a, ...(facesOut ? [b, c] : [c, b]))
     indices.push(base, base + 1, base + 2)
   }
-  return {kind: "mesh", resourceKey, positions, indices}
+  return { kind: "mesh", resourceKey, positions, indices }
 }
 
 /** Gable roof prism: 1 × 1 footprint centered on the origin, ridge along X, height 1. */
 const GABLE_ROOF = facetedMesh("zoo:gable-roof:v1", [
-  [[-0.5, 0, -0.5], [0.5, 0, -0.5], [0.5, 1, 0]],
-  [[-0.5, 0, -0.5], [0.5, 1, 0], [-0.5, 1, 0]],
-  [[-0.5, 0, 0.5], [0.5, 1, 0], [0.5, 0, 0.5]],
-  [[-0.5, 0, 0.5], [-0.5, 1, 0], [0.5, 1, 0]],
-  [[-0.5, 0, -0.5], [-0.5, 1, 0], [-0.5, 0, 0.5]],
-  [[0.5, 0, -0.5], [0.5, 0, 0.5], [0.5, 1, 0]],
-  [[-0.5, 0, -0.5], [-0.5, 0, 0.5], [0.5, 0, 0.5]],
-  [[-0.5, 0, -0.5], [0.5, 0, 0.5], [0.5, 0, -0.5]],
+  [
+    [-0.5, 0, -0.5],
+    [0.5, 0, -0.5],
+    [0.5, 1, 0],
+  ],
+  [
+    [-0.5, 0, -0.5],
+    [0.5, 1, 0],
+    [-0.5, 1, 0],
+  ],
+  [
+    [-0.5, 0, 0.5],
+    [0.5, 1, 0],
+    [0.5, 0, 0.5],
+  ],
+  [
+    [-0.5, 0, 0.5],
+    [-0.5, 1, 0],
+    [0.5, 1, 0],
+  ],
+  [
+    [-0.5, 0, -0.5],
+    [-0.5, 1, 0],
+    [-0.5, 0, 0.5],
+  ],
+  [
+    [0.5, 0, -0.5],
+    [0.5, 0, 0.5],
+    [0.5, 1, 0],
+  ],
+  [
+    [-0.5, 0, -0.5],
+    [-0.5, 0, 0.5],
+    [0.5, 0, 0.5],
+  ],
+  [
+    [-0.5, 0, -0.5],
+    [0.5, 0, 0.5],
+    [0.5, 0, -0.5],
+  ],
 ])
 
 function coneTriangles(segments: number): Triangle[] {
@@ -158,27 +191,29 @@ function coneTriangles(segments: number): Triangle[] {
 const CONE = facetedMesh("zoo:cone7:v1", coneTriangles(7))
 
 /** Low-poly rock/bush blob: an irregular octahedron-ish hull, unit radius. */
-const BLOB = facetedMesh("zoo:blob:v1", (() => {
-  const top: Vec3 = [0, 0.8, 0]
-  const bottom: Vec3 = [0, -0.3, 0]
-  const ring: Vec3[] = [0, 1, 2, 3, 4, 5].map((i) => {
-    const angle = (i / 6) * Math.PI * 2 + 0.3
-    const radius = i % 2 === 0 ? 1 : 0.82
-    return [Math.cos(angle) * radius, 0.12 * (i % 3), Math.sin(angle) * radius] as Vec3
-  })
-  const triangles: Triangle[] = []
-  for (let i = 0; i < ring.length; i += 1) {
-    const a = ring[i]
-    const b = ring[(i + 1) % ring.length]
-    triangles.push([a, b, top], [a, bottom, b])
-  }
-  return triangles
-})())
+const BLOB = facetedMesh(
+  "zoo:blob:v1",
+  (() => {
+    const top: Vec3 = [0, 0.8, 0]
+    const bottom: Vec3 = [0, -0.3, 0]
+    const ring: Vec3[] = [0, 1, 2, 3, 4, 5].map((i) => {
+      const angle = (i / 6) * Math.PI * 2 + 0.3
+      const radius = i % 2 === 0 ? 1 : 0.82
+      return [Math.cos(angle) * radius, 0.12 * (i % 3), Math.sin(angle) * radius] as Vec3
+    })
+    const triangles: Triangle[] = []
+    ring.forEach((a, i) => {
+      const b = ring[(i + 1) % ring.length] ?? a
+      triangles.push([a, b, top], [a, bottom, b])
+    })
+    return triangles
+  })(),
+)
 
 // ---------------------------------------------------------------------------------------------
 // Node helpers
 
-type PartOptions = {opacity?: number; rotation?: Quat; scale?: Vec3}
+type PartOptions = { opacity?: number; rotation?: Quat; scale?: Vec3 }
 
 function node(
   id: string,
@@ -187,21 +222,27 @@ function node(
   color: Hex,
   options: PartOptions = {},
 ): RendererSceneNode {
-  const transform: {translation: Vec3; rotationQuaternion?: Quat; scale?: Vec3} = {translation}
-  if (options.rotation && options.rotation !== IDENTITY) transform.rotationQuaternion = options.rotation
-  if (options.scale) transform.scale = options.scale
-  const result: RendererSceneNode = {id, transform, geometry, color}
-  if (options.opacity !== undefined && options.opacity < 1) result.opacity = options.opacity
+  const transform: { translation: Vec3; rotationQuaternion?: Quat; scale?: Vec3 } = { translation }
+  if (options.rotation && options.rotation !== IDENTITY) {
+    transform.rotationQuaternion = options.rotation
+  }
+  if (options.scale) {
+    transform.scale = options.scale
+  }
+  const result: RendererSceneNode = { id, transform, geometry, color }
+  if (options.opacity !== undefined && options.opacity < 1) {
+    result.opacity = options.opacity
+  }
   return result
 }
 
-const boxGeometry = (size: Vec3) => ({kind: "box", size}) as const
+const boxGeometry = (size: Vec3) => ({ kind: "box", size }) as const
 const cylinderGeometry = (radius: number, height: number) =>
-  ({kind: "cylinder", radius, height}) as const
-const sphereGeometry = (radius: number) => ({kind: "sphere", radius}) as const
+  ({ kind: "cylinder", radius, height }) as const
+const sphereGeometry = (radius: number) => ({ kind: "sphere", radius }) as const
 
 /** Places parts in a model-local frame (x right, y up, z forward) at a ground origin and yaw. */
-function model(prefix: string, origin: {x: number; z: number}, yaw = 0, lift = 0) {
+function model(prefix: string, origin: { x: number; z: number }, yaw = 0, lift = 0) {
   const rotation = yaw === 0 ? IDENTITY : yawQuaternion(yaw)
   const cosine = Math.cos(yaw)
   const sine = Math.sin(yaw)
@@ -252,7 +293,7 @@ function model(prefix: string, origin: {x: number; z: number}, yaw = 0, lift = 0
 }
 
 function blobShadow(id: string, x: number, z: number, radius: number, opacity = 0.22) {
-  return node(id, [x, 0.012, z], cylinderGeometry(radius, 0.01), "#1f3b24", {opacity})
+  return node(id, [x, 0.012, z], cylinderGeometry(radius, 0.01), "#1f3b24", { opacity })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -288,11 +329,12 @@ function tileColor(tile: Tile, habitatSpecies: Map<number, SpeciesKey | null>): 
     case "concession":
       return PATH_EDGE
     case "habitat": {
-      const species = tile.habitat_id === null ? null : (habitatSpecies.get(tile.habitat_id) ?? null)
+      const species =
+        tile.habitat_id === null ? null : (habitatSpecies.get(tile.habitat_id) ?? null)
       const base = HABITAT_GROUND[species ?? "empty"]
       return hash(tile.x, tile.y, 7) > 0.5 ? base : shade(base, -0.04)
     }
-    default:
+    case "grass":
       return (tile.x + tile.y) % 2 === 0 ? GRASS_A : GRASS_B
   }
 }
@@ -354,34 +396,40 @@ function sceneryNodes(snapshot: Snapshot): RendererSceneNode[] {
   const nodes: RendererSceneNode[] = []
   const side = entranceSide(snapshot)
   const outward = sideNormal(side)
-  const entrance = {x: snapshot.entrance.x + 0.5, z: snapshot.entrance.y + 0.5}
+  const entrance = { x: snapshot.entrance.x + 0.5, z: snapshot.entrance.y + 0.5 }
   const reach = 9
   for (let gx = -reach; gx < snapshot.width + reach; gx += 1) {
     for (let gz = -reach; gz < snapshot.height + reach; gz += 1) {
       const inside = gx >= -1 && gz >= -1 && gx <= snapshot.width && gz <= snapshot.height
-      if (inside) continue
+      if (inside) {
+        continue
+      }
       const roll = hash(gx, gz, 1)
-      const edgeDistance = Math.max(
-        -gx - 1,
-        gx - snapshot.width,
-        -gz - 1,
-        gz - snapshot.height,
-      )
+      const edgeDistance = Math.max(-gx - 1, gx - snapshot.width, -gz - 1, gz - snapshot.height)
       const density = edgeDistance < 2 ? 0.18 : 0.34
-      if (roll > density) continue
+      if (roll > density) {
+        continue
+      }
       const x = gx + 0.5 + (hash(gx, gz, 2) - 0.5) * 0.7
       const z = gz + 0.5 + (hash(gx, gz, 3) - 0.5) * 0.7
       // Keep the approach road and a little breathing room around it clear.
       const alongRoad = (x - entrance.x) * outward.x + (z - entrance.z) * outward.z
       const acrossRoad = Math.abs((x - entrance.x) * outward.z - (z - entrance.z) * outward.x)
-      if (alongRoad > -0.5 && acrossRoad < 2.2) continue
+      if (alongRoad > -0.5 && acrossRoad < 2.2) {
+        continue
+      }
       const variant = hash(gx, gz, 4)
       const scale = 0.75 + hash(gx, gz, 5) * 0.6
       const id = `scenery:${gx}:${gz}`
-      if (variant < 0.45) nodes.push(...roundTree(id, x, z, scale, hash(gx, gz, 6)))
-      else if (variant < 0.8) nodes.push(...pineTree(id, x, z, scale))
-      else if (variant < 0.93) nodes.push(...bush(id, x, z, scale))
-      else nodes.push(rock(id, x, z, scale, hash(gx, gz, 7)))
+      if (variant < 0.45) {
+        nodes.push(...roundTree(id, x, z, scale, hash(gx, gz, 6)))
+      } else if (variant < 0.8) {
+        nodes.push(...pineTree(id, x, z, scale))
+      } else if (variant < 0.93) {
+        nodes.push(...bush(id, x, z, scale))
+      } else {
+        nodes.push(rock(id, x, z, scale, hash(gx, gz, 7)))
+      }
     }
   }
   // Sparse outer woodland (trees only) so framings that fit a narrow viewport by width, such as
@@ -391,16 +439,23 @@ function sceneryNodes(snapshot: Snapshot): RendererSceneNode[] {
     for (let gz = -farReach; gz < snapshot.height + farReach; gz += 1) {
       const nearRing =
         gx >= -reach && gz >= -reach && gx < snapshot.width + reach && gz < snapshot.height + reach
-      if (nearRing || hash(gx, gz, 11) > 0.09) continue
+      if (nearRing || hash(gx, gz, 11) > 0.09) {
+        continue
+      }
       const x = gx + 0.5 + (hash(gx, gz, 12) - 0.5) * 0.8
       const z = gz + 0.5 + (hash(gx, gz, 13) - 0.5) * 0.8
       const alongRoad = (x - entrance.x) * outward.x + (z - entrance.z) * outward.z
       const acrossRoad = Math.abs((x - entrance.x) * outward.z - (z - entrance.z) * outward.x)
-      if (alongRoad > -0.5 && acrossRoad < 2.2) continue
+      if (alongRoad > -0.5 && acrossRoad < 2.2) {
+        continue
+      }
       const scale = 1 + hash(gx, gz, 14) * 0.6
       const id = `scenery:far:${gx}:${gz}`
-      if (hash(gx, gz, 15) < 0.5) nodes.push(...roundTree(id, x, z, scale, hash(gx, gz, 16)))
-      else nodes.push(...pineTree(id, x, z, scale))
+      if (hash(gx, gz, 15) < 0.5) {
+        nodes.push(...roundTree(id, x, z, scale, hash(gx, gz, 16)))
+      } else {
+        nodes.push(...pineTree(id, x, z, scale))
+      }
     }
   }
   return nodes
@@ -408,35 +463,58 @@ function sceneryNodes(snapshot: Snapshot): RendererSceneNode[] {
 
 function roundTree(id: string, x: number, z: number, scale: number, tint: number) {
   const leaf = shade("#4f9444", (tint - 0.5) * 0.25)
-  const m = model(id, {x, z})
+  const m = model(id, { x, z })
   return [
     blobShadow(`${id}:shadow`, x, z, 0.45 * scale),
     m.cylinder("trunk", [0, 0.35 * scale, 0], 0.07 * scale, 0.7 * scale, "#7a5536"),
     m.sphere("crown", [0, 0.95 * scale, 0], 0.42 * scale, leaf),
-    m.sphere("crown-top", [0.12 * scale, 1.25 * scale, -0.05 * scale], 0.26 * scale, shade(leaf, 0.08)),
+    m.sphere(
+      "crown-top",
+      [0.12 * scale, 1.25 * scale, -0.05 * scale],
+      0.26 * scale,
+      shade(leaf, 0.08),
+    ),
   ]
 }
 
 function pineTree(id: string, x: number, z: number, scale: number) {
-  const m = model(id, {x, z})
+  const m = model(id, { x, z })
   return [
     blobShadow(`${id}:shadow`, x, z, 0.38 * scale),
     m.cylinder("trunk", [0, 0.18 * scale, 0], 0.06 * scale, 0.36 * scale, "#6b4a30"),
     m.mesh("lower", CONE, [0, 0.3 * scale, 0], [0.8 * scale, 0.9 * scale, 0.8 * scale], "#2f7449"),
-    m.mesh("upper", CONE, [0, 0.8 * scale, 0], [0.58 * scale, 0.75 * scale, 0.58 * scale], "#37825a"),
+    m.mesh(
+      "upper",
+      CONE,
+      [0, 0.8 * scale, 0],
+      [0.58 * scale, 0.75 * scale, 0.58 * scale],
+      "#37825a",
+    ),
   ]
 }
 
 function bush(id: string, x: number, z: number, scale: number) {
-  const m = model(id, {x, z}, hash(x, z) * 6)
+  const m = model(id, { x, z }, hash(x, z) * 6)
   return [
-    m.mesh("body", BLOB, [0, 0.12 * scale, 0], [0.32 * scale, 0.32 * scale, 0.32 * scale], "#5a9c48"),
-    m.mesh("side", BLOB, [0.22 * scale, 0.08 * scale, 0.1 * scale], [0.2 * scale, 0.22 * scale, 0.2 * scale], "#66a852"),
+    m.mesh(
+      "body",
+      BLOB,
+      [0, 0.12 * scale, 0],
+      [0.32 * scale, 0.32 * scale, 0.32 * scale],
+      "#5a9c48",
+    ),
+    m.mesh(
+      "side",
+      BLOB,
+      [0.22 * scale, 0.08 * scale, 0.1 * scale],
+      [0.2 * scale, 0.22 * scale, 0.2 * scale],
+      "#66a852",
+    ),
   ]
 }
 
 function rock(id: string, x: number, z: number, scale: number, turn: number) {
-  return model(id, {x, z}, turn * 6).mesh(
+  return model(id, { x, z }, turn * 6).mesh(
     "stone",
     BLOB,
     [0, 0.04, 0],
@@ -448,7 +526,7 @@ function rock(id: string, x: number, z: number, scale: number, turn: number) {
 // ---------------------------------------------------------------------------------------------
 // Fences
 
-type FenceRun = {id: string; start: Vec3; end: Vec3; kind: "boundary" | "habitat" | "preview"}
+type FenceRun = { id: string; start: Vec3; end: Vec3; kind: "boundary" | "habitat" | "preview" }
 
 function tileCorners(x: number, z: number): [Vec3, Vec3, Vec3, Vec3] {
   return [
@@ -477,22 +555,28 @@ const pointKey = ([x, , z]: Vec3) => `${x}:${z}`
 const edgeKey = (a: Vec3, b: Vec3) => [pointKey(a), pointKey(b)].sort().join("--")
 
 export function entranceSide(snapshot: Snapshot): FenceSide {
-  if (snapshot.entrance.y <= 0) return "north"
-  if (snapshot.entrance.y >= snapshot.height - 1) return "south"
-  if (snapshot.entrance.x <= 0) return "west"
+  if (snapshot.entrance.y <= 0) {
+    return "north"
+  }
+  if (snapshot.entrance.y >= snapshot.height - 1) {
+    return "south"
+  }
+  if (snapshot.entrance.x <= 0) {
+    return "west"
+  }
   return "east"
 }
 
 function sideNormal(side: FenceSide) {
   switch (side) {
     case "north":
-      return {x: 0, z: -1}
+      return { x: 0, z: -1 }
     case "south":
-      return {x: 0, z: 1}
+      return { x: 0, z: 1 }
     case "west":
-      return {x: -1, z: 0}
+      return { x: -1, z: 0 }
     case "east":
-      return {x: 1, z: 0}
+      return { x: 1, z: 0 }
   }
 }
 
@@ -516,21 +600,25 @@ function fenceRuns(snapshot: Snapshot, placement: PlacementEvaluation | null): F
   const push = (run: FenceRun) => {
     const key = edgeKey(run.start, run.end)
     const existing = committed.get(key)
-    if (!existing || run.kind === "boundary") committed.set(key, run)
+    if (!existing || run.kind === "boundary") {
+      committed.set(key, run)
+    }
   }
 
   for (const habitat of snapshot.habitats) {
     for (const segment of habitat.fence_segments) {
       const [start, end] = fenceEndpoints(segment.x, segment.y, segment.side)
-      push({id: `habitat:${habitat.id}:${edgeKey(start, end)}`, start, end, kind: "habitat"})
+      push({ id: `habitat:${habitat.id}:${edgeKey(start, end)}`, start, end, kind: "habitat" })
     }
   }
 
   const boundary = (x: number, z: number, edge: FenceSide) => {
     const isGate = edge === side && x === snapshot.entrance.x && z === snapshot.entrance.y
-    if (isGate) return
+    if (isGate) {
+      return
+    }
     const [start, end] = fenceEndpoints(x, z, edge)
-    push({id: `boundary:${edge}:${x}:${z}`, start, end, kind: "boundary"})
+    push({ id: `boundary:${edge}:${x}:${z}`, start, end, kind: "boundary" })
   }
   for (let x = 0; x < snapshot.width; x += 1) {
     boundary(x, 0, "north")
@@ -543,7 +631,7 @@ function fenceRuns(snapshot: Snapshot, placement: PlacementEvaluation | null): F
 
   const preview = (placement?.fence_segments ?? []).map((segment, index) => {
     const [start, end] = fenceEndpoints(segment.x, segment.y, segment.side)
-    return {id: `preview:${index}`, start, end, kind: "preview"} satisfies FenceRun
+    return { id: `preview:${index}`, start, end, kind: "preview" } satisfies FenceRun
   })
   return [...committed.values(), ...preview]
 }
@@ -551,9 +639,9 @@ function fenceRuns(snapshot: Snapshot, placement: PlacementEvaluation | null): F
 function fenceNodes(snapshot: Snapshot, placement: PlacementEvaluation | null) {
   const runs = fenceRuns(snapshot, placement)
   const nodes: RendererSceneNode[] = []
-  const posts = new Map<string, {point: Vec3; kind: FenceRun["kind"]}>()
+  const posts = new Map<string, { point: Vec3; kind: FenceRun["kind"] }>()
   const previewColor: Hex = placement?.ok ? "#f1d66b" : "#d0584a"
-  const rank = {boundary: 3, habitat: 2, preview: 1}
+  const rank = { boundary: 3, habitat: 2, preview: 1 }
 
   for (const run of runs) {
     const dx = run.end[0] - run.start[0]
@@ -576,15 +664,17 @@ function fenceNodes(snapshot: Snapshot, placement: PlacementEvaluation | null) {
       const color: Hex = run.kind === "preview" ? previewColor : "#7b5a3a"
       const rail: Vec3 = alongX ? [length, 0.06, 0.05] : [0.05, 0.06, length]
       nodes.push(
-        node(`fence:${run.id}:rail-low`, [cx, 0.2, cz], boxGeometry(rail), color, {opacity}),
-        node(`fence:${run.id}:rail-high`, [cx, 0.42, cz], boxGeometry(rail), color, {opacity}),
+        node(`fence:${run.id}:rail-low`, [cx, 0.2, cz], boxGeometry(rail), color, { opacity }),
+        node(`fence:${run.id}:rail-high`, [cx, 0.42, cz], boxGeometry(rail), color, { opacity }),
       )
     }
 
     for (const point of [run.start, run.end]) {
       const key = pointKey(point)
       const existing = posts.get(key)
-      if (!existing || rank[run.kind] > rank[existing.kind]) posts.set(key, {point, kind: run.kind})
+      if (!existing || rank[run.kind] > rank[existing.kind]) {
+        posts.set(key, { point, kind: run.kind })
+      }
     }
   }
 
@@ -631,11 +721,21 @@ function entranceGateNodes(snapshot: Snapshot): RendererSceneNode[] {
       m.box(`pillar-${s}`, [0.62 * sign, 0.72, 0], [0.26, 1.44, 0.34], stone),
       m.box(`pillar-cap-${s}`, [0.62 * sign, 1.49, 0], [0.34, 0.08, 0.42], trim),
       m.cylinder(`flagpole-${s}`, [0.62 * sign, 1.85, 0], 0.018, 0.64, "#dcdcdc"),
-      m.box(`flag-${s}`, [0.62 * sign + 0.13 * sign, 2.06, 0], [0.24, 0.15, 0.02], sign < 0 ? "#e0bf65" : "#4d9b7c"),
+      m.box(
+        `flag-${s}`,
+        [0.62 * sign + 0.13 * sign, 2.06, 0],
+        [0.24, 0.15, 0.02],
+        sign < 0 ? "#e0bf65" : "#4d9b7c",
+      ),
       // Ticket booths flank the gate outside the park.
       m.box(`booth-${s}`, [1.28 * sign, 0.4, 0.58], [0.72, 0.8, 0.72], stone),
       m.mesh(`booth-roof-${s}`, GABLE_ROOF, [1.28 * sign, 0.8, 0.58], [0.9, 0.38, 0.9], roof),
-      m.box(`booth-window-${s}`, [1.28 * sign - 0.36 * sign, 0.5, 0.58], [0.03, 0.26, 0.4], "#8fcbd9"),
+      m.box(
+        `booth-window-${s}`,
+        [1.28 * sign - 0.36 * sign, 0.5, 0.58],
+        [0.03, 0.26, 0.4],
+        "#8fcbd9",
+      ),
       m.box(`booth-counter-${s}`, [1.28 * sign - 0.4 * sign, 0.36, 0.58], [0.1, 0.04, 0.44], trim),
     )
   }
@@ -647,9 +747,13 @@ function entranceGateNodes(snapshot: Snapshot): RendererSceneNode[] {
   )
   // "ZOO" lettering as raised blocks on the outward face of the sign.
   const letter = (part: string, x: number, y: number, w: number, h: number, tilt = 0) =>
-    m.box(`letter-${part}`, [x, 1.68 + y, 0.13], [w, h, 0.02], "#2f4a3d", {
-      rotation: tilt === 0 ? undefined : axisQuaternion("z", tilt),
-    })
+    m.box(
+      `letter-${part}`,
+      [x, 1.68 + y, 0.13],
+      [w, h, 0.02],
+      "#2f4a3d",
+      tilt === 0 ? {} : { rotation: axisQuaternion("z", tilt) },
+    )
   nodes.push(
     letter("z-top", -0.3, 0.07, 0.18, 0.035),
     letter("z-mid", -0.3, 0, 0.035, 0.2, -0.85),
@@ -668,7 +772,7 @@ function depotNodes(snapshot: Snapshot): RendererSceneNode[] {
   const depot = snapshot.animal_care_depot
   const x = depot.x + 0.5
   const z = depot.y + 0.5
-  const m = model("building:depot", {x, z})
+  const m = model("building:depot", { x, z })
   const nodes: RendererSceneNode[] = [
     blobShadow("building:depot:shadow", x, z, 0.62, 0.18),
     m.box("plinth", [0, 0.04, 0], [0.98, 0.08, 0.92], "#a9a68f"),
@@ -705,14 +809,14 @@ function concessionNodes(snapshot: Snapshot): RendererSceneNode[] {
     const x = stand.x + 0.5
     const z = stand.y + 0.5
     const yaw = facingNearestPath(snapshot, stand.x, stand.y)
-    const m = model(`concession:${stand.id}`, {x, z}, yaw)
+    const m = model(`concession:${stand.id}`, { x, z }, yaw)
     const accent: Hex = stand.kind === "food" ? "#e0913f" : "#4fa9c7"
-    const awning: Hex =
-      stand.service_state === "failed"
-        ? "#7c4a44"
-        : stand.service_state === "degraded"
-          ? shade(accent, -0.3)
-          : accent
+    let awning: Hex = accent
+    if (stand.service_state === "failed") {
+      awning = "#7c4a44"
+    } else if (stand.service_state === "degraded") {
+      awning = shade(accent, -0.3)
+    }
 
     nodes.push(
       blobShadow(`concession:${stand.id}:shadow`, x, z, 0.5, 0.16),
@@ -725,16 +829,22 @@ function concessionNodes(snapshot: Snapshot): RendererSceneNode[] {
     )
     for (const [index, stripeX] of [-0.32, -0.16, 0, 0.16, 0.32].entries()) {
       nodes.push(
-        m.box(`awning:${index}`, [stripeX, 0.72, 0.18], [0.16, 0.05, 0.5], index % 2 ? "#fbf6ea" : awning, {
-          rotation: axisQuaternion("x", 0.22),
-        }),
+        m.box(
+          `awning:${index}`,
+          [stripeX, 0.72, 0.18],
+          [0.16, 0.05, 0.5],
+          index % 2 ? "#fbf6ea" : awning,
+          {
+            rotation: axisQuaternion("x", 0.22),
+          },
+        ),
       )
     }
     if (stand.kind === "food") {
       nodes.push(
         m.cylinder("bun-bottom", [0, 1.0, -0.06], 0.1, 0.04, "#d99b4a"),
         m.cylinder("patty", [0, 1.045, -0.06], 0.095, 0.035, "#6b4b33"),
-        m.sphere("bun-top", [0, 1.07, -0.06], 0.1, "#e0a653", {scale: [1, 0.5, 1]}),
+        m.sphere("bun-top", [0, 1.07, -0.06], 0.1, "#e0a653", { scale: [1, 0.5, 1] }),
       )
     } else {
       nodes.push(
@@ -758,15 +868,21 @@ function facingNearestPath(snapshot: Snapshot, x: number, y: number) {
   ]
   for (const [side, tx, ty] of candidates) {
     const tile = tileAt(snapshot, tx, ty)
-    if (tile && (tile.kind === "path" || tile.kind === "entrance")) return yawFacing(side)
+    if (tile && (tile.kind === "path" || tile.kind === "entrance")) {
+      return yawFacing(side)
+    }
   }
   return 0
 }
 
 function tileAt(snapshot: Snapshot, x: number, y: number): Tile | undefined {
-  if (x < 0 || y < 0 || x >= snapshot.width || y >= snapshot.height) return undefined
+  if (x < 0 || y < 0 || x >= snapshot.width || y >= snapshot.height) {
+    return undefined
+  }
   const tile = snapshot.tiles[y * snapshot.width + x]
-  if (tile && tile.x === x && tile.y === y) return tile
+  if (tile && tile.x === x && tile.y === y) {
+    return tile
+  }
   return snapshot.tiles.find((candidate) => candidate.x === x && candidate.y === y)
 }
 
@@ -780,18 +896,36 @@ function habitatNodes(habitat: Habitat, selected: boolean): RendererSceneNode[] 
   const bottom = habitat.y + habitat.height
 
   // Water trough against the north fence.
-  const trough = model(`${id}:trough`, {x: habitat.x + 0.55, z: habitat.y + 0.3})
+  const trough = model(`${id}:trough`, { x: habitat.x + 0.55, z: habitat.y + 0.3 })
   nodes.push(
     trough.box("basin", [0, 0.08, 0], [0.5, 0.14, 0.22], "#7d6a52"),
-    trough.box("water", [0, 0.155, 0], [0.42, 0.02, 0.15], habitat.water > 30 ? "#5fb3d1" : "#8e8a6d"),
+    trough.box(
+      "water",
+      [0, 0.155, 0],
+      [0.42, 0.02, 0.15],
+      habitat.water > 30 ? "#5fb3d1" : "#8e8a6d",
+    ),
   )
 
-  if (habitat.species === "flamingo" || habitat.species === "capybara" || habitat.species === "penguin") {
-    const pond = model(`${id}:pond`, {x: habitat.x + habitat.width * 0.62, z: habitat.y + habitat.height * 0.6})
+  if (
+    habitat.species === "flamingo" ||
+    habitat.species === "capybara" ||
+    habitat.species === "penguin"
+  ) {
+    const pond = model(`${id}:pond`, {
+      x: habitat.x + habitat.width * 0.62,
+      z: habitat.y + habitat.height * 0.6,
+    })
     const radius = Math.min(habitat.width, habitat.height) * 0.28
     nodes.push(
       pond.cylinder("rim", [0, 0.012, 0], radius + 0.08, 0.02, "#b9a987"),
-      pond.cylinder("water", [0, 0.02, 0], radius, 0.02, habitat.species === "penguin" ? "#6fb6d6" : "#5aa7c4"),
+      pond.cylinder(
+        "water",
+        [0, 0.02, 0],
+        radius,
+        0.02,
+        habitat.species === "penguin" ? "#6fb6d6" : "#5aa7c4",
+      ),
     )
   }
 
@@ -802,19 +936,23 @@ function habitatNodes(habitat: Habitat, selected: boolean): RendererSceneNode[] 
     nodes.push(rock(`${id}:rock:${index}`, rx, rz, 0.8, hash(habitat.id, index)))
   }
 
-  if (habitat.species === "giraffe" || habitat.species === "zebra" || habitat.species === "elephant") {
+  if (
+    habitat.species === "giraffe" ||
+    habitat.species === "zebra" ||
+    habitat.species === "elephant"
+  ) {
     const tx = right - 0.6
     const tz = bottom - 0.6
-    const acacia = model(`${id}:acacia`, {x: tx, z: tz})
+    const acacia = model(`${id}:acacia`, { x: tx, z: tz })
     nodes.push(
       blobShadow(`${id}:acacia:shadow`, tx, tz, 0.5),
       acacia.cylinder("trunk", [0, 0.5, 0], 0.06, 1.0, "#7a5536"),
-      acacia.sphere("crown", [0, 1.08, 0], 0.55, "#6d9a3f", {scale: [1, 0.32, 1]}),
+      acacia.sphere("crown", [0, 1.08, 0], 0.55, "#6d9a3f", { scale: [1, 0.32, 1] }),
     )
   }
 
   if (habitat.has_shelter) {
-    const shelter = model(`${id}:shelter`, {x: right - 0.55, z: habitat.y + 0.55}, Math.PI)
+    const shelter = model(`${id}:shelter`, { x: right - 0.55, z: habitat.y + 0.55 }, Math.PI)
     nodes.push(
       shelter.box("back", [0, 0.3, 0.18], [0.72, 0.6, 0.08], "#8d6a45"),
       shelter.box("left", [-0.32, 0.3, 0], [0.08, 0.6, 0.44], "#8d6a45"),
@@ -825,7 +963,10 @@ function habitatNodes(habitat: Habitat, selected: boolean): RendererSceneNode[] 
 
   if (habitat.animals === 0) {
     // Signpost marking an empty enclosure waiting for animals.
-    const sign = model(`${id}:vacant`, {x: habitat.x + habitat.width / 2, z: habitat.y + habitat.height / 2})
+    const sign = model(`${id}:vacant`, {
+      x: habitat.x + habitat.width / 2,
+      z: habitat.y + habitat.height / 2,
+    })
     nodes.push(
       sign.cylinder("post", [0, 0.3, 0], 0.03, 0.6, "#7a5536"),
       sign.box("board", [0, 0.58, 0], [0.42, 0.24, 0.04], "#f2d274"),
@@ -838,9 +979,15 @@ function habitatNodes(habitat: Habitat, selected: boolean): RendererSceneNode[] 
     const x = habitat.x + habitat.width / 2
     const z = habitat.y + habitat.height / 2
     nodes.push(
-      node(`${id}:selection`, [x, 0.03, z], boxGeometry([habitat.width - 0.1, 0.02, habitat.height - 0.1]), "#f6d36f", {
-        opacity: 0.28,
-      }),
+      node(
+        `${id}:selection`,
+        [x, 0.03, z],
+        boxGeometry([habitat.width - 0.1, 0.02, habitat.height - 0.1]),
+        "#f6d36f",
+        {
+          opacity: 0.28,
+        },
+      ),
     )
   }
   return nodes
@@ -851,21 +998,34 @@ function habitatNodes(habitat: Habitat, selected: boolean): RendererSceneNode[] 
 
 type Figure = ReturnType<typeof model>
 
-function legs(m: Figure, spreadX: number, spreadZ: number, height: number, radius: number, color: Hex) {
-  return [
+function legs(
+  m: Figure,
+  spreadX: number,
+  spreadZ: number,
+  height: number,
+  radius: number,
+  color: Hex,
+) {
+  const feet: [number, number][] = [
     [-spreadX, -spreadZ],
     [spreadX, -spreadZ],
     [-spreadX, spreadZ],
     [spreadX, spreadZ],
-  ].map(([lx, lz], index) => m.cylinder(`leg:${index}`, [lx, height / 2, lz], radius, height, color))
+  ]
+  return feet.map(([lx, lz], index) =>
+    m.cylinder(`leg:${index}`, [lx, height / 2, lz], radius, height, color),
+  )
 }
+
+const ANIMAL_SHADOW_SIZE: Partial<Record<SpeciesKey, number>> = { elephant: 0.4, giraffe: 0.3 }
+const ANIMAL_PICK_HEIGHT: Partial<Record<SpeciesKey, number>> = { giraffe: 0.7, elephant: 0.45 }
 
 function animalFigure(m: Figure, species: SpeciesKey, stride: number): RendererSceneNode[] {
   switch (species) {
     case "capybara":
       return [
         ...legs(m, 0.07, 0.09, 0.08, 0.025, "#6b4a30"),
-        m.sphere("body", [0, 0.15, 0], 0.13, "#9a6b43", {scale: [0.85, 0.75, 1.3]}),
+        m.sphere("body", [0, 0.15, 0], 0.13, "#9a6b43", { scale: [0.85, 0.75, 1.3] }),
         m.box("head", [0, 0.19, 0.17], [0.12, 0.12, 0.14], "#8f623c"),
         m.box("snout", [0, 0.17, 0.25], [0.1, 0.08, 0.05], "#5b3d26"),
       ]
@@ -873,8 +1033,10 @@ function animalFigure(m: Figure, species: SpeciesKey, stride: number): RendererS
       return [
         m.cylinder("leg:0", [-0.025, 0.14, 0], 0.01, 0.28, "#e07a8e"),
         m.cylinder("leg:1", [0.025, 0.14 + stride * 0.02, 0], 0.01, 0.28, "#e07a8e"),
-        m.sphere("body", [0, 0.33, -0.02], 0.09, "#f29bb0", {scale: [0.8, 0.75, 1.3]}),
-        m.cylinder("neck", [0, 0.45, 0.07], 0.015, 0.22, "#f29bb0", {rotation: axisQuaternion("x", 0.35)}),
+        m.sphere("body", [0, 0.33, -0.02], 0.09, "#f29bb0", { scale: [0.8, 0.75, 1.3] }),
+        m.cylinder("neck", [0, 0.45, 0.07], 0.015, 0.22, "#f29bb0", {
+          rotation: axisQuaternion("x", 0.35),
+        }),
         m.sphere("head", [0, 0.56, 0.11], 0.035, "#f5a8bb"),
         m.box("beak", [0, 0.55, 0.15], [0.02, 0.02, 0.05], "#2c2c2c"),
       ]
@@ -882,10 +1044,16 @@ function animalFigure(m: Figure, species: SpeciesKey, stride: number): RendererS
       return [
         ...legs(m, 0.07, 0.13, 0.22, 0.025, "#f4f4f0"),
         m.box("body", [0, 0.3, 0], [0.18, 0.17, 0.38], "#f4f4f0"),
-        ...[-0.12, -0.04, 0.04, 0.12].map((sz, i) => m.box(`stripe:${i}`, [0, 0.3, sz], [0.185, 0.175, 0.03], "#262626")),
-        m.box("neck", [0, 0.4, 0.2], [0.08, 0.18, 0.08], "#f4f4f0", {rotation: axisQuaternion("x", 0.5)}),
+        ...[-0.12, -0.04, 0.04, 0.12].map((sz, i) =>
+          m.box(`stripe:${i}`, [0, 0.3, sz], [0.185, 0.175, 0.03], "#262626"),
+        ),
+        m.box("neck", [0, 0.4, 0.2], [0.08, 0.18, 0.08], "#f4f4f0", {
+          rotation: axisQuaternion("x", 0.5),
+        }),
         m.box("head", [0, 0.47, 0.28], [0.08, 0.08, 0.16], "#e9e9e4"),
-        m.box("mane", [0, 0.45, 0.18], [0.03, 0.12, 0.12], "#262626", {rotation: axisQuaternion("x", 0.5)}),
+        m.box("mane", [0, 0.45, 0.18], [0.03, 0.12, 0.12], "#262626", {
+          rotation: axisQuaternion("x", 0.5),
+        }),
       ]
     case "giraffe":
       return [
@@ -893,23 +1061,27 @@ function animalFigure(m: Figure, species: SpeciesKey, stride: number): RendererS
         m.box("body", [0, 0.5, 0], [0.18, 0.18, 0.34], "#e3b35a"),
         m.box("spot:0", [0.092, 0.52, 0.05], [0.01, 0.07, 0.07], "#9a6128"),
         m.box("spot:1", [-0.092, 0.48, -0.07], [0.01, 0.07, 0.07], "#9a6128"),
-        m.cylinder("neck", [0, 0.8, 0.17], 0.035, 0.52, "#e3b35a", {rotation: axisQuaternion("x", 0.3)}),
+        m.cylinder("neck", [0, 0.8, 0.17], 0.035, 0.52, "#e3b35a", {
+          rotation: axisQuaternion("x", 0.3),
+        }),
         m.box("head", [0, 1.06, 0.26], [0.07, 0.07, 0.15], "#e3b35a"),
         m.cylinder("ossicone", [0, 1.12, 0.22], 0.01, 0.06, "#6b4a30"),
       ]
     case "elephant":
       return [
         ...legs(m, 0.12, 0.14, 0.24, 0.055, "#8c8f93"),
-        m.sphere("body", [0, 0.42, 0], 0.24, "#9a9da1", {scale: [0.9, 0.85, 1.2]}),
+        m.sphere("body", [0, 0.42, 0], 0.24, "#9a9da1", { scale: [0.9, 0.85, 1.2] }),
         m.sphere("head", [0, 0.5, 0.3], 0.14, "#9a9da1"),
         m.box("ear-left", [-0.14, 0.52, 0.26], [0.03, 0.2, 0.16], "#8a8d91"),
         m.box("ear-right", [0.14, 0.52, 0.26], [0.03, 0.2, 0.16], "#8a8d91"),
-        m.cylinder("trunk", [0, 0.3, 0.43], 0.035, 0.3, "#8c8f93", {rotation: axisQuaternion("x", 0.25 + stride * 0.1)}),
+        m.cylinder("trunk", [0, 0.3, 0.43], 0.035, 0.3, "#8c8f93", {
+          rotation: axisQuaternion("x", 0.25 + stride * 0.1),
+        }),
       ]
     case "penguin":
       return [
-        m.sphere("body", [0, 0.16, 0], 0.09, "#26282c", {scale: [0.9, 1.6, 0.85]}),
-        m.sphere("belly", [0, 0.15, 0.035], 0.07, "#f4f4f0", {scale: [0.85, 1.5, 0.7]}),
+        m.sphere("body", [0, 0.16, 0], 0.09, "#26282c", { scale: [0.9, 1.6, 0.85] }),
+        m.sphere("belly", [0, 0.15, 0.035], 0.07, "#f4f4f0", { scale: [0.85, 1.5, 0.7] }),
         m.sphere("head", [0, 0.31, 0.01], 0.055, "#26282c"),
         m.box("beak", [0, 0.31, 0.07], [0.025, 0.02, 0.04], "#f0a53a"),
         m.box("feet", [0, 0.01, 0.03], [0.1, 0.02, 0.06], "#f0a53a"),
@@ -932,19 +1104,36 @@ function animalNodes(animals: Animal[], input: SceneFrameInput) {
     const wander = input.animate ? Math.sin(input.timeSeconds * 0.35 + phase) * 0.8 : 0
     const stride = input.animate ? Math.sin(input.timeSeconds * 4 + phase) : 0
     const yaw = phase + wander
-    const m = model(`animal:${animal.id}`, {x, z}, yaw)
-    const size = animal.species === "elephant" ? 0.4 : animal.species === "giraffe" ? 0.3 : 0.22
-    nodes.push(blobShadow(`animal:${animal.id}:shadow`, x, z, size), ...animalFigure(m, animal.species, stride))
-    const height = animal.species === "giraffe" ? 0.7 : animal.species === "elephant" ? 0.45 : 0.25
-    anchors.push({kind: "animal", habitatId: animal.habitat_id, point: [x, height, z], radius: size + 0.1})
+    const m = model(`animal:${animal.id}`, { x, z }, yaw)
+    const size = ANIMAL_SHADOW_SIZE[animal.species] ?? 0.22
+    nodes.push(
+      blobShadow(`animal:${animal.id}:shadow`, x, z, size),
+      ...animalFigure(m, animal.species, stride),
+    )
+    const height = ANIMAL_PICK_HEIGHT[animal.species] ?? 0.25
+    anchors.push({
+      kind: "animal",
+      habitatId: animal.habitat_id,
+      point: [x, height, z],
+      radius: size + 0.1,
+    })
   }
-  return {nodes, anchors}
+  return { nodes, anchors }
 }
 
 // ---------------------------------------------------------------------------------------------
 // People
 
-const SHIRTS: Hex[] = ["#e0604f", "#4d8fd1", "#f2c14e", "#7cc3a5", "#b77fd1", "#f08a3e", "#5bb7d6", "#e67fa2"]
+const SHIRTS: Hex[] = [
+  "#e0604f",
+  "#4d8fd1",
+  "#f2c14e",
+  "#7cc3a5",
+  "#b77fd1",
+  "#f08a3e",
+  "#5bb7d6",
+  "#e67fa2",
+]
 const SKIN: Hex[] = ["#f1c9a5", "#d9a47a", "#b07a52", "#7a5237", "#e8b894"]
 
 function person(
@@ -953,16 +1142,18 @@ function person(
   z: number,
   yaw: number,
   bob: number,
-  colors: {shirt: Hex; skin: Hex; legs: Hex; hat?: Hex},
+  colors: { shirt: Hex; skin: Hex; legs: Hex; hat?: Hex },
 ) {
-  const m = model(id, {x, z}, yaw, bob)
+  const m = model(id, { x, z }, yaw, bob)
   const nodes = [
     blobShadow(`${id}:shadow`, x, z, 0.1, 0.25),
     m.cylinder("legs", [0, 0.09, 0], 0.045, 0.18, colors.legs),
     m.cylinder("torso", [0, 0.25, 0], 0.06, 0.16, colors.shirt),
     m.sphere("head", [0, 0.39, 0], 0.055, colors.skin),
   ]
-  if (colors.hat) nodes.push(m.cylinder("hat", [0, 0.445, 0], 0.058, 0.03, colors.hat))
+  if (colors.hat) {
+    nodes.push(m.cylinder("hat", [0, 0.445, 0], 0.058, 0.03, colors.hat))
+  }
   return nodes
 }
 
@@ -976,46 +1167,78 @@ function guestNodes(guests: Guest[], input: SceneFrameInput) {
   const anchors: PickAnchor[] = []
   for (const guest of guests) {
     const key = `guest:${guest.id}`
-    const [x, z] = input.resolveActor(key, guest.x + 0.5 + jitter(guest.id, 1), guest.y + 0.5 + jitter(guest.id, 2))
+    const [x, z] = input.resolveActor(
+      key,
+      guest.x + 0.5 + jitter(guest.id, 1),
+      guest.y + 0.5 + jitter(guest.id, 2),
+    )
     const walking = guest.state !== "viewing"
-    const bob = input.animate && walking ? Math.abs(Math.sin(input.timeSeconds * 9 + guest.id)) * 0.03 : 0
+    const bob =
+      input.animate && walking ? Math.abs(Math.sin(input.timeSeconds * 9 + guest.id)) * 0.03 : 0
     const yaw = hash(guest.id, Math.floor(input.timeSeconds / 3)) * Math.PI * 2
     nodes.push(
       ...person(key, x, z, yaw, bob, {
-        shirt: SHIRTS[guest.id % SHIRTS.length],
-        skin: SKIN[(guest.id * 7) % SKIN.length],
+        shirt: SHIRTS[guest.id % SHIRTS.length] ?? "#ffffff",
+        skin: SKIN[(guest.id * 7) % SKIN.length] ?? "#f1c9a5",
         legs: "#3d4b63",
       }),
     )
     if (guest.id === input.overlay.selectedGuestId) {
       nodes.push(
-        node(`${key}:ring`, [x, 0.02, z], cylinderGeometry(0.2, 0.015), "#f6d36f", {opacity: 0.8}),
-        node(`${key}:marker`, [x, 0.68 + Math.sin(input.timeSeconds * 3) * 0.04, z], sphereGeometry(0.06), "#f6d36f"),
+        node(`${key}:ring`, [x, 0.02, z], cylinderGeometry(0.2, 0.015), "#f6d36f", {
+          opacity: 0.8,
+        }),
+        node(
+          `${key}:marker`,
+          [x, 0.68 + Math.sin(input.timeSeconds * 3) * 0.04, z],
+          sphereGeometry(0.06),
+          "#f6d36f",
+        ),
       )
     }
-    anchors.push({kind: "guest", id: guest.id, point: [x, 0.25, z], radius: 0.22})
+    anchors.push({ kind: "guest", id: guest.id, point: [x, 0.25, z], radius: 0.22 })
   }
-  return {nodes, anchors}
+  return { nodes, anchors }
 }
 
 function staffNodes(snapshot: Snapshot, input: SceneFrameInput): RendererSceneNode[] {
   const nodes: RendererSceneNode[] = []
   for (const janitor of snapshot.animal_care_depot.janitors) {
     const key = `janitor:${janitor.id}`
-    const [x, z] = input.resolveActor(key, janitor.x + 0.5 + jitter(janitor.id, 3) * 0.5, janitor.y + 0.5 + jitter(janitor.id, 4) * 0.5)
+    const [x, z] = input.resolveActor(
+      key,
+      janitor.x + 0.5 + jitter(janitor.id, 3) * 0.5,
+      janitor.y + 0.5 + jitter(janitor.id, 4) * 0.5,
+    )
     const yaw = hash(janitor.id, 9) * Math.PI * 2
     nodes.push(
-      ...person(key, x, z, yaw, 0, {shirt: "#3f8f5f", skin: SKIN[janitor.id % SKIN.length], legs: "#2e5e43", hat: "#2e5e43"}),
-      model(key, {x, z}, yaw).cylinder("broom", [0.09, 0.2, 0.04], 0.01, 0.4, "#a07b4f", {rotation: axisQuaternion("z", 0.3)}),
+      ...person(key, x, z, yaw, 0, {
+        shirt: "#3f8f5f",
+        skin: SKIN[janitor.id % SKIN.length] ?? "#f1c9a5",
+        legs: "#2e5e43",
+        hat: "#2e5e43",
+      }),
+      model(key, { x, z }, yaw).cylinder("broom", [0.09, 0.2, 0.04], 0.01, 0.4, "#a07b4f", {
+        rotation: axisQuaternion("z", 0.3),
+      }),
     )
   }
   for (const mechanic of snapshot.animal_care_depot.mechanics) {
     const key = `mechanic:${mechanic.id}`
-    const [x, z] = input.resolveActor(key, mechanic.x + 0.5 + jitter(mechanic.id, 5) * 0.5, mechanic.y + 0.5 + jitter(mechanic.id, 6) * 0.5)
+    const [x, z] = input.resolveActor(
+      key,
+      mechanic.x + 0.5 + jitter(mechanic.id, 5) * 0.5,
+      mechanic.y + 0.5 + jitter(mechanic.id, 6) * 0.5,
+    )
     const yaw = hash(mechanic.id, 10) * Math.PI * 2
     nodes.push(
-      ...person(key, x, z, yaw, 0, {shirt: "#e0873a", skin: SKIN[(mechanic.id + 2) % SKIN.length], legs: "#40506a", hat: "#f2c14e"}),
-      model(key, {x, z}, yaw).box("toolbox", [0.1, 0.08, 0], [0.08, 0.06, 0.05], "#c9483b"),
+      ...person(key, x, z, yaw, 0, {
+        shirt: "#e0873a",
+        skin: SKIN[(mechanic.id + 2) % SKIN.length] ?? "#f1c9a5",
+        legs: "#40506a",
+        hat: "#f2c14e",
+      }),
+      model(key, { x, z }, yaw).box("toolbox", [0.1, 0.08, 0], [0.08, 0.06, 0.05], "#c9483b"),
     )
   }
   return nodes
@@ -1025,10 +1248,16 @@ function litterNodes(snapshot: Snapshot): RendererSceneNode[] {
   return snapshot.litter.flatMap((task) => {
     const x = task.x + 0.5 + jitter(task.id, 7) * 0.6
     const z = task.y + 0.5 + jitter(task.id, 8) * 0.6
-    const m = model(`litter:${task.id}`, {x, z}, hash(task.id) * 6)
+    const m = model(`litter:${task.id}`, { x, z }, hash(task.id) * 6)
     return [
       m.box("paper", [0, 0.035, 0], [0.09, 0.02, 0.07], "#f4f1e6"),
-      m.cylinder("can", [0.07, 0.04, 0.03], 0.02, 0.05, task.assigned_janitor_id === null ? "#d0584a" : "#e0bf65"),
+      m.cylinder(
+        "can",
+        [0.07, 0.04, 0.03],
+        0.02,
+        0.05,
+        task.assigned_janitor_id === null ? "#d0584a" : "#e0bf65",
+      ),
     ]
   })
 }
@@ -1042,7 +1271,7 @@ function maintenanceNodes(snapshot: Snapshot, input: SceneFrameInput): RendererS
       [task.x + 0.5, 1.45 + bob, task.y + 0.5],
       boxGeometry([0.16, 0.16, 0.16]),
       task.assigned_mechanic_id === null ? "#e0473a" : "#f0a53a",
-      {rotation: multiplyQuaternion(yawQuaternion(spin), axisQuaternion("x", Math.PI / 4))},
+      { rotation: multiplyQuaternion(yawQuaternion(spin), axisQuaternion("x", Math.PI / 4)) },
     )
   })
 }
@@ -1060,7 +1289,7 @@ function toolColor(tool: Tool): Hex {
     case "drink":
     case "habitat":
       return "#f6d36f"
-    default:
+    case "select":
       return "#ffffff"
   }
 }
@@ -1071,17 +1300,29 @@ function overlayNodes(overlay: SceneOverlay): RendererSceneNode[] {
     const color: Hex = overlay.placement?.ok ? "#9fe07a" : "#e0604f"
     for (const tile of overlay.ghostTiles) {
       nodes.push(
-        node(`overlay:ghost:${tile.x}:${tile.y}`, [tile.x + 0.5, 0.045, tile.y + 0.5], boxGeometry([0.96, 0.02, 0.96]), color, {
-          opacity: 0.42,
-        }),
+        node(
+          `overlay:ghost:${tile.x}:${tile.y}`,
+          [tile.x + 0.5, 0.045, tile.y + 0.5],
+          boxGeometry([0.96, 0.02, 0.96]),
+          color,
+          {
+            opacity: 0.42,
+          },
+        ),
       )
     }
   } else if (overlay.hoveredTile) {
-    const {x, y} = overlay.hoveredTile
+    const { x, y } = overlay.hoveredTile
     nodes.push(
-      node("overlay:hover", [x + 0.5, 0.05, y + 0.5], boxGeometry([0.98, 0.02, 0.98]), toolColor(overlay.tool), {
-        opacity: overlay.tool === "select" ? 0.22 : 0.4,
-      }),
+      node(
+        "overlay:hover",
+        [x + 0.5, 0.05, y + 0.5],
+        boxGeometry([0.98, 0.02, 0.98]),
+        toolColor(overlay.tool),
+        {
+          opacity: overlay.tool === "select" ? 0.22 : 0.4,
+        },
+      ),
     )
   }
   return nodes
@@ -1107,7 +1348,9 @@ export function buildStaticNodes(snapshot: Snapshot, overlay: SceneOverlay): Ren
   const depot = snapshot.animal_care_depot
   const nodes = [
     ...terrainNodes(snapshot),
-    ...snapshot.habitats.flatMap((habitat) => habitatNodes(habitat, habitat.id === overlay.selectedHabitatId)),
+    ...snapshot.habitats.flatMap((habitat) =>
+      habitatNodes(habitat, habitat.id === overlay.selectedHabitatId),
+    ),
     ...fenceNodes(snapshot, overlay.placement),
     ...entranceGateNodes(snapshot),
     ...depotNodes(snapshot),
@@ -1117,9 +1360,15 @@ export function buildStaticNodes(snapshot: Snapshot, overlay: SceneOverlay): Ren
   ]
   if (overlay.selectedDepot) {
     nodes.push(
-      node("building:depot:selection", [depot.x + 0.5, 0.03, depot.y + 0.5], boxGeometry([1, 0.02, 1]), "#f6d36f", {
-        opacity: 0.35,
-      }),
+      node(
+        "building:depot:selection",
+        [depot.x + 0.5, 0.03, depot.y + 0.5],
+        boxGeometry([1, 0.02, 1]),
+        "#f6d36f",
+        {
+          opacity: 0.35,
+        },
+      ),
     )
   }
   return nodes
@@ -1127,7 +1376,7 @@ export function buildStaticNodes(snapshot: Snapshot, overlay: SceneOverlay): Ren
 
 /** Animated actors and markers, rebuilt every rendered frame, plus screen-pick anchors. */
 export function buildActorFrame(input: SceneFrameInput): SceneFrame {
-  const {snapshot} = input
+  const { snapshot } = input
   const animals = animalNodes(snapshot.animals, input)
   const guests = guestNodes(snapshot.guests, input)
   const depot = snapshot.animal_care_depot
@@ -1147,12 +1396,12 @@ export function buildActorFrame(input: SceneFrameInput): SceneFrame {
         ({
           kind: "concession",
           id: stand.id,
-          tile: {x: stand.x, y: stand.y},
+          tile: { x: stand.x, y: stand.y },
           point: [stand.x + 0.5, 0.5, stand.y + 0.5],
           radius: 0.5,
         }) satisfies PickAnchor,
     ),
-    {kind: "depot", point: [depot.x + 0.5, 0.5, depot.y + 0.5], radius: 0.55},
+    { kind: "depot", point: [depot.x + 0.5, 0.5, depot.y + 0.5], radius: 0.55 },
   ]
-  return {nodes, anchors}
+  return { nodes, anchors }
 }
