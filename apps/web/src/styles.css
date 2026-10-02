@@ -149,173 +149,6 @@ button:focus-visible {
   grid-template-columns: minmax(0, 1fr) 286px;
 }
 
-.viewport {
-  position: relative;
-  overflow: auto;
-  background:
-    radial-gradient(circle at 42% 28%, rgb(255 255 255 / 10%), transparent 34%),
-    linear-gradient(#80bdcf 0 47%, #96c66f 47% 100%);
-  scrollbar-color: #2b695a #173c34;
-}
-
-.park {
-  position: relative;
-  min-width: 1050px;
-  background:
-    linear-gradient(160deg, transparent 45%, rgb(50 91 45 / 14%) 46% 54%, transparent 55%),
-    radial-gradient(ellipse at 53% 65%, rgb(69 118 48 / 22%), transparent 45%);
-}
-
-.park-label {
-  position: absolute;
-  left: 38px;
-  top: 30px;
-  padding: 6px 10px;
-  border-radius: 4px;
-  color: #244837;
-  background: rgb(242 237 196 / 72%);
-  font-size: 12px;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.tile {
-  position: absolute;
-  width: 58px;
-  height: 30px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-  cursor: pointer;
-  transition:
-    filter 80ms ease,
-    transform 80ms ease;
-}
-
-.tile::after {
-  content: "";
-  position: absolute;
-  inset: 2px;
-  clip-path: inherit;
-  border: 1px solid rgb(255 255 255 / 12%);
-}
-
-.tile:hover {
-  filter: brightness(1.18) saturate(1.08);
-  transform: translateY(-2px);
-}
-
-.tile-grass {
-  background:
-    radial-gradient(circle at 42% 40%, rgb(255 255 255 / 9%) 0 7%, transparent 8%), #74ad50;
-}
-
-.tile-path {
-  background:
-    repeating-linear-gradient(28deg, transparent 0 6px, rgb(95 74 45 / 8%) 7px 8px), #d1bb8d;
-}
-
-.tile-entrance {
-  background: #d7a45f;
-  box-shadow: 0 -8px 0 #8f5e37;
-}
-
-.tile-habitat {
-  background: radial-gradient(circle at 35% 45%, #587d3e 0 5%, transparent 6%), #6f9d49;
-}
-
-.tile.selected {
-  filter: brightness(1.25) saturate(1.2);
-  box-shadow: 0 0 0 4px #f6d36f;
-}
-
-.animal-marker {
-  position: absolute;
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 2px solid #473821;
-  border-radius: 50%;
-  color: #2d291e;
-  background: #f2d274;
-  cursor: pointer;
-  box-shadow:
-    0 5px 0 rgb(47 57 30 / 35%),
-    inset 0 2px 0 rgb(255 255 255 / 45%);
-}
-
-.animal-marker.empty {
-  color: #355642;
-  background: #dce4ad;
-}
-
-.animal-glyph {
-  font-weight: 1000;
-  font-size: 17px;
-}
-
-.animal-marker small {
-  position: absolute;
-  right: -7px;
-  bottom: -5px;
-  min-width: 20px;
-  padding: 1px 4px;
-  border-radius: 8px;
-  color: white;
-  background: #326252;
-  font-size: 10px;
-}
-
-.guest {
-  position: absolute;
-  width: 14px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  pointer-events: auto;
-  background: transparent;
-  cursor: pointer;
-  filter: drop-shadow(0 3px 1px rgb(0 0 0 / 25%));
-}
-
-.guest.selected {
-  filter: drop-shadow(0 0 4px #fff6b3) drop-shadow(0 3px 1px rgb(0 0 0 / 25%));
-}
-
-.guest i,
-.guest b {
-  position: absolute;
-  display: block;
-  left: 4px;
-  border-radius: 50%;
-}
-
-.guest i {
-  top: 0;
-  width: 7px;
-  height: 7px;
-  background: #f0c9a4;
-}
-
-.guest b {
-  top: 6px;
-  width: 8px;
-  height: 11px;
-  border-radius: 3px 3px 5px 5px;
-  background: #3266b2;
-}
-
-.guest-viewing b {
-  background: #ca4c5a;
-}
-
-.guest-walking_to_exit {
-  opacity: 0.75;
-}
-
 .side-panel {
   position: relative;
   z-index: 10;
@@ -593,28 +426,12 @@ dd {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .tile {
-    transition: none;
-  }
-}
-
 .guest-card h3,
 .manager-card h3 {
   margin: 18px 0 8px;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-}
-
-.guest-thought {
-  margin-bottom: 14px;
-  padding: 10px;
-  border: 1px solid #8a8467;
-  border-radius: 4px;
-  background: #f3edcc;
-  font-weight: 800;
-  line-height: 1.35;
 }
 
 .need-row {
@@ -659,4 +476,132 @@ dd {
 
 .complaint-grid strong {
   font-variant-numeric: tabular-nums;
+}
+
+.species-row {
+  align-items: flex-start;
+}
+
+.species-offer {
+  min-width: 0;
+  flex: 1;
+}
+
+.species-offer small {
+  line-height: 1.25;
+}
+
+.message-stack {
+  min-width: 0;
+  align-self: center;
+}
+
+.message-stack .message {
+  min-height: 37px;
+}
+
+.tool-hint {
+  padding: 4px 4px 0;
+  overflow: hidden;
+  color: #b8d6cc;
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tool {
+  min-width: 82px;
+}
+
+/* 3D park view: one canvas owned by the shared renderer. No DOM game objects live here. */
+.park-view {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #a9d6e5;
+}
+
+.park-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.park-canvas:active {
+  cursor: grabbing;
+}
+
+.park-canvas:focus-visible {
+  box-shadow: inset 0 0 0 3px #f6d36f;
+}
+
+.park-tooltip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 5;
+  max-width: 260px;
+  padding: 7px 9px;
+  border-radius: 5px;
+  color: #1d3028;
+  background: #f4eed6;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.park-tooltip b,
+.park-tooltip small {
+  display: block;
+}
+
+.park-tooltip small {
+  margin-top: 2px;
+  color: #47584f;
+}
+
+.park-tooltip .invalid b {
+  color: #9b3a2f;
+}
+
+.park-view-loading {
+  display: grid;
+  place-items: center;
+  color: #1f352d;
+  font-weight: 800;
+}
+
+.park-view-error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #f7f2df;
+  background: #153d37;
+  font-weight: 800;
+  text-align: center;
+}
+
+.view-reset {
+  margin-right: 6px;
+}
+
+.guest-thought {
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid #8a8467;
+  border-radius: 4px;
+  background: #f3edcc;
+  font-weight: 800;
+  line-height: 1.35;
 }

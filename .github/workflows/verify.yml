@@ -56,58 +56,15 @@ jobs:
             fi
             sleep 1
           done
-          bun scripts/capture-fence-proof.mjs
-          bun scripts/capture-park-frame-proof.mjs
-          bun scripts/capture-concessions-proof.mjs
-          bun scripts/capture-animal-care-proof.mjs
-          bun scripts/capture-maintenance-proof.mjs
-          bun scripts/capture-3d-camera-proof.mjs
-      - name: Upload fence visual proof
+          bun scripts/capture-park-view-proof.mjs
+      - name: Upload park view visual proof
         if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
-          name: zoo-fence-visual-proof
-          path: apps/web/test-results/fence-rendering.png
-          if-no-files-found: error
-          retention-days: 7
-      - name: Upload park-frame visual proof
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: zoo-park-frame-visual-proof
-          path: apps/web/test-results/park-frame.png
-          if-no-files-found: error
-          retention-days: 7
-      - name: Upload concession visual proof
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: zoo-concession-visual-proof
-          path: apps/web/test-results/concessions.png
-          if-no-files-found: error
-          retention-days: 7
-      - name: Upload animal-care visual proof
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: zoo-animal-care-visual-proof
-          path: apps/web/test-results/animal-care-depot.png
-          if-no-files-found: error
-          retention-days: 7
-      - name: Upload maintenance visual proof
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: zoo-maintenance-visual-proof
-          path: apps/web/test-results/maintenance.png
-          if-no-files-found: error
-          retention-days: 7
-      - name: Upload 3D camera visual proof
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: zoo-3d-camera-visual-proof
-          path: apps/web/test-results/3d-camera.png
+          name: zoo-park-view-visual-proof
+          path: |
+            apps/web/test-results/park-view-desktop.png
+            apps/web/test-results/park-view-phone.png
           if-no-files-found: error
           retention-days: 7
       - name: Upload playable web preview
