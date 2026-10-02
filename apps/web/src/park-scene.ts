@@ -1330,15 +1330,24 @@ function overlayNodes(overlay: SceneOverlay): RendererSceneNode[] {
 
 // ---------------------------------------------------------------------------------------------
 
+/** Identity of everything outside the park that scenery depends on: park size and gate. */
+export function sceneryKey(snapshot: Snapshot): string {
+  return `${snapshot.width}x${snapshot.height}@${snapshot.entrance.x},${snapshot.entrance.y}`
+}
+
+/** Trees, bushes, and rocks around the park; they change only when `sceneryKey` changes. */
+export function buildSceneryNodes(snapshot: Snapshot): RendererSceneNode[] {
+  return sceneryNodes(snapshot)
+}
+
 /**
- * Nodes that depend only on the snapshot and interaction overlay. Callers cache this per
+ * Nodes that depend only on the snapshot and interaction overlay (scenery excluded). Callers cache this per
  * snapshot/overlay identity so per-frame actor animation does not rebuild terrain and scenery.
  */
 export function buildStaticNodes(snapshot: Snapshot, overlay: SceneOverlay): RendererSceneNode[] {
   const depot = snapshot.animal_care_depot
   const nodes = [
     ...terrainNodes(snapshot),
-    ...sceneryNodes(snapshot),
     ...snapshot.habitats.flatMap((habitat) =>
       habitatNodes(habitat, habitat.id === overlay.selectedHabitatId),
     ),
