@@ -1,4 +1,5 @@
-import {lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState} from "react"
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+
 import type {
   ActionResult,
   Guest,
@@ -10,9 +11,9 @@ import type {
   Speed,
   Tool,
 } from "./game-types"
-import type {ParkPick} from "./ParkView"
-import type {SceneOverlay} from "./park-scene"
-import init, {ZooGame} from "./wasm/zoo_core"
+import type { SceneOverlay } from "./park-scene"
+import type { ParkPick } from "./ParkView"
+import init, { ZooGame } from "./wasm/zoo_core"
 
 // The 3D park view (three.js renderer + zoo-scene WASM) is its own chunk so the HUD and the
 // simulation can start without it. The request starts at module load, in parallel with the
@@ -96,7 +97,7 @@ function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot
   for (let y = top; y <= bottom; y += 1) {
     for (let x = left; x <= right; x += 1) {
       if (x >= 0 && y >= 0 && x < snapshot.width && y < snapshot.height) {
-        tiles.push({x, y})
+        tiles.push({ x, y })
       }
     }
   }
@@ -334,9 +335,12 @@ export default function App() {
         return
       }
       if (!target) return
-      const tile = snapshot.tiles.find((candidate) => candidate.x === target.x && candidate.y === target.y)
+      const tile = snapshot.tiles.find(
+        (candidate) => candidate.x === target.x && candidate.y === target.y,
+      )
       perform(() => game.bulldoze(target.x, target.y))
-      if (tile?.habitat_id != null && tile.habitat_id === selectedHabitatId) setSelectedHabitatId(null)
+      if (tile?.habitat_id != null && tile.habitat_id === selectedHabitatId)
+        setSelectedHabitatId(null)
       return
     }
 
@@ -412,8 +416,8 @@ export default function App() {
     placement && hoveredTile ? (
       <div className={placement.ok ? "valid" : "invalid"}>
         <b>
-          {placement.ok ? "✓ Fence closes" : "! Cannot build"} · {placement.width}×{placement.height} ·{" "}
-          {money(placement.cost_cents)}
+          {placement.ok ? "✓ Fence closes" : "! Cannot build"} · {placement.width}×
+          {placement.height} · {money(placement.cost_cents)}
         </b>
         <small>{placement.message}</small>
       </div>
@@ -706,7 +710,7 @@ export default function App() {
                   </div>
                 </dl>
                 <div className="meter">
-                  <span style={{width: `${selectedHabitat.welfare}%`}} />
+                  <span style={{ width: `${selectedHabitat.welfare}%` }} />
                 </div>
 
                 <h3>Care</h3>
@@ -789,7 +793,8 @@ export default function App() {
                         <span>
                           <b>{offer.label}</b>
                           <small>
-                            Group {offer.minimum_social_group}+ · {offer.space_per_animal} space each
+                            Group {offer.minimum_social_group}+ · {offer.space_per_animal} space
+                            each
                           </small>
                         </span>
                       </span>
@@ -947,9 +952,7 @@ export default function App() {
 
       <footer className="bottom-dock">
         <div className="message-stack">
-          <div className={`message bevel ${messageKind === "error" ? "error" : ""}`}>
-            {message}
-          </div>
+          <div className={`message bevel ${messageKind === "error" ? "error" : ""}`}>{message}</div>
           <div className="tool-hint">{toolHint(tool)}</div>
         </div>
         <nav className="toolbar bevel" aria-label="Build tools">
@@ -1031,7 +1034,7 @@ function NeedBar({
         <strong>{value}%</strong>
       </div>
       <div className="need-track">
-        <span style={{width: `${value}%`}} />
+        <span style={{ width: `${value}%` }} />
       </div>
     </div>
   )

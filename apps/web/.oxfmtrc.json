@@ -1,0 +1,6 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "semi": false,
+  "sortImports": { "sortSideEffects": false },
+  "ignorePatterns": ["src/wasm/**", "src/scene-wasm/**", "dist/**", "test-results/**"]
+}

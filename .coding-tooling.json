@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "profile": "repository-foundation-v1",
   "tiers": {
-    "fast": ["format:check", "lint", "typecheck", "build", "test:unit"],
+    "fast": ["format:check", "lint", "typecheck", "test:unit"],
     "full": [
       "format:check",
       "lint",
@@ -24,5 +24,13 @@
     "test:e2e:smoke",
     "test:accessibility",
     "benchmark:smoke"
-  ]
+  ],
+  "capabilityCommands": {
+    "@zoo/web": {
+      "format:check": ["bun", "run", "format:check"],
+      "lint": ["bun", "run", "lint"],
+      "typecheck": ["bun", "run", "typecheck"],
+      "build": ["bun", "run", "build"]
+    }
+  }
 }

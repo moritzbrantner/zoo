@@ -4,23 +4,30 @@ import {
   type RendererCamera,
   type ThreeSceneRenderer,
 } from "@moritzbrantner/three-d-renderer"
-import {useEffect, useRef, useState, type ReactNode} from "react"
-import type {Point, Snapshot} from "./game-types"
-import type {RendererSceneNode} from "@moritzbrantner/three-d-renderer"
-import {buildActorFrame, buildStaticNodes, type PickAnchor, type SceneOverlay, type Vec3} from "./park-scene"
-import initScene, {ParkCameraBridge} from "./scene-wasm/zoo_scene"
+import type { RendererSceneNode } from "@moritzbrantner/three-d-renderer"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+
+import type { Point, Snapshot } from "./game-types"
+import {
+  buildActorFrame,
+  buildStaticNodes,
+  type PickAnchor,
+  type SceneOverlay,
+  type Vec3,
+} from "./park-scene"
+import initScene, { ParkCameraBridge } from "./scene-wasm/zoo_scene"
 
 // Browser adapter for the Zoo park view. It owns pointer/touch/keyboard gesture interpretation
 // and the render loop. Camera policy and picking come from zoo-scene (over 3d-lab camera and
 // projective math); rendering and world→screen projection come from the shared 3d-lab renderer.
 
 export type ParkPick =
-  | {kind: "guest"; id: number; tile: Point | null}
-  | {kind: "animal"; habitatId: number; tile: Point | null}
-  | {kind: "concession"; id: number; tile: Point}
-  | {kind: "depot"; tile: Point | null}
-  | {kind: "tile"; tile: Point}
-  | {kind: "none"}
+  | { kind: "guest"; id: number; tile: Point | null }
+  | { kind: "animal"; habitatId: number; tile: Point | null }
+  | { kind: "concession"; id: number; tile: Point }
+  | { kind: "depot"; tile: Point | null }
+  | { kind: "tile"; tile: Point }
+  | { kind: "none" }
 
 type Props = {
   snapshot: Snapshot
@@ -45,13 +52,13 @@ type CameraFrame = RendererCamera & {
   zoom: number
 }
 
-type BridgePick = {ground: [number, number]; tile: Point | null} | null
+type BridgePick = { ground: [number, number]; tile: Point | null } | null
 
 type Gesture =
-  | {kind: "pending"; pointerId: number; startX: number; startY: number}
-  | {kind: "pan"; pointerId: number}
-  | {kind: "orbit"; pointerId: number}
-  | {kind: "tool"; pointerId: number; tileKey: string}
+  | { kind: "pending"; pointerId: number; startX: number; startY: number }
+  | { kind: "pan"; pointerId: number }
+  | { kind: "orbit"; pointerId: number }
+  | { kind: "tool"; pointerId: number; tileKey: string }
   | {
       kind: "multi"
       mode: "undecided" | "transform" | "tilt"
@@ -61,7 +68,7 @@ type Gesture =
       angle: number
     }
 
-type TwoPointerState = {mid: [number, number]; distance: number; angle: number}
+type TwoPointerState = { mid: [number, number]; distance: number; angle: number }
 
 const BACKGROUND = "#a9d6e5"
 const CLICK_SLOP_MOUSE = 5
@@ -74,8 +81,8 @@ const MULTI_TOUCH_DECISION_PX = 14
 
 type ViewDebugHook = {
   ready: boolean
-  camera: () => {yawDegrees: number; pitchDegrees: number; zoom: number; target: Vec3} | null
-  projectWorld: (point: Vec3) => {x: number; y: number; visible: boolean} | null
+  camera: () => { yawDegrees: number; pitchDegrees: number; zoom: number; target: Vec3 } | null
+  projectWorld: (point: Vec3) => { x: number; y: number; visible: boolean } | null
   parkFootprintInFrame: () => boolean
   nodeCount: () => number
 }
@@ -102,7 +109,7 @@ export default function ParkView(props: Props) {
     sceneDirtyRef.current = true
   }, [props.snapshot, props.overlay])
 
-  const {width: parkWidth, height: parkHeight} = props.snapshot
+  const { width: parkWidth, height: parkHeight } = props.snapshot
 
   useEffect(() => {
     const container = containerRef.current
@@ -114,17 +121,17 @@ export default function ParkView(props: Props) {
     let bridge: ParkCameraBridge | null = null
     let camera: CameraFrame | null = null
     let frameHandle = 0
-    let viewport = {width: 1, height: 1}
+    let viewport = { width: 1, height: 1 }
     let anchors: PickAnchor[] = []
     let nodeCount = 0
-    let staticKey: {snapshot: Snapshot; overlay: SceneOverlay} | null = null
+    let staticKey: { snapshot: Snapshot; overlay: SceneOverlay } | null = null
     let staticNodes: RendererSceneNode[] = []
     let lastTime = performance.now()
     let hoverClient: [number, number] | null = null
     let hoverKey = ""
     let gesture: Gesture | null = null
-    const pointers = new Map<number, {x: number; y: number; type: string}>()
-    const actors = new Map<string, {x: number; z: number; seen: boolean}>()
+    const pointers = new Map<number, { x: number; y: number; type: string }>()
+    const actors = new Map<string, { x: number; z: number; seen: boolean }>()
     let actorsMoving = false
 
     const aspect = () => viewport.width / viewport.height
@@ -151,14 +158,14 @@ export default function ParkView(props: Props) {
       const px = clientX - rect.left
       const py = clientY - rect.top
       const project = createWorldProjector(camera, viewport)
-      let best: {anchor: PickAnchor; score: number} | null = null
+      let best: { anchor: PickAnchor; score: number } | null = null
       for (const anchor of anchors) {
         const center = project(anchor.point)
         if (!center.visible) continue
         const edge = project([anchor.point[0], anchor.point[1] + anchor.radius, anchor.point[2]])
         const radius = Math.max(12, Math.hypot(edge.x - center.x, edge.y - center.y))
         const score = Math.hypot(px - center.x, py - center.y) / radius
-        if (score <= 1 && (!best || score < best.score)) best = {anchor, score}
+        if (score <= 1 && (!best || score < best.score)) best = { anchor, score }
       }
       return best?.anchor ?? null
     }
@@ -169,22 +176,22 @@ export default function ParkView(props: Props) {
       if (anchor) {
         switch (anchor.kind) {
           case "guest":
-            return {kind: "guest", id: anchor.id, tile}
+            return { kind: "guest", id: anchor.id, tile }
           case "animal":
-            return {kind: "animal", habitatId: anchor.habitatId, tile}
+            return { kind: "animal", habitatId: anchor.habitatId, tile }
           case "concession":
-            return {kind: "concession", id: anchor.id, tile: anchor.tile}
+            return { kind: "concession", id: anchor.id, tile: anchor.tile }
           case "depot":
-            return {kind: "depot", tile}
+            return { kind: "depot", tile }
         }
       }
-      return tile ? {kind: "tile", tile} : {kind: "none"}
+      return tile ? { kind: "tile", tile } : { kind: "none" }
     }
 
     const resolveActor = (key: string, x: number, z: number, dt: number): [number, number] => {
       const current = actors.get(key)
       if (!current || Math.hypot(current.x - x, current.z - z) > 3) {
-        actors.set(key, {x, z, seen: true})
+        actors.set(key, { x, z, seen: true })
         return [x, z]
       }
       const blend = 1 - Math.exp(-dt * ACTOR_SMOOTHING_PER_SECOND)
@@ -221,7 +228,7 @@ export default function ParkView(props: Props) {
           actorsMoving = false
           for (const actor of actors.values()) actor.seen = false
           if (staticKey?.snapshot !== current.snapshot || staticKey.overlay !== current.overlay) {
-            staticKey = {snapshot: current.snapshot, overlay: current.overlay}
+            staticKey = { snapshot: current.snapshot, overlay: current.overlay }
             staticNodes = buildStaticNodes(current.snapshot, current.overlay)
           }
           const frame = buildActorFrame({
@@ -235,7 +242,7 @@ export default function ParkView(props: Props) {
           anchors = frame.anchors
           const nodes = staticNodes.concat(frame.nodes)
           nodeCount = nodes.length
-          renderer.render({camera, nodes})
+          renderer.render({ camera, nodes })
         } else if (cameraChanged) {
           renderer.renderCamera(camera)
         }
@@ -255,7 +262,7 @@ export default function ParkView(props: Props) {
 
     const resize = () => {
       const rect = container.getBoundingClientRect()
-      viewport = {width: Math.max(1, rect.width), height: Math.max(1, rect.height)}
+      viewport = { width: Math.max(1, rect.width), height: Math.max(1, rect.height) }
       renderer?.setSize(viewport.width, viewport.height, window.devicePixelRatio || 1)
       cameraDirtyRef.current = true
       sceneDirtyRef.current = true
@@ -294,26 +301,26 @@ export default function ParkView(props: Props) {
 
     const onPointerDown = (event: PointerEvent) => {
       if (!bridge) return
-      canvas.focus({preventScroll: true})
+      canvas.focus({ preventScroll: true })
       canvas.setPointerCapture(event.pointerId)
-      pointers.set(event.pointerId, {x: event.clientX, y: event.clientY, type: event.pointerType})
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType })
       event.preventDefault()
 
       if (pointers.size === 2) {
         endToolGesture(false)
         const state = twoPointerState()
-        gesture = {kind: "multi", mode: "undecided", start: state, ...state}
+        gesture = { kind: "multi", mode: "undecided", start: state, ...state }
         return
       }
       if (pointers.size > 2) return
 
       const mouse = event.pointerType === "mouse"
       if (mouse && (event.button === 2 || (event.button === 0 && event.ctrlKey))) {
-        gesture = {kind: "orbit", pointerId: event.pointerId}
+        gesture = { kind: "orbit", pointerId: event.pointerId }
         return
       }
       if (mouse && event.button === 1) {
-        gesture = {kind: "pan", pointerId: event.pointerId}
+        gesture = { kind: "pan", pointerId: event.pointerId }
         return
       }
       if (event.button !== 0) return
@@ -321,12 +328,17 @@ export default function ParkView(props: Props) {
       if (propsRef.current.dragTool) {
         const tile = pickTile(event.clientX, event.clientY)
         if (tile) {
-          gesture = {kind: "tool", pointerId: event.pointerId, tileKey: `${tile.x}:${tile.y}`}
+          gesture = { kind: "tool", pointerId: event.pointerId, tileKey: `${tile.x}:${tile.y}` }
           propsRef.current.onTileDown(tile)
           return
         }
       }
-      gesture = {kind: "pending", pointerId: event.pointerId, startX: event.clientX, startY: event.clientY}
+      gesture = {
+        kind: "pending",
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+      }
     }
 
     const onPointerMove = (event: PointerEvent) => {
@@ -352,9 +364,10 @@ export default function ParkView(props: Props) {
         case "pending": {
           if (gesture.pointerId !== event.pointerId) return
           const slop = event.pointerType === "mouse" ? CLICK_SLOP_MOUSE : CLICK_SLOP_TOUCH
-          if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) < slop) return
+          if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) < slop)
+            return
           panBetween([gesture.startX, gesture.startY], now)
-          gesture = {kind: "pan", pointerId: event.pointerId}
+          gesture = { kind: "pan", pointerId: event.pointerId }
           return
         }
         case "pan":
@@ -387,7 +400,9 @@ export default function ParkView(props: Props) {
             const dy = next.mid[1] - gesture.start.mid[1]
             const spread = Math.abs(next.distance - gesture.start.distance)
             if (Math.max(Math.hypot(dx, dy), spread) < MULTI_TOUCH_DECISION_PX) return
-            const steady = spread < MULTI_TOUCH_DECISION_PX * 0.6 && Math.abs(next.angle - gesture.start.angle) < 0.12
+            const steady =
+              spread < MULTI_TOUCH_DECISION_PX * 0.6 &&
+              Math.abs(next.angle - gesture.start.angle) < 0.12
             gesture.mode = steady && Math.abs(dy) > Math.abs(dx) * 1.5 ? "tilt" : "transform"
           }
           if (gesture.mode === "tilt") {
@@ -417,7 +432,7 @@ export default function ParkView(props: Props) {
 
       if (gesture.kind === "multi") {
         const remaining = [...pointers.entries()]
-        gesture = remaining.length === 1 ? {kind: "pan", pointerId: remaining[0][0]} : null
+        gesture = remaining.length === 1 ? { kind: "pan", pointerId: remaining[0][0] } : null
         return
       }
       if ("pointerId" in gesture && gesture.pointerId !== event.pointerId) return
@@ -538,12 +553,16 @@ export default function ParkView(props: Props) {
           if (!camera) return null
           const rect = canvas.getBoundingClientRect()
           const projected = createWorldProjector(camera, viewport)(point)
-          return {x: rect.left + projected.x, y: rect.top + projected.y, visible: projected.visible}
+          return {
+            x: rect.left + projected.x,
+            y: rect.top + projected.y,
+            visible: projected.visible,
+          }
         },
         parkFootprintInFrame: () => {
           if (!camera) return false
           const project = createWorldProjector(camera, viewport)
-          const {width, height} = propsRef.current.snapshot
+          const { width, height } = propsRef.current.snapshot
           return [
             [0, 0],
             [width, 0],
@@ -551,7 +570,13 @@ export default function ParkView(props: Props) {
             [width, height],
           ].every(([x, z]) => {
             const point = project([x, 0, z])
-            return point.visible && point.x >= 0 && point.y >= 0 && point.x <= viewport.width && point.y <= viewport.height
+            return (
+              point.visible &&
+              point.x >= 0 &&
+              point.y >= 0 &&
+              point.x <= viewport.width &&
+              point.y <= viewport.height
+            )
           })
         },
         nodeCount: () => nodeCount,
@@ -563,7 +588,7 @@ export default function ParkView(props: Props) {
         if (disposed) return
         bridge = new ParkCameraBridge(parkWidth, parkHeight)
         bridgeRef.current = bridge
-        renderer = createThreeSceneRenderer(canvas, {background: BACKGROUND, antialias: true})
+        renderer = createThreeSceneRenderer(canvas, { background: BACKGROUND, antialias: true })
         resizeObserver.observe(container)
         resize()
         canvas.addEventListener("pointerdown", onPointerDown)
@@ -571,7 +596,7 @@ export default function ParkView(props: Props) {
         canvas.addEventListener("pointerup", onPointerUp)
         canvas.addEventListener("pointercancel", onPointerCancel)
         canvas.addEventListener("pointerleave", onPointerLeave)
-        canvas.addEventListener("wheel", onWheel, {passive: false})
+        canvas.addEventListener("wheel", onWheel, { passive: false })
         canvas.addEventListener("contextmenu", onContextMenu)
         window.addEventListener("keydown", onKeyDown)
         installDebugHook()

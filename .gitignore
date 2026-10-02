@@ -6,4 +6,19 @@
 /apps/web/public/generated-assets/zoo-park-texture.svg
 /apps/web/public/generated-assets/.asset-tooling/
 .DS_Store
-/apps/web/test-results
+
+# Disposable dependencies, builds, and browser evidence.
+**/node_modules/
+**/dist/
+**/test-results/
+**/playwright-report/
+*.tsbuildinfo
+/apps/web/src/scene-wasm/
+.moonlight/
+.artifacts/
+.consumer-tools/
+.asset-tooling/
+.conventions/
+.env
+.env.*
+!.env.example
