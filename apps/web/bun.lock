@@ -5,7 +5,7 @@
     "": {
       "name": "@zoo/web",
       "dependencies": {
-        "@moritzbrantner/three-d-renderer": "github:moritzbrantner/3d-lab#be3cf305a22383f715d95a9752f264c8a7815ddd",
+        "@moritzbrantner/three-d-renderer": "github:moritzbrantner/3d-lab#f89127d8c7ac55e6225588b35610c5d1032fdc96",
         "react": "19.2.8",
         "react-dom": "19.2.8",
       },
@@ -22,7 +22,7 @@
     },
   },
   "packages": {
-    "@moritzbrantner/three-d-renderer": ["@moritzbrantner/three-d-renderer@github:moritzbrantner/3d-lab#be3cf30", { "dependencies": { "three": "0.185.1" } }, "moritzbrantner-3d-lab-be3cf30", "sha512-YlKwznl7yuw1u5dPZJtEYOPzImeSbViPN3KsgVysMuFj6/uyepgPM09RVQrQVamMXwmmZ7Cwl5mkjMd08SvCeQ=="],
+    "@moritzbrantner/three-d-renderer": ["@moritzbrantner/three-d-renderer@github:moritzbrantner/3d-lab#f89127d", { "dependencies": { "three": "0.185.1" } }, "moritzbrantner-3d-lab-f89127d", "sha512-JlbcALZa2kj+fdTxjlx7y9KZdnMJb6xD0PVYE0YOsnwtljWxYmlqmnTWqq92Ol7/j4gvlb9zLbecyrTtEbyoKw=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.152.0", "", {}, "sha512-oM/5rLBm2tPkg0iBgkH/FOeR3PCDpY19GTgAZjMFM8h9WI9VW7cLgzp6nwtarYKmovavIQZ+Fe/RKX/8C8O/Rw=="],
 
