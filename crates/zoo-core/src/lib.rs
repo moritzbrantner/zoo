@@ -679,6 +679,8 @@ impl PlacementEvaluation {
         }
     }
 
+    /// A rejection before the candidate is known to be a bounded rectangle inside the park, so
+    /// no geometry is materialized for it.
     fn invalid(message: impl Into<String>, x: u32, y: u32, width: u32, height: u32) -> Self {
         Self {
             ok: false,
@@ -691,6 +693,25 @@ impl PlacementEvaluation {
             cost_cents: habitat_cost(width, height),
             occupied_tiles: Vec::new(),
             fence_segments: Vec::new(),
+        }
+    }
+
+    /// A rejection of an in-park, area-bounded candidate. It keeps the candidate footprint and
+    /// fence so the preview can show where the rejected loop would have gone.
+    fn rejected(
+        message: impl Into<String>,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        occupied_tiles: Vec<Position>,
+    ) -> Self {
+        Self {
+            ok: false,
+            message: message.into(),
+            fence_segments: fence_segments(x, y, width, height),
+            occupied_tiles,
+            ..Self::invalid("", x, y, width, height)
         }
     }
 }
@@ -762,7 +783,6 @@ struct GameState {
     feed_crates: u32,
     day: u32,
     minute_of_day: u32,
-    rating: u32,
     next_habitat_id: u32,
     next_concession_id: u32,
     next_keeper_id: u32,
@@ -796,7 +816,6 @@ impl Default for GameState {
             feed_crates: 0,
             day: 1,
             minute_of_day: 9 * 60,
-            rating: 400,
             next_habitat_id: 1,
             next_concession_id: 1,
             next_keeper_id: 1,
@@ -993,12 +1012,13 @@ impl GameState {
             .iter()
             .any(|tile| self.tile(tile.x, tile.y) != Some(TileKind::Grass))
         {
-            return PlacementEvaluation::invalid(
+            return PlacementEvaluation::rejected(
                 "The enclosed area must be clear grass",
                 x,
                 y,
                 width,
                 height,
+                occupied_tiles,
             );
         }
 
@@ -1011,18 +1031,26 @@ impl GameState {
             })
         });
         if !touches_path {
-            return PlacementEvaluation::invalid(
+            return PlacementEvaluation::rejected(
                 "The fence needs at least one path along its outside edge",
                 x,
                 y,
                 width,
                 height,
+                occupied_tiles,
             );
         }
 
         let cost = habitat_cost(width, height);
         if self.cash_cents < cost {
-            return PlacementEvaluation::invalid("Not enough cash", x, y, width, height);
+            return PlacementEvaluation::rejected(
+                "Not enough cash",
+                x,
+                y,
+                width,
+                height,
+                occupied_tiles,
+            );
         }
 
         PlacementEvaluation::valid(
@@ -1224,7 +1252,6 @@ impl GameState {
         let habitat = &mut self.habitats[index];
         habitat.species = Some(species);
         habitat.animals += 1;
-        self.recalculate_rating();
         ActionResult::ok(format!(
             "{} adopted into habitat #{habitat_id}",
             species.label()
@@ -1497,7 +1524,6 @@ impl GameState {
             }
 
             self.advance_viewing();
-            self.recalculate_rating();
         }
     }
 
@@ -2406,7 +2432,9 @@ impl GameState {
             .record_expense(ExpenseCategory::MechanicWages, mechanic_wages);
     }
 
-    fn recalculate_rating(&mut self) {
+    /// Park rating derived from the current state, so every command and tick reports a
+    /// self-consistent value without a separate refresh step.
+    fn rating(&self) -> u32 {
         let appeal: u32 = self.habitats.iter().map(Habitat::appeal).sum();
         let welfare = if self.habitats.iter().any(|habitat| habitat.animals > 0) {
             let total: u32 = self
@@ -2430,9 +2458,9 @@ impl GameState {
             self.guests.iter().map(|guest| guest.happiness).sum::<u32>() / self.guests.len() as u32
         };
         let cleanliness_penalty = (100_u32.saturating_sub(self.park_cleanliness())) * 2;
-        self.rating = (250 + appeal / 3 + welfare * 2 + guest_happiness)
+        (250 + appeal / 3 + welfare * 2 + guest_happiness)
             .saturating_sub(cleanliness_penalty)
-            .clamp(0, 999);
+            .clamp(0, 999)
     }
 
     fn neighbors(&self, position: Position) -> Vec<Position> {
@@ -3308,7 +3336,7 @@ impl GameState {
             day: self.day,
             minute_of_day: self.minute_of_day,
             cash_cents: self.cash_cents,
-            rating: self.rating,
+            rating: self.rating(),
             guest_count: self.guests.len() as u32,
             entrance: EntranceView {
                 x: ENTRANCE_X,
@@ -3875,6 +3903,63 @@ mod tests {
     }
 
     #[test]
+    fn rejected_in_park_candidates_keep_their_preview_geometry() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat_rect(3, 8, 6, 10).ok);
+
+        let overlap = state.evaluate_habitat_rect(4, 9, 8, 12);
+        let disconnected = state.evaluate_habitat_rect(10, 1, 13, 4);
+        state.cash_cents = 0;
+        let unaffordable = state.evaluate_habitat_rect(3, 3, 5, 6);
+
+        for (evaluation, message) in [
+            (&overlap, "The enclosed area must be clear grass"),
+            (
+                &disconnected,
+                "The fence needs at least one path along its outside edge",
+            ),
+            (&unaffordable, "Not enough cash"),
+        ] {
+            assert!(!evaluation.ok);
+            assert_eq!(evaluation.message, message);
+            let (width, height) = (evaluation.width, evaluation.height);
+            assert_eq!(
+                evaluation.occupied_tiles.len(),
+                (width * height) as usize,
+                "{message}"
+            );
+            assert_eq!(
+                evaluation.fence_segments,
+                fence_segments(evaluation.x, evaluation.y, width, height),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejected_unbounded_candidates_materialize_no_geometry() {
+        let state = GameState::default();
+        for evaluation in [
+            state.evaluate_habitat_rect(3, 8, 4, 9),
+            state.evaluate_habitat_rect(0, 0, u32::MAX, u32::MAX),
+            state.evaluate_habitat_rect(17, 10, 21, 12),
+        ] {
+            assert!(!evaluation.ok);
+            assert!(evaluation.occupied_tiles.is_empty());
+            assert!(evaluation.fence_segments.is_empty());
+        }
+    }
+
+    #[test]
+    fn releasing_a_rejected_candidate_changes_nothing() {
+        let mut state = GameState::default();
+        let before = serde_json::to_string(&state.snapshot()).expect("snapshot serializes");
+        assert!(!state.place_habitat_rect(3, 5, 5, 8).ok);
+        let after = serde_json::to_string(&state.snapshot()).expect("snapshot serializes");
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn legacy_habitat_api_remains_compatible() {
         let mut state = GameState::default();
         let preview = state.evaluate_habitat(3, 8, HabitatOrientation::Horizontal);
@@ -4338,14 +4423,12 @@ mod tests {
     #[test]
     fn unstaffed_litter_degrades_cleanliness_and_rating_over_time() {
         let mut state = GameState::default();
-        state.recalculate_rating();
-        let clean_rating = state.rating;
+        let clean_rating = state.rating();
         assert!(state.add_litter(Position {
             x: 2,
             y: ENTRANCE_Y,
         }));
-        state.recalculate_rating();
-        let dirty_rating = state.rating;
+        let dirty_rating = state.rating();
 
         assert!(state.park_cleanliness() < 100);
         assert!(dirty_rating < clean_rating);
@@ -4758,6 +4841,78 @@ mod tests {
         assert!(state.bulldoze(3, 8).ok);
         assert!(state.habitats.is_empty());
         assert_eq!(state.keepers[0].assigned_habitat_id, None);
+    }
+
+    /// Rating of a park with no habitats, no guests and no litter.
+    const EMPTY_CLEAN_PARK_RATING: u32 = 250 + 50 * 2 + 60;
+
+    #[test]
+    fn demolishing_the_last_habitat_updates_the_rating_immediately() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "zebra").ok);
+        assert!(state.adopt(habitat_id, "zebra").ok);
+        assert_ne!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+
+        let (cash, ledger, day, minute) = (
+            state.cash_cents,
+            state.finance_today,
+            state.day,
+            state.minute_of_day,
+        );
+        assert!(state.bulldoze(3, 8).ok);
+
+        assert!(state.habitats.is_empty());
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+        assert_eq!(state.cash_cents, cash);
+        assert_eq!(state.finance_today, ledger);
+        assert_eq!((state.day, state.minute_of_day), (day, minute));
+    }
+
+    #[test]
+    fn demolition_that_removes_guests_updates_the_rating_immediately() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "zebra").ok);
+        let mut ticks = 0;
+        while !state
+            .guests
+            .iter()
+            .any(|guest| guest.target_habitat == habitat_id)
+        {
+            state.tick(1);
+            ticks += 1;
+            assert!(ticks < 24 * 60, "no guest targeted the habitat");
+        }
+        state
+            .guests
+            .retain(|guest| guest.target_habitat == habitat_id);
+        state.litter.clear();
+
+        assert!(state.bulldoze(3, 8).ok);
+
+        assert!(state.guests.is_empty());
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+    }
+
+    #[test]
+    fn demolishing_a_littered_path_updates_the_rating_immediately() {
+        let mut state = GameState::default();
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+        assert!(state.add_litter(Position {
+            x: 4,
+            y: ENTRANCE_Y,
+        }));
+        assert!(state.snapshot().rating < EMPTY_CLEAN_PARK_RATING);
+
+        assert!(state.bulldoze(4, ENTRANCE_Y).ok);
+
+        assert!(state.litter.is_empty());
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
     }
 
     #[test]

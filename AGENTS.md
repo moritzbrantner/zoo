@@ -1,5 +1,19 @@
 # Zoo agent guide
 
+## Shared conventions
+
+Resolve the live shared convention stack before non-trivial implementation or validation:
+
+```sh
+bun /home/moenarch/moritzbrantner/coding-tooling/src/cli.ts conventions resolve --root "$PWD" --registry /home/moenarch/.config/moenarch/environment.toml --json
+```
+
+Read every file in `data.files`; report a resolution error rather than guessing policy. Repository-local instructions override shared rules where they conflict, followed by technology conventions, general conventions, and principles. Record `sourceRevision` with reproducibility evidence.
+
+Consume the current shared source. Do not vendor convention text, install managed policy snapshots, or pin Zoo to a historical policy revision. The foundation audit may report installed conventions and environment-v1 as missing; Zoo uses live policy resolution and its native toolchains instead. Reusable reasoning belongs in `coding-agent-skills`, deterministic mechanics in `coding-tooling`; durable orchestration is optional.
+
+Use `make format` for formatting writes and `make verify` for checks. Generated WASM bindings are disposable adapter outputs, excluded from authored-source linting and formatting. Exact shared-engine source pins remain authoritative independently of the live policy source.
+
 ## Direction
 
 Zoo is a game first. Prefer a playable management loop, but build it on the intended long-term foundations rather than creating product-local substitutes for generic engine capabilities.
@@ -34,7 +48,7 @@ Do not ask again about boundaries already established above.
 
 Before merging gameplay changes:
 
-1. Run `make verify` from the repository root. It performs Rust formatting, strict Clippy, workspace tests, the WASM build, dependency install, TypeScript compilation, and the production web build.
+1. Run `make verify` from the repository root. It performs Rust and web format checks, strict Clippy and type-aware Oxlint, workspace tests, the WASM build, frozen dependency installation, strict TypeScript compilation, and the production web build.
 2. Let the pull request `Verify` workflow complete; it additionally exercises the repository's asset-tooling consumer and browser visual dogfood.
 3. When foundation/configuration files covered by `.github/workflows/foundation-audit.yml` change, require that path-scoped `Foundation Fleet Audit` workflow as the coding-tooling check. Do not claim an equivalent local command exists unless one is added to the repository.
 4. Manually exercise the smallest affected playable loop on desktop and, when input is affected, a phone-sized touch viewport. Camera/rendering changes must exercise the full orbit and both allowed tilt bounds, confirming the complete park footprint stays inside the renderer frame while projected controls remain aligned.

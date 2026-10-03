@@ -1,268 +1,25 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react"
-import Park3DRenderer from "./Park3DRenderer"
-import init, {ZooGame} from "./wasm/zoo_core"
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-type Tool = "select" | "pan" | "path" | "habitat" | "food" | "drink" | "bulldoze"
-type Speed = 0 | 1 | 2 | 4
-type SpeciesKey = "capybara" | "flamingo" | "zebra" | "giraffe" | "elephant" | "penguin"
-type ConcessionKind = "food" | "drink"
-type FenceSide = "north" | "east" | "south" | "west"
+import type {
+  ActionResult,
+  Guest,
+  PlacementEvaluation,
+  Point,
+  Snapshot,
+  SpeciesKey,
+  SpeciesOffer,
+  Speed,
+  Tool,
+} from "./game-types"
+import type { SceneOverlay } from "./park-scene"
+import type { ParkPick } from "./ParkView"
+import init, { ZooGame } from "./wasm/zoo_core"
 
-type Point = {
-  x: number
-  y: number
-}
-
-type FenceSegment = Point & {
-  side: FenceSide
-}
-
-type ViewingSpot = Point & {
-  side: FenceSide
-  visible_animals: number
-  capacity: number
-  occupancy: number
-  crowded: boolean
-}
-
-type Tile = Point & {
-  kind: "grass" | "path" | "entrance" | "habitat" | "concession"
-  habitat_id: number | null
-  concession_id: number | null
-}
-
-type Habitat = Point & {
-  id: number
-  width: number
-  height: number
-  orientation: "horizontal" | "vertical"
-  footprint_area: number
-  fence_length: number
-  fence_segments: FenceSegment[]
-  species: SpeciesKey | null
-  animals: number
-  capacity: number
-  viewing_capacity: number
-  viewing_occupancy: number
-  viewing_spots: ViewingSpot[]
-  welfare: number
-  welfare_target: number
-  social_score: number
-  space_score: number
-  welfare_status: string
-  food: number
-  water: number
-  cleanliness: number
-  has_shelter: boolean
-  keeper_id: number | null
-  next_feed_delivery_in_minutes: number | null
-  feeding_status: string
-  care_status: string
-  appeal: number
-}
-
-type Animal = Point & {
-  id: number
-  habitat_id: number
-  species: SpeciesKey
-  slot: number
-  animation_phase: number
-}
-
-type Concession = Point & {
-  id: number
-  kind: ConcessionKind
-  build_cost_cents: number
-  price_cents: number
-  sales_today: number
-  total_sales: number
-  total_revenue_cents: number
-  condition: number
-  service_state: "healthy" | "degraded" | "failed"
-  maintenance_status: string
-}
-
-type Keeper = {
-  id: number
-  assigned_habitat_id: number | null
-  deliveries_completed: number
-  status: string
-}
-
-type Janitor = Point & {
-  id: number
-  target_litter_id: number | null
-  tasks_completed: number
-  status: string
-}
-
-type LitterTask = Point & {
-  id: number
-  age_minutes: number
-  assigned_janitor_id: number | null
-  status: string
-}
-
-type Mechanic = Point & {
-  id: number
-  target_maintenance_id: number | null
-  repairs_completed: number
-  status: string
-}
-
-type MaintenanceTask = Point & {
-  id: number
-  concession_id: number
-  age_minutes: number
-  assigned_mechanic_id: number | null
-  status: string
-}
-
-type AnimalCareDepot = Point & {
-  feed_crates: number
-  feed_batch_crates: number
-  feed_batch_cost_cents: number
-  keeper_hire_cost_cents: number
-  keeper_hourly_wage_cents: number
-  janitor_hire_cost_cents: number
-  janitor_hourly_wage_cents: number
-  mechanic_hire_cost_cents: number
-  mechanic_hourly_wage_cents: number
-  maintenance_repair_cost_cents: number
-  keepers: Keeper[]
-  janitors: Janitor[]
-  mechanics: Mechanic[]
-}
-
-type Guest = Point & {
-  id: number
-  happiness: number
-  energy: number
-  hunger: number
-  thirst: number
-  value_perception: number
-  target_habitat: number
-  habitats_viewed: number
-  state: "arriving" | "walking_to_habitat" | "viewing" | "walking_to_exit"
-  thought: string
-}
-
-type SpeciesOffer = {
-  key: SpeciesKey
-  label: string
-  purchase_cost_cents: number
-  appeal: number
-  minimum_social_group: number
-  space_per_animal: number
-}
-
-type FinanceBreakdown = {
-  admissions_income_cents: number
-  concession_income_cents: number
-  construction_expense_cents: number
-  animal_purchase_expense_cents: number
-  habitat_care_expense_cents: number
-  animal_feed_expense_cents: number
-  keeper_hiring_expense_cents: number
-  janitor_hiring_expense_cents: number
-  mechanic_hiring_expense_cents: number
-  maintenance_repair_expense_cents: number
-  park_upkeep_expense_cents: number
-  keeper_wages_expense_cents: number
-  janitor_wages_expense_cents: number
-  mechanic_wages_expense_cents: number
-}
-
-type FinanceDay = {
-  day: number
-  income_cents: number
-  expenses_cents: number
-  profit_cents: number
-  breakdown: FinanceBreakdown
-}
-
-export type Snapshot = {
-  width: number
-  height: number
-  day: number
-  minute_of_day: number
-  cash_cents: number
-  rating: number
-  guest_count: number
-  entrance: {
-    x: number
-    y: number
-    arrivals_total: number
-  }
-  tiles: Tile[]
-  habitats: Habitat[]
-  concessions: Concession[]
-  animal_care_depot: AnimalCareDepot
-  animals: Animal[]
-  guests: Guest[]
-  litter: LitterTask[]
-  maintenance: MaintenanceTask[]
-  operations: {
-    cleanliness: number
-    litter_backlog: number
-    oldest_litter_age_minutes: number
-    maintenance_backlog: number
-    oldest_maintenance_age_minutes: number
-    degraded_concessions: number
-    failed_concessions: number
-  }
-  species_catalog: SpeciesOffer[]
-  complaints: {
-    hungry: number
-    thirsty: number
-    tired: number
-    poor_value: number
-  }
-  finance: {
-    admission_price_cents: number
-    current_day: FinanceDay
-    previous_day: FinanceDay | null
-    profit_change_cents: number | null
-    profit_trend: "up" | "down" | "flat" | "no_previous_day"
-  }
-}
-
-type ActionResult = {
-  ok: boolean
-  message: string
-}
-
-export type PlacementEvaluation = {
-  ok: boolean
-  message: string
-  x: number
-  y: number
-  width: number
-  height: number
-  orientation: "horizontal" | "vertical"
-  cost_cents: number
-  occupied_tiles: Point[]
-  fence_segments: FenceSegment[]
-}
-
-const tileWidth = 58
-const tileHeight = 30
-const originX = 620
-const originY = 68
-
-function isoPosition(x: number, y: number) {
-  return {
-    left: originX + (x - y) * (tileWidth / 2),
-    top: originY + (x + y) * (tileHeight / 2),
-  }
-}
+// The 3D park view (three.js renderer + zoo-scene WASM) is its own chunk so the HUD and the
+// simulation can start without it. The request starts at module load, in parallel with the
+// zoo-core WASM, rather than waiting for the first render.
+const parkViewModule = import("./ParkView")
+const ParkView = lazy(() => parkViewModule)
 
 function money(cents: number) {
   return new Intl.NumberFormat("en-US", {
@@ -290,13 +47,15 @@ function speciesGlyph(species: SpeciesKey) {
       return "🐘"
     case "penguin":
       return "🐧"
-    default:
+    case "capybara":
       return "C"
   }
 }
 
 function speciesLabel(species: SpeciesKey | null, catalog: SpeciesOffer[]) {
-  if (!species) return "Empty habitat"
+  if (!species) {
+    return "Empty habitat"
+  }
   return catalog.find((offer) => offer.key === species)?.label ?? species
 }
 
@@ -308,15 +67,13 @@ function guestStateLabel(state: Guest["state"]) {
       return "Walking to habitat"
     case "viewing":
       return "Viewing animals"
-    default:
+    case "walking_to_exit":
       return "Walking to exit"
   }
 }
 
 function toolHint(tool: Tool) {
   switch (tool) {
-    case "pan":
-      return "Drag anywhere on the park to pan. Use –/+ to zoom."
     case "path":
       return "Drag across tiles to paint paths · $10 per new tile."
     case "habitat":
@@ -327,13 +84,15 @@ function toolHint(tool: Tool) {
       return "Click clear grass beside a path to build a drink stand · $140."
     case "bulldoze":
       return "Click a path or any tile inside a habitat to remove it."
-    default:
-      return "Click a habitat, guest, animal, or ground tile to inspect it."
+    case "select":
+      return "Click to inspect · drag to pan · right-drag or two-finger twist to rotate · scroll or pinch to zoom."
   }
 }
 
 function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot) {
-  if (!start || !end) return []
+  if (!start || !end) {
+    return []
+  }
   const left = Math.min(start.x, end.x)
   const right = Math.max(start.x, end.x)
   const top = Math.min(start.y, end.y)
@@ -342,7 +101,7 @@ function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot
   for (let y = top; y <= bottom; y += 1) {
     for (let x = left; x <= right; x += 1) {
       if (x >= 0 && y >= 0 && x < snapshot.width && y < snapshot.height) {
-        tiles.push({x, y})
+        tiles.push({ x, y })
       }
     }
   }
@@ -351,18 +110,9 @@ function previewTiles(start: Point | null, end: Point | null, snapshot: Snapshot
 
 export default function App() {
   const gameRef = useRef<ZooGame | null>(null)
-  const paintingRef = useRef(false)
   const paintedTilesRef = useRef(new Set<string>())
-  const drawingFenceRef = useRef(false)
-  const fencePointerIdRef = useRef<number | null>(null)
   const fenceStartRef = useRef<Point | null>(null)
   const fenceEndRef = useRef<Point | null>(null)
-  const panSessionRef = useRef<{
-    pointerId: number
-    startX: number
-    startY: number
-    origin: Point
-  } | null>(null)
 
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [tool, setTool] = useState<Tool>("select")
@@ -377,12 +127,9 @@ export default function App() {
   const [hoveredTile, setHoveredTile] = useState<Point | null>(null)
   const [fenceStart, setFenceStart] = useState<Point | null>(null)
   const [fenceEnd, setFenceEnd] = useState<Point | null>(null)
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState<Point>({x: 0, y: 0})
+  const [cameraResetToken, setCameraResetToken] = useState(0)
 
   const clearFenceGesture = useCallback(() => {
-    drawingFenceRef.current = false
-    fencePointerIdRef.current = null
     fenceStartRef.current = null
     fenceEndRef.current = null
     setFenceStart(null)
@@ -391,7 +138,9 @@ export default function App() {
 
   const refresh = useCallback(() => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     setSnapshot(JSON.parse(game.snapshot_json()) as Snapshot)
   }, [])
 
@@ -408,18 +157,30 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
-    void init().then(() => {
-      if (cancelled) return
-      gameRef.current = new ZooGame()
-      refresh()
-    })
+    init()
+      .then(() => {
+        if (cancelled) {
+          return
+        }
+        gameRef.current = new ZooGame()
+        refresh()
+      })
+      .catch((error: unknown) => {
+        console.error("Zoo simulation initialization failed", error)
+        if (!cancelled) {
+          setMessage("The park simulation could not load. Reload to try again.")
+          setMessageKind("error")
+        }
+      })
     return () => {
       cancelled = true
     }
   }, [refresh])
 
   useEffect(() => {
-    if (!snapshot || speed === 0) return
+    if (!snapshot || speed === 0) {
+      return
+    }
     const handle = window.setInterval(() => {
       gameRef.current?.tick(speed)
       refresh()
@@ -428,44 +189,7 @@ export default function App() {
   }, [refresh, snapshot !== null, speed])
 
   useEffect(() => {
-    const finishGesture = (event: PointerEvent) => {
-      paintingRef.current = false
-      paintedTilesRef.current.clear()
-
-      if (!drawingFenceRef.current || fencePointerIdRef.current !== event.pointerId) return
-
-      const game = gameRef.current
-      const start = fenceStartRef.current
-      const end = fenceEndRef.current
-      if (game && start && end) {
-        perform(() => game.place_habitat_rect(start.x, start.y, end.x, end.y))
-      }
-
-      clearFenceGesture()
-    }
-
-    const cancelGesture = (event: PointerEvent) => {
-      paintingRef.current = false
-      paintedTilesRef.current.clear()
-
-      if (drawingFenceRef.current && fencePointerIdRef.current === event.pointerId) {
-        clearFenceGesture()
-      }
-    }
-
-    window.addEventListener("pointerup", finishGesture)
-    window.addEventListener("pointercancel", cancelGesture)
-    return () => {
-      window.removeEventListener("pointerup", finishGesture)
-      window.removeEventListener("pointercancel", cancelGesture)
-    }
-  }, [clearFenceGesture, perform])
-
-  useEffect(() => {
-    if (tool !== "path") {
-      paintingRef.current = false
-      paintedTilesRef.current.clear()
-    }
+    paintedTilesRef.current.clear()
     if (tool !== "habitat") {
       clearFenceGesture()
     }
@@ -483,203 +207,280 @@ export default function App() {
 
   const placement = useMemo(() => {
     const game = gameRef.current
-    if (!game || !snapshot || tool !== "habitat" || !fenceStart || !fenceEnd) return null
+    if (!game || !snapshot || tool !== "habitat" || !fenceStart || !fenceEnd) {
+      return null
+    }
     return JSON.parse(
       game.evaluate_habitat_rect(fenceStart.x, fenceStart.y, fenceEnd.x, fenceEnd.y),
     ) as PlacementEvaluation
   }, [fenceEnd, fenceStart, snapshot, tool])
 
+  const ghostTiles = useMemo(
+    () => (snapshot ? previewTiles(fenceStart, fenceEnd, snapshot) : []),
+    [fenceEnd, fenceStart, snapshot?.width, snapshot?.height],
+  )
+
+  const overlay = useMemo<SceneOverlay>(
+    () => ({
+      tool,
+      hoveredTile,
+      ghostTiles,
+      placement,
+      selectedHabitatId,
+      selectedGuestId,
+      selectedDepot,
+    }),
+    [ghostTiles, hoveredTile, placement, selectedDepot, selectedGuestId, selectedHabitatId, tool],
+  )
+
   const paintPath = useCallback(
-    (tile: Tile) => {
+    (tile: Point) => {
       const game = gameRef.current
-      if (!game) return
+      if (!game) {
+        return
+      }
       const key = `${tile.x}:${tile.y}`
-      if (paintedTilesRef.current.has(key)) return
+      if (paintedTilesRef.current.has(key)) {
+        return
+      }
       paintedTilesRef.current.add(key)
       perform(() => game.place_path(tile.x, tile.y))
     },
     [perform],
   )
 
-  const onTilePointerDown = (event: ReactPointerEvent<HTMLButtonElement>, tile: Tile) => {
+  const onTileDown = (tile: Point) => {
     if (tool === "path") {
-      event.preventDefault()
-      event.stopPropagation()
-      paintingRef.current = true
       paintedTilesRef.current.clear()
       paintPath(tile)
+    } else if (tool === "habitat") {
+      fenceStartRef.current = tile
+      fenceEndRef.current = tile
+      setFenceStart(tile)
+      setFenceEnd(tile)
+    }
+  }
+
+  const onTileDrag = (tile: Point) => {
+    if (tool === "path") {
+      paintPath(tile)
+    } else if (tool === "habitat" && fenceStartRef.current) {
+      fenceEndRef.current = tile
+      setFenceEnd(tile)
+    }
+  }
+
+  const onToolGestureEnd = (commit: boolean) => {
+    paintedTilesRef.current.clear()
+    if (tool !== "habitat") {
       return
     }
-
-    if (tool === "habitat") {
-      event.preventDefault()
-      event.stopPropagation()
-      if (drawingFenceRef.current) return
-
-      const point = {x: tile.x, y: tile.y}
-      drawingFenceRef.current = true
-      fencePointerIdRef.current = event.pointerId
-      fenceStartRef.current = point
-      fenceEndRef.current = point
-      setFenceStart(point)
-      setFenceEnd(point)
-    }
-  }
-
-  const onTilePointerEnter = (event: ReactPointerEvent<HTMLButtonElement>, tile: Tile) => {
-    const point = {x: tile.x, y: tile.y}
-    setHoveredTile(point)
-    if (tool === "path" && paintingRef.current) {
-      paintPath(tile)
-    }
-    if (
-      tool === "habitat" &&
-      drawingFenceRef.current &&
-      fencePointerIdRef.current === event.pointerId
-    ) {
-      fenceEndRef.current = point
-      setFenceEnd(point)
-    }
-  }
-
-  const onTileClick = (tile: Tile) => {
     const game = gameRef.current
-    if (!game || tool === "path" || tool === "pan" || tool === "habitat") return
+    const start = fenceStartRef.current
+    const end = fenceEndRef.current
+    if (commit && game && start && end) {
+      perform(() => game.place_habitat_rect(start.x, start.y, end.x, end.y))
+    }
+    clearFenceGesture()
+  }
+
+  const inform = (text: string) => {
+    setMessage(text)
+    setMessageKind("info")
+  }
+
+  const selectHabitat = (habitatId: number | null) => {
+    setSelectedGuestId(null)
+    setSelectedDepot(false)
+    setSelectedHabitatId(habitatId)
+  }
+
+  const selectDepot = () => {
+    setSelectedGuestId(null)
+    setSelectedHabitatId(null)
+    setSelectedDepot(true)
+    inform("Central operations depot selected · stock animal feed and hire park staff here.")
+  }
+
+  const describeStand = (standId: number) => {
+    const stand = snapshot?.concessions.find((candidate) => candidate.id === standId)
+    if (!stand) {
+      return
+    }
+    const label = stand.kind === "food" ? "Food" : "Drink"
+    inform(
+      `${label} stand #${stand.id} · ${stand.condition}% condition · ${stand.service_state} · ${stand.maintenance_status}`,
+    )
+  }
+
+  const onPick = (pick: ParkPick) => {
+    const game = gameRef.current
+    if (!game || !snapshot) {
+      return
+    }
+    const depot = snapshot.animal_care_depot
+    const isDepotTile = (tile: Point | null) => tile?.x === depot.x && tile?.y === depot.y
 
     if (tool === "select") {
-      setSelectedGuestId(null)
-      setSelectedDepot(false)
-      setSelectedHabitatId(tile.habitat_id)
-      const stand = snapshot?.concessions.find((candidate) => candidate.id === tile.concession_id)
-      setMessage(
-        tile.habitat_id
-          ? `Habitat #${tile.habitat_id} selected`
-          : stand
-            ? `${stand.kind === "food" ? "Food" : "Drink"} stand #${stand.id} · ${stand.sales_today} sales today`
-            : "Ground selected",
+      switch (pick.kind) {
+        case "guest":
+          setSelectedGuestId(pick.id)
+          setSelectedHabitatId(null)
+          setSelectedDepot(false)
+          return
+        case "animal":
+          selectHabitat(pick.habitatId)
+          inform(`Habitat #${pick.habitatId} selected`)
+          return
+        case "depot":
+          selectDepot()
+          return
+        case "concession":
+          selectHabitat(null)
+          describeStand(pick.id)
+          return
+        case "tile": {
+          if (isDepotTile(pick.tile)) {
+            selectDepot()
+            return
+          }
+          const tile = snapshot.tiles.find(
+            (candidate) => candidate.x === pick.tile.x && candidate.y === pick.tile.y,
+          )
+          selectHabitat(tile?.habitat_id ?? null)
+          if (tile?.habitat_id) {
+            inform(`Habitat #${tile.habitat_id} selected`)
+          } else if (tile?.concession_id) {
+            describeStand(tile.concession_id)
+          } else {
+            inform("Ground selected")
+          }
+          return
+        }
+        case "none":
+          selectHabitat(null)
+          return
+      }
+    }
+
+    const target = pick.kind === "none" ? null : pick.tile
+    if (tool === "bulldoze") {
+      if (pick.kind === "depot" || isDepotTile(target)) {
+        setMessage("The central animal-care depot cannot be demolished.")
+        setMessageKind("error")
+        return
+      }
+      if (!target) {
+        return
+      }
+      const tile = snapshot.tiles.find(
+        (candidate) => candidate.x === target.x && candidate.y === target.y,
       )
-      setMessageKind("info")
+      perform(() => game.bulldoze(target.x, target.y))
+      if (tile?.habitat_id != null && tile.habitat_id === selectedHabitatId) {
+        setSelectedHabitatId(null)
+      }
       return
     }
 
-    if (tool === "food" || tool === "drink") {
-      perform(() => game.place_concession(tile.x, tile.y, tool))
-      return
+    if ((tool === "food" || tool === "drink") && target) {
+      perform(() => game.place_concession(target.x, target.y, tool))
     }
-
-    perform(() => game.bulldoze(tile.x, tile.y))
-    if (tile.habitat_id === selectedHabitatId) setSelectedHabitatId(null)
-  }
-
-  const beginPan = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (tool !== "pan") return
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    panSessionRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      origin: pan,
-    }
-  }
-
-  const movePan = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const session = panSessionRef.current
-    if (!session || session.pointerId !== event.pointerId) return
-    setPan({
-      x: session.origin.x + event.clientX - session.startX,
-      y: session.origin.y + event.clientY - session.startY,
-    })
-  }
-
-  const endPan = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (panSessionRef.current?.pointerId !== event.pointerId) return
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-    panSessionRef.current = null
   }
 
   const adopt = (species: SpeciesKey) => {
     const game = gameRef.current
-    if (!game || selectedHabitatId === null) return
+    if (!game || selectedHabitatId === null) {
+      return
+    }
     perform(() => game.adopt(selectedHabitatId, species))
   }
 
   const careForHabitat = (action: "water" | "clean" | "shelter") => {
     const game = gameRef.current
-    if (!game || selectedHabitatId === null) return
-    if (action === "water") perform(() => game.refill_water(selectedHabitatId))
-    if (action === "clean") perform(() => game.clean_habitat(selectedHabitatId))
-    if (action === "shelter") perform(() => game.add_shelter(selectedHabitatId))
+    if (!game || selectedHabitatId === null) {
+      return
+    }
+    if (action === "water") {
+      perform(() => game.refill_water(selectedHabitatId))
+    }
+    if (action === "clean") {
+      perform(() => game.clean_habitat(selectedHabitatId))
+    }
+    if (action === "shelter") {
+      perform(() => game.add_shelter(selectedHabitatId))
+    }
   }
 
   const scheduleKeeper = () => {
     const game = gameRef.current
-    if (!game || selectedHabitatId === null) return
+    if (!game || selectedHabitatId === null) {
+      return
+    }
     perform(() => game.schedule_keeper(selectedHabitatId))
   }
 
   const buyAnimalFeed = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.buy_animal_feed())
   }
 
   const hireKeeper = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.hire_keeper())
   }
 
   const hireJanitor = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.hire_janitor())
   }
 
   const hireMechanic = () => {
     const game = gameRef.current
-    if (!game) return
+    if (!game) {
+      return
+    }
     perform(() => game.hire_mechanic())
   }
 
   const reset = () => {
-    paintingRef.current = false
     paintedTilesRef.current.clear()
     clearFenceGesture()
-    panSessionRef.current = null
-
     gameRef.current?.reset()
     setTool("select")
     setSelectedHabitatId(null)
     setSelectedGuestId(null)
     setSelectedDepot(false)
     setHoveredTile(null)
-    setZoom(1)
-    setPan({x: 0, y: 0})
+    setCameraResetToken((token) => token + 1)
     setMessage("New park started.")
     setMessageKind("info")
     refresh()
-  }
-
-  const changeZoom = (delta: number) => {
-    setZoom((current) => Math.min(1.6, Math.max(0.55, Number((current + delta).toFixed(2)))))
   }
 
   if (!snapshot) {
     return <main className="loading">Preparing the park simulation…</main>
   }
 
-  const selectedTileIds = new Set<number>(
-    selectedHabitat
-      ? snapshot.tiles
-          .filter((tile) => tile.habitat_id === selectedHabitat.id)
-          .map((tile) => tile.y * snapshot.width + tile.x)
-      : [],
-  )
-  const ghostTiles = previewTiles(fenceStart, fenceEnd, snapshot)
-  const entrancePosition = isoPosition(snapshot.entrance.x, snapshot.entrance.y)
+  const tooltip =
+    placement && hoveredTile ? (
+      <div className={placement.ok ? "valid" : "invalid"}>
+        <b>
+          {placement.ok ? "✓ Fence closes" : "! Cannot build"} · {placement.width}×
+          {placement.height} · {money(placement.cost_cents)}
+        </b>
+        <small>{placement.message}</small>
+      </div>
+    ) : undefined
 
   return (
     <main className="game-shell">
@@ -706,26 +507,15 @@ export default function App() {
             {snapshot.day} · {clock(snapshot.minute_of_day)}
           </strong>
         </div>
-        <div className="camera-controls" aria-label="Camera zoom">
-          <button onClick={() => changeZoom(-0.15)} title="Zoom out">
-            −
-          </button>
-          <strong>{Math.round(zoom * 100)}%</strong>
-          <button onClick={() => changeZoom(0.15)} title="Zoom in">
-            +
-          </button>
+        <div className="speed-controls" aria-label="Simulation speed">
           <button
-            className="camera-reset"
-            onClick={() => {
-              setZoom(1)
-              setPan({x: 0, y: 0})
-            }}
-            title="Reset camera"
+            className="view-reset"
+            onClick={() => setCameraResetToken((token) => token + 1)}
+            title="Reset view (Home)"
+            aria-label="Reset view"
           >
             ⌂
           </button>
-        </div>
-        <div className="speed-controls" aria-label="Simulation speed">
           {([0, 1, 2, 4] as const).map((value) => (
             <button
               key={value}
@@ -740,390 +530,24 @@ export default function App() {
       </header>
 
       <section className="workspace">
-        <div className={`viewport ${tool === "pan" ? "panning" : ""}`}>
-          <div
-            className={`park ${speed === 0 ? "paused" : ""}`}
-            style={{
-              width: 1240,
-              height: 720,
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            }}
-            onPointerDown={beginPan}
-            onPointerMove={movePan}
-            onPointerUp={endPan}
-            onPointerCancel={endPan}
-            onPointerLeave={() => setHoveredTile(null)}
-          >
-            <Park3DRenderer snapshot={snapshot} placement={placement} />
-            <div className="park-label">Starter Meadow</div>
-
-            {snapshot.tiles
-              .slice()
-              .sort((a, b) => a.x + a.y - (b.x + b.y))
-              .map((tile) => {
-                const position = isoPosition(tile.x, tile.y)
-                const tileId = tile.y * snapshot.width + tile.x
-                return (
-                  <button
-                    key={`${tile.x}:${tile.y}`}
-                    className={`tile tile-${tile.kind} ${
-                      selectedTileIds.has(tileId) ? "selected" : ""
-                    }`}
-                    style={{
-                      left: position.left,
-                      top: position.top,
-                      zIndex: tile.x + tile.y,
-                    }}
-                    onPointerDown={(event) => onTilePointerDown(event, tile)}
-                    onPointerEnter={(event) => onTilePointerEnter(event, tile)}
-                    onClick={() => onTileClick(tile)}
-                    title={`${tile.kind} (${tile.x}, ${tile.y})`}
-                    aria-label={`${tile.kind} tile ${tile.x}, ${tile.y}`}
-                  />
-                )
-              })}
-
-            {snapshot.habitats.flatMap((habitat) =>
-              habitat.fence_segments.map((segment, index) => {
-                const position = isoPosition(segment.x, segment.y)
-                return (
-                  <span
-                    className={`fence-segment fence-${segment.side}`}
-                    key={`fence:${habitat.id}:${segment.x}:${segment.y}:${segment.side}:${index}`}
-                    style={{
-                      left: position.left,
-                      top: position.top,
-                      zIndex: 340 + segment.x + segment.y,
-                    }}
-                  />
-                )
-              }),
-            )}
-
-            {ghostTiles.map((tile) => {
-              const position = isoPosition(tile.x, tile.y)
-              return (
-                <div
-                  className={`placement-ghost ${placement?.ok ? "valid" : "invalid"}`}
-                  key={`ghost:${tile.x}:${tile.y}`}
-                  style={{
-                    left: position.left,
-                    top: position.top,
-                    zIndex: 300 + tile.x + tile.y,
-                  }}
-                />
-              )
-            })}
-
-            {placement?.fence_segments.map((segment, index) => {
-              const position = isoPosition(segment.x, segment.y)
-              return (
-                <span
-                  className={`fence-segment fence-${segment.side} fence-preview`}
-                  key={`preview-fence:${segment.x}:${segment.y}:${segment.side}:${index}`}
-                  style={{
-                    left: position.left,
-                    top: position.top,
-                    zIndex: 360 + segment.x + segment.y,
-                  }}
-                />
-              )
-            })}
-
-            {placement && hoveredTile && (
-              <div
-                className={`placement-price bevel ${placement.ok ? "valid" : "invalid"}`}
-                style={{
-                  left: isoPosition(hoveredTile.x, hoveredTile.y).left + 24,
-                  top: isoPosition(hoveredTile.x, hoveredTile.y).top - 52,
-                  zIndex: 900,
-                }}
-              >
-                <b>
-                  {placement.ok ? "✓ Fence closes" : "! Cannot build"} · {placement.width}×
-                  {placement.height} · {money(placement.cost_cents)}
-                </b>
-                <small>{placement.message}</small>
-              </div>
-            )}
-
-            <div
-              className="entrance-gate"
-              style={{
-                left: entrancePosition.left - 24,
-                top: entrancePosition.top - 48,
-                zIndex: 760,
-              }}
-              title={`${snapshot.entrance.arrivals_total} guests have entered here`}
-              aria-label="Zoo entrance gate"
-            >
-              <span className="gate-roof" />
-              <span className="gate-sign">ZOO</span>
-              <span className="gate-post gate-post-left" />
-              <span className="gate-post gate-post-right" />
-              <span className="turnstile" />
-            </div>
-
-            {(() => {
-              const depot = snapshot.animal_care_depot
-              const position = isoPosition(depot.x, depot.y)
-              return (
-                <button
-                  type="button"
-                  className="care-depot"
-                  style={{
-                    left: position.left + 4,
-                    top: position.top - 54,
-                    zIndex: 640 + depot.x + depot.y,
-                  }}
-                  title={`${depot.feed_crates} animal-feed crates · ${depot.keepers.length} keepers · ${depot.janitors.length} janitors · ${depot.mechanics.length} mechanics`}
-                  aria-label="Central operations depot"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    if (tool === "pan") return
-                    if (tool === "bulldoze") {
-                      setMessage("The central animal-care depot cannot be demolished.")
-                      setMessageKind("error")
-                      return
-                    }
-                    setSelectedGuestId(null)
-                    setSelectedHabitatId(null)
-                    setSelectedDepot(true)
-                    setTool("select")
-                    setMessage("Central operations depot selected · stock animal feed and hire park staff here.")
-                    setMessageKind("info")
-                  }}
-                >
-                  <span className="concession-awning" />
-                  <strong>Ops</strong>
-                  <small>DEPOT</small>
-                  <span className="concession-counter" />
-                </button>
-              )
-            })()}
-
-            {snapshot.concessions.map((stand) => {
-              const position = isoPosition(stand.x, stand.y)
-              const label = stand.kind === "food" ? "Food" : "Drink"
-              return (
-                <button
-                  type="button"
-                  className={`concession concession-${stand.kind} concession-${stand.service_state}`}
-                  key={`concession:${stand.id}`}
-                  data-concession-id={stand.id}
-                  style={{
-                    left: position.left + 8,
-                    top: position.top - 42,
-                    zIndex: 610 + stand.x + stand.y,
-                  }}
-                  title={`${label} stand · ${stand.condition}% condition · ${stand.service_state} · ${stand.maintenance_status}`}
-                  aria-label={`${label} stand ${stand.id}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    const game = gameRef.current
-                    if (tool === "bulldoze" && game) {
-                      perform(() => game.bulldoze(stand.x, stand.y))
-                      return
-                    }
-                    if (tool === "pan") return
-                    setSelectedGuestId(null)
-                    setSelectedHabitatId(null)
-                    setSelectedDepot(false)
-                    setTool("select")
-                    setMessage(
-                      `${label} stand #${stand.id} · ${stand.condition}% condition · ${stand.service_state} · ${stand.maintenance_status}`,
-                    )
-                    setMessageKind("info")
-                  }}
-                >
-                  <span className="concession-awning" />
-                  <strong>{label}</strong>
-                  <small>
-                    {stand.service_state === "failed"
-                      ? "CLOSED"
-                      : stand.kind === "food"
-                        ? "FOOD"
-                        : "DRINK"}
-                  </small>
-                  <span className="concession-counter" />
-                </button>
-              )
-            })}
-
-            {snapshot.litter.map((task) => {
-              const position = isoPosition(task.x, task.y)
-              return (
-                <span
-                  className={`litter ${task.assigned_janitor_id === null ? "waiting" : "assigned"}`}
-                  key={`litter:${task.id}`}
-                  style={{
-                    left: position.left + 20,
-                    top: position.top + 8,
-                    zIndex: 700 + task.x + task.y,
-                  }}
-                  title={`Litter #${task.id} · ${task.age_minutes} min · ${task.status}`}
-                  aria-label={`Litter task ${task.id}: ${task.status}`}
-                />
-              )
-            })}
-
-            {snapshot.animal_care_depot.janitors.map((janitor) => {
-              const position = isoPosition(janitor.x, janitor.y)
-              return (
-                <span
-                  className="janitor"
-                  key={`janitor:${janitor.id}`}
-                  style={{
-                    left: position.left + 22,
-                    top: position.top - 8,
-                    zIndex: 820 + janitor.x + janitor.y,
-                  }}
-                  title={`Janitor #${janitor.id} · ${janitor.status}`}
-                  aria-label={`Janitor ${janitor.id}: ${janitor.status}`}
-                >
-                  <i />
-                  <b />
-                </span>
-              )
-            })}
-
-
-
-            {snapshot.maintenance.map((task) => {
-              const position = isoPosition(task.x, task.y)
-              return (
-                <span
-                  className={`maintenance-alert ${
-                    task.assigned_mechanic_id === null ? "waiting" : "assigned"
-                  }`}
-                  key={`maintenance:${task.id}`}
-                  style={{
-                    left: position.left + 38,
-                    top: position.top - 50,
-                    zIndex: 850 + task.x + task.y,
-                  }}
-                  title={`Stand #${task.concession_id} maintenance · ${task.age_minutes} min · ${task.status}`}
-                  aria-label={`Maintenance task ${task.id}: ${task.status}`}
-                >
-                  !
-                </span>
-              )
-            })}
-
-            {snapshot.animal_care_depot.mechanics.map((mechanic) => {
-              const position = isoPosition(mechanic.x, mechanic.y)
-              return (
-                <span
-                  className="mechanic"
-                  key={`mechanic:${mechanic.id}`}
-                  style={{
-                    left: position.left + 18,
-                    top: position.top - 9,
-                    zIndex: 825 + mechanic.x + mechanic.y,
-                  }}
-                  title={`Mechanic #${mechanic.id} · ${mechanic.status}`}
-                  aria-label={`Mechanic ${mechanic.id}: ${mechanic.status}`}
-                >
-                  <i />
-                  <b />
-                </span>
-              )
-            })}
-
-            {snapshot.animals.map((animal) => {
-              const position = isoPosition(animal.x, animal.y)
-              const offset = (animal.slot % 3) - 1
-              return (
-                <button
-                  type="button"
-                  className={`animal animal-${animal.species}`}
-                  key={animal.id}
-                  style={{
-                    left: position.left + 14 + offset * 6,
-                    top: position.top - 16 + (animal.slot % 2) * 5,
-                    zIndex: 520 + animal.x + animal.y + animal.slot,
-                    animationDelay: `-${animal.animation_phase / 20}s`,
-                  }}
-                  title={`${speciesLabel(animal.species, snapshot.species_catalog)} · Habitat #${
-                    animal.habitat_id
-                  }`}
-                  onClick={() => {
-                    if (tool === "pan") return
-                    setSelectedGuestId(null)
-                    setSelectedHabitatId(animal.habitat_id)
-                    setSelectedDepot(false)
-                    setTool("select")
-                  }}
-                >
-                  <span>{speciesGlyph(animal.species)}</span>
-                </button>
-              )
-            })}
-
-            {snapshot.habitats
-              .filter((habitat) => habitat.animals === 0)
-              .map((habitat) => {
-                const center = isoPosition(
-                  habitat.x + (habitat.width - 1) / 2,
-                  habitat.y + (habitat.height - 1) / 2,
-                )
-                return (
-                  <button
-                    type="button"
-                    className="empty-habitat-marker"
-                    key={`empty:${habitat.id}`}
-                    style={{
-                      left: center.left + 15,
-                      top: center.top - 10,
-                      zIndex: 500 + habitat.x + habitat.y,
-                    }}
-                    onClick={() => {
-                      if (tool === "pan") return
-                      setSelectedGuestId(null)
-                      setSelectedHabitatId(habitat.id)
-                      setSelectedDepot(false)
-                      setTool("select")
-                    }}
-                    title={`Habitat #${habitat.id}: empty`}
-                  >
-                    +
-                  </button>
-                )
-              })}
-
-            {snapshot.guests.map((guest) => {
-              const position = isoPosition(guest.x, guest.y)
-              return (
-                <button
-                  type="button"
-                  className={`guest guest-${guest.state} ${
-                    selectedGuestId === guest.id ? "selected" : ""
-                  }`}
-                  key={guest.id}
-                  style={{
-                    left: position.left + 24,
-                    top: position.top - 4,
-                    zIndex: 800 + guest.x + guest.y,
-                  }}
-                  title={`Guest #${guest.id} · ${guest.thought}`}
-                  onClick={() => {
-                    if (tool === "pan") return
-                    setSelectedGuestId(guest.id)
-                    setSelectedHabitatId(null)
-                    setSelectedDepot(false)
-                    setTool("select")
-                  }}
-                >
-                  <i />
-                  <b />
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        <Suspense fallback={<div className="park-view park-view-loading">Loading 3D park…</div>}>
+          <ParkView
+            snapshot={snapshot}
+            overlay={overlay}
+            paused={speed === 0}
+            dragTool={tool === "path" || tool === "habitat"}
+            resetToken={cameraResetToken}
+            tooltip={tooltip}
+            onTileDown={onTileDown}
+            onTileDrag={onTileDrag}
+            onToolGestureEnd={onToolGestureEnd}
+            onHover={setHoveredTile}
+            onPick={onPick}
+          />
+        </Suspense>
 
         <aside className="side-panel bevel">
-          {selectedDepot ? (
+          {selectedDepot && (
             <>
               <div className="window-title">
                 <span>Central operations depot</span>
@@ -1268,7 +692,8 @@ export default function App() {
                 )}
               </div>
             </>
-          ) : selectedGuest ? (
+          )}
+          {!selectedDepot && selectedGuest && (
             <>
               <div className="window-title">
                 <span>Guest #{selectedGuest.id}</span>
@@ -1297,7 +722,8 @@ export default function App() {
                 <NeedBar label="Value" value={selectedGuest.value_perception} />
               </div>
             </>
-          ) : selectedHabitat ? (
+          )}
+          {!selectedDepot && !selectedGuest && selectedHabitat && (
             <>
               <div className="window-title">
                 <span>Habitat #{selectedHabitat.id}</span>
@@ -1345,7 +771,7 @@ export default function App() {
                   </div>
                 </dl>
                 <div className="meter">
-                  <span style={{width: `${selectedHabitat.welfare}%`}} />
+                  <span style={{ width: `${selectedHabitat.welfare}%` }} />
                 </div>
 
                 <h3>Viewing</h3>
@@ -1459,7 +885,8 @@ export default function App() {
                         <span>
                           <b>{offer.label}</b>
                           <small>
-                            Group {offer.minimum_social_group}+ · {offer.space_per_animal} space each
+                            Group {offer.minimum_social_group}+ · {offer.space_per_animal} space
+                            each
                           </small>
                         </span>
                       </span>
@@ -1469,7 +896,8 @@ export default function App() {
                 })}
               </div>
             </>
-          ) : (
+          )}
+          {!selectedDepot && !selectedGuest && !selectedHabitat && (
             <>
               <div className="window-title">
                 <span>Park manager</span>
@@ -1617,9 +1045,7 @@ export default function App() {
 
       <footer className="bottom-dock">
         <div className="message-stack">
-          <div className={`message bevel ${messageKind === "error" ? "error" : ""}`}>
-            {message}
-          </div>
+          <div className={`message bevel ${messageKind === "error" ? "error" : ""}`}>{message}</div>
           <div className="tool-hint">{toolHint(tool)}</div>
         </div>
         <nav className="toolbar bevel" aria-label="Build tools">
@@ -1628,12 +1054,6 @@ export default function App() {
             icon="↖"
             label="Inspect"
             onClick={() => setTool("select")}
-          />
-          <ToolButton
-            active={tool === "pan"}
-            icon="✋"
-            label="Pan map"
-            onClick={() => setTool("pan")}
           />
           <ToolButton
             active={tool === "path"}
@@ -1707,7 +1127,7 @@ function NeedBar({
         <strong>{value}%</strong>
       </div>
       <div className="need-track">
-        <span style={{width: `${value}%`}} />
+        <span style={{ width: `${value}%` }} />
       </div>
     </div>
   )

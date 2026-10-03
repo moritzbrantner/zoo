@@ -50,24 +50,22 @@
     white-space: nowrap;
   }
 
-  .camera-controls,
   .speed-controls {
     flex: 0 0 auto;
     margin-left: 0;
   }
 
-  .camera-controls button,
   .speed-controls button {
     min-width: 44px;
     height: 44px;
   }
 
   .workspace,
-  .viewport {
+  .park-view {
     min-height: 0;
   }
 
-  .viewport {
+  .park-view {
     overscroll-behavior: none;
   }
 
@@ -160,8 +158,63 @@
 }
 
 @media (max-width: 520px) {
-  .camera-controls strong {
-    display: none;
+  /* Phones: stats on one row, brand + time controls on a second row, so pausing never
+     requires scrolling the HUD sideways. */
+  .topbar {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
+    touch-action: manipulation;
+  }
+
+  .stat {
+    min-width: 0;
+    grid-row: 1;
+  }
+
+  .stat strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .brand {
+    min-width: 0;
+    grid-row: 2;
+    grid-column: 1;
+    padding: 0 4px;
+  }
+
+  .speed-controls {
+    grid-row: 2;
+    grid-column: 2 / -1;
+    justify-content: flex-end;
+  }
+
+  .speed-controls button {
+    min-width: 0;
+    flex: 1 1 0;
+    height: 40px;
+  }
+
+  /* All six build tools stay visible as a 3 × 2 grid instead of a clipped sideways strip. */
+  .toolbar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+    touch-action: manipulation;
+  }
+
+  .tool {
+    min-width: 0;
+    height: 48px;
+  }
+
+  .tool span {
+    font-size: 17px;
+  }
+
+  .tool small {
+    max-width: 100%;
   }
 
   .side-panel {
