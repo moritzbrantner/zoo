@@ -15,6 +15,14 @@ export type FenceSegment = Point & {
   side: FenceSide
 }
 
+export type ViewingSpot = Point & {
+  side: FenceSide
+  visible_animals: number
+  capacity: number
+  occupancy: number
+  crowded: boolean
+}
+
 export type Tile = Point & {
   kind: "grass" | "path" | "entrance" | "habitat" | "concession"
   habitat_id: number | null
@@ -32,6 +40,9 @@ export type Habitat = Point & {
   species: SpeciesKey | null
   animals: number
   capacity: number
+  viewing_capacity: number
+  viewing_occupancy: number
+  viewing_spots: ViewingSpot[]
   welfare: number
   welfare_target: number
   social_score: number
