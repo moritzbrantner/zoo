@@ -1,6 +1,6 @@
 # Zoo
 
-A browser-first zoo management game with a compact, rotatable 3D isometric presentation inspired by classic management sims.
+A browser-first zoo management game with a free-camera 3D park inspired by classic management sims.
 
 The project starts from a playable park loop, but it no longer treats "MVP" as permission to create parallel engine infrastructure inside Zoo. New vertical slices should use the intended shared foundations wherever they are already authoritative.
 
@@ -15,18 +15,17 @@ The project starts from a playable park loop, but it no longer treats "MVP" as p
 - **No direct ECS Lab dependency** — `ecs-lab` remains an experiment harness; reusable ECS functionality must first become an intentional shared foundation.
 - **No forced Maps dependency** — the current park is a game-space tile world, not a geographic MapLibre surface. Reuse `maps` only where a real shared spatial contract applies.
 
-The current CSS pseudo-3D renderer is transitional. The architecture convergence plan replaces product-local camera/projection infrastructure with shared `3d-lab` contracts before deepening the 3D presentation further. See [`docs/architecture.md`](docs/architecture.md).
+The park renders as one shared `3d-lab` Three.js canvas. Camera framing, orbit/tilt/zoom limits, and ground picking live in `zoo-scene` over `3d-lab` camera and projective math; there is no DOM or CSS game-object layer. See [`docs/architecture.md`](docs/architecture.md).
 
 The simulation core owns the game rules. Presentation code does not duplicate placement, economy, camera projection, or physics logic.
 
 ## Run
 
-Requirements: Rust, `wasm-pack`, Bun 1.4.
+Requirements: stable Rust with the `wasm32-unknown-unknown` target, `wasm-pack`, and Bun 1.4.0 (declared in `apps/web/package.json`).
 
 ```sh
-cargo test
+make install
 cd apps/web
-bun install
 bun run dev
 ```
 
@@ -36,7 +35,15 @@ bun run dev
 2. Place a habitat next to a path.
 3. Inspect the habitat.
 4. Adopt animals.
-5. Rotate or tilt the current presentation while the shared 3D camera foundation is integrated.
+5. Explore the park: drag to pan, right-drag (or two-finger twist / two-finger vertical drag) to rotate and tilt, scroll or pinch to zoom. Keyboard: WASD/arrows pan, Q/E rotate, R/F tilt, +/− zoom, Home resets.
 6. Run the clock and watch guests, staff, animals, and operations react.
 
 The product roadmap starts at GitHub issue #20. Architecture convergence is part of the roadmap rather than deferred generalized-engine work.
+
+## Development checks
+
+Run `make verify` for the repository gate. It installs the committed Bun graph in frozen mode, builds both WASM adapters once, and checks Rust formatting, strict Clippy, workspace tests, web formatting, type-aware linting, strict TypeScript, and the production build. Cargo commands use the committed lockfile.
+
+Use `make format` to write formatting changes; verification never fixes source or rewrites lockfiles. `make format-check`, `make lint`, and `make typecheck` provide focused checks; typechecking requires `make wasm` after a clean checkout. Shared coding-tooling uses the same Bun package scripts through `.coding-tooling.json`.
+
+Engineering policy is resolved from the live shared `coding-agent-conventions` authority as described in `AGENTS.md`. Zoo retains its game and foundation authority boundaries. Generated bindings, dependencies, builds, browser captures, and agent run state remain ignored local output.

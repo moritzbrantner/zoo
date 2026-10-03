@@ -24,10 +24,10 @@ The browser presentation grew from an MVP into a local pseudo-3D engine: CSS per
 The migration therefore proceeds upstream-first:
 
 1. The missing orthographic/isometric-capable camera primitive was added to `3d-lab` rather than extending Zoo's CSS camera math.
-2. `zoo-scene` is the thin Zoo-owned adapter over one exact pinned `3d-lab` revision. It owns park framing, orbit steps, pitch bounds, and zoom policy while returning shared camera matrices.
+2. `zoo-scene` is the thin Zoo-owned adapter over one exact pinned `3d-lab` revision. It owns park framing, free orbit, pitch bounds, zoom limits, pan clamping, and the mapping from a picked ground point to the park grid, while returning shared `three-d-camera` perspective matrices and unprojecting through shared `three-d-projective` inversion.
 3. `3d-lab` now also owns the reusable concrete Three.js renderer. Zoo consumes it at the same exact accepted revision; React does not instantiate its own generic renderer.
-4. The first migration slice renders terrain through the shared renderer, removes the Zoo-local CSS camera implementation, and keeps existing DOM tiles temporarily as transparent interaction targets. Those targets are reprojected with `3d-lab`'s shared world-to-screen helper, so rotation does not require local matrix math.
-5. Remaining pseudo-3D objects migrate incrementally into shared scene nodes; the transitional DOM interaction layer is removed only after renderer picking/interaction reaches parity.
+4. The park view is one shared-renderer canvas. Terrain, fences, buildings, concessions, habitat furnishings, animals, guests, staff, litter, maintenance markers, and interaction overlays (hover, placement ghosts, selection) are all shared scene nodes composed by `apps/web/src/park-scene.ts`. The earlier transitional DOM tile/object layer, its MutationObserver reprojection, and the CSS pseudo-3D stylesheets have been removed. Static nodes (terrain, fences, buildings, and the surrounding scenery) are submitted as shared-renderer instance batches, grouped per unit primitive and 16-tile ground cell by `apps/web/src/scene-batching.ts`, so the park costs roughly a hundred draw calls instead of one per part; animated actors remain individual nodes.
+5. Picking is renderer-side: ground/tile picks come from `zoo-scene` (shared inverse view-projection intersected with the park ground plane), and actor/building picks compare pointer position against anchors projected with the shared `createWorldProjector` helper. Final command validity remains a `zoo-core` decision.
 6. Durable 3D assets move through `asset-tooling`; renderer-independent mesh/material/LOD semantics remain in `3d-lab`.
 7. Path construction, habitat ownership, guest choices, welfare, economy, staff tasks, and other game-specific rules remain in `zoo-core`.
 8. `physics-engine` is added only for interactions whose gameplay semantics require physical collision/motion truth. Tile occupancy and ordinary park pathfinding do not become physics problems merely because the game is rendered in 3D.
@@ -51,7 +51,7 @@ A local substitute is acceptable only when all of the following hold:
 
 Camera orbit, zoom gestures, framing targets, and persistence are Zoo interaction policy. Projection/view math and concrete rendering are shared 3D infrastructure. Selection and placement intent may originate in the presentation layer, but final validity remains a `zoo-core` decision.
 
-The current DOM tile layer is explicitly transitional: while terrain has moved to the shared renderer, transparent DOM controls remain for the already-proven mouse/touch placement commands. Their positions are derived through the shared projection helper rather than a second camera implementation. They should disappear once shared renderer picking can preserve equivalent desktop and phone-sized interaction.
+The park has no DOM interaction layer. `apps/web/src/ParkView.tsx` interprets mouse, wheel, keyboard, and touch gestures (one-finger pan, pinch zoom, twist rotate, two-finger vertical tilt) into `zoo-scene` camera calls and tile/actor picks, and translates tool gestures into the same `zoo-core` commands on desktop and phone.
 
 Mobile and desktop inputs must converge on the same commands. Touch-specific gesture handling is presentation state and must not create a second rules path.
 

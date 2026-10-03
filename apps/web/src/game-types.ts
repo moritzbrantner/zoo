@@ -1,0 +1,233 @@
+// Shapes of the zoo-core WASM snapshot and command results consumed by the web adapter.
+
+export type Tool = "select" | "path" | "habitat" | "food" | "drink" | "bulldoze"
+export type Speed = 0 | 1 | 2 | 4
+export type SpeciesKey = "capybara" | "flamingo" | "zebra" | "giraffe" | "elephant" | "penguin"
+export type ConcessionKind = "food" | "drink"
+export type FenceSide = "north" | "east" | "south" | "west"
+
+export type Point = {
+  x: number
+  y: number
+}
+
+export type FenceSegment = Point & {
+  side: FenceSide
+}
+
+export type Tile = Point & {
+  kind: "grass" | "path" | "entrance" | "habitat" | "concession"
+  habitat_id: number | null
+  concession_id: number | null
+}
+
+export type Habitat = Point & {
+  id: number
+  width: number
+  height: number
+  orientation: "horizontal" | "vertical"
+  footprint_area: number
+  fence_length: number
+  fence_segments: FenceSegment[]
+  species: SpeciesKey | null
+  animals: number
+  capacity: number
+  welfare: number
+  welfare_target: number
+  social_score: number
+  space_score: number
+  welfare_status: string
+  food: number
+  water: number
+  cleanliness: number
+  has_shelter: boolean
+  keeper_id: number | null
+  next_feed_delivery_in_minutes: number | null
+  feeding_status: string
+  care_status: string
+  appeal: number
+}
+
+export type Animal = Point & {
+  id: number
+  habitat_id: number
+  species: SpeciesKey
+  slot: number
+  animation_phase: number
+}
+
+export type Concession = Point & {
+  id: number
+  kind: ConcessionKind
+  build_cost_cents: number
+  price_cents: number
+  sales_today: number
+  total_sales: number
+  total_revenue_cents: number
+  condition: number
+  service_state: "healthy" | "degraded" | "failed"
+  maintenance_status: string
+}
+
+export type Keeper = {
+  id: number
+  assigned_habitat_id: number | null
+  deliveries_completed: number
+  status: string
+}
+
+export type Janitor = Point & {
+  id: number
+  target_litter_id: number | null
+  tasks_completed: number
+  status: string
+}
+
+export type LitterTask = Point & {
+  id: number
+  age_minutes: number
+  assigned_janitor_id: number | null
+  status: string
+}
+
+export type Mechanic = Point & {
+  id: number
+  target_maintenance_id: number | null
+  repairs_completed: number
+  status: string
+}
+
+export type MaintenanceTask = Point & {
+  id: number
+  concession_id: number
+  age_minutes: number
+  assigned_mechanic_id: number | null
+  status: string
+}
+
+export type AnimalCareDepot = Point & {
+  feed_crates: number
+  feed_batch_crates: number
+  feed_batch_cost_cents: number
+  keeper_hire_cost_cents: number
+  keeper_hourly_wage_cents: number
+  janitor_hire_cost_cents: number
+  janitor_hourly_wage_cents: number
+  mechanic_hire_cost_cents: number
+  mechanic_hourly_wage_cents: number
+  maintenance_repair_cost_cents: number
+  keepers: Keeper[]
+  janitors: Janitor[]
+  mechanics: Mechanic[]
+}
+
+export type Guest = Point & {
+  id: number
+  happiness: number
+  energy: number
+  hunger: number
+  thirst: number
+  value_perception: number
+  target_habitat: number
+  habitats_viewed: number
+  state: "arriving" | "walking_to_habitat" | "viewing" | "walking_to_exit"
+  thought: string
+}
+
+export type SpeciesOffer = {
+  key: SpeciesKey
+  label: string
+  purchase_cost_cents: number
+  appeal: number
+  minimum_social_group: number
+  space_per_animal: number
+}
+
+export type FinanceBreakdown = {
+  admissions_income_cents: number
+  concession_income_cents: number
+  construction_expense_cents: number
+  animal_purchase_expense_cents: number
+  habitat_care_expense_cents: number
+  animal_feed_expense_cents: number
+  keeper_hiring_expense_cents: number
+  janitor_hiring_expense_cents: number
+  mechanic_hiring_expense_cents: number
+  maintenance_repair_expense_cents: number
+  park_upkeep_expense_cents: number
+  keeper_wages_expense_cents: number
+  janitor_wages_expense_cents: number
+  mechanic_wages_expense_cents: number
+}
+
+export type FinanceDay = {
+  day: number
+  income_cents: number
+  expenses_cents: number
+  profit_cents: number
+  breakdown: FinanceBreakdown
+}
+
+export type Snapshot = {
+  width: number
+  height: number
+  day: number
+  minute_of_day: number
+  cash_cents: number
+  rating: number
+  guest_count: number
+  entrance: {
+    x: number
+    y: number
+    arrivals_total: number
+  }
+  tiles: Tile[]
+  habitats: Habitat[]
+  concessions: Concession[]
+  animal_care_depot: AnimalCareDepot
+  animals: Animal[]
+  guests: Guest[]
+  litter: LitterTask[]
+  maintenance: MaintenanceTask[]
+  operations: {
+    cleanliness: number
+    litter_backlog: number
+    oldest_litter_age_minutes: number
+    maintenance_backlog: number
+    oldest_maintenance_age_minutes: number
+    degraded_concessions: number
+    failed_concessions: number
+  }
+  species_catalog: SpeciesOffer[]
+  complaints: {
+    hungry: number
+    thirsty: number
+    tired: number
+    poor_value: number
+  }
+  finance: {
+    admission_price_cents: number
+    current_day: FinanceDay
+    previous_day: FinanceDay | null
+    profit_change_cents: number | null
+    profit_trend: "up" | "down" | "flat" | "no_previous_day"
+  }
+}
+
+export type ActionResult = {
+  ok: boolean
+  message: string
+}
+
+export type PlacementEvaluation = {
+  ok: boolean
+  message: string
+  x: number
+  y: number
+  width: number
+  height: number
+  orientation: "horizontal" | "vertical"
+  cost_cents: number
+  occupied_tiles: Point[]
+  fence_segments: FenceSegment[]
+}

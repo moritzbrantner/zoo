@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 1,
+  "artDirection": "cheerful low-poly isometric",
+  "units": "meters; +Y up; one tile is one meter",
+  "assets": [
+    {
+      "id": "entrance",
+      "stage": "development",
+      "path": "assets/3d/development/entrance/entrance.gltf",
+      "triangles": 1156,
+      "triangleBudget": 2500,
+      "materials": 7,
+      "animations": [],
+      "production": "assets/3d/production/entrance.glb"
+    },
+    {
+      "id": "animal_care_depot",
+      "stage": "development",
+      "path": "assets/3d/development/animal_care_depot/animal_care_depot.gltf",
+      "triangles": 1140,
+      "triangleBudget": 2000,
+      "materials": 7,
+      "animations": [],
+      "production": "assets/3d/production/animal_care_depot.glb"
+    },
+    {
+      "id": "food_stand",
+      "stage": "development",
+      "path": "assets/3d/development/food_stand/food_stand.gltf",
+      "triangles": 1240,
+      "triangleBudget": 2500,
+      "materials": 6,
+      "animations": [],
+      "production": "assets/3d/production/food_stand.glb"
+    },
+    {
+      "id": "drink_stand",
+      "stage": "development",
+      "path": "assets/3d/development/drink_stand/drink_stand.gltf",
+      "triangles": 1156,
+      "triangleBudget": 2500,
+      "materials": 6,
+      "animations": [],
+      "production": "assets/3d/production/drink_stand.glb"
+    },
+    {
+      "id": "fence_segment",
+      "stage": "development",
+      "path": "assets/3d/development/fence_segment/fence_segment.gltf",
+      "triangles": 456,
+      "triangleBudget": 1000,
+      "materials": 3,
+      "animations": [],
+      "production": "assets/3d/production/fence_segment.glb"
+    },
+    {
+      "id": "grass_tile",
+      "stage": "development",
+      "path": "assets/3d/development/grass_tile/grass_tile.gltf",
+      "triangles": 108,
+      "triangleBudget": 400,
+      "materials": 1,
+      "animations": [],
+      "production": "assets/3d/production/grass_tile.glb"
+    },
+    {
+      "id": "path_tile",
+      "stage": "development",
+      "path": "assets/3d/development/path_tile/path_tile.gltf",
+      "triangles": 108,
+      "triangleBudget": 400,
+      "materials": 1,
+      "animations": [],
+      "production": "assets/3d/production/path_tile.glb"
+    },
+    {
+      "id": "habitat_marker",
+      "stage": "development",
+      "path": "assets/3d/development/habitat_marker/habitat_marker.gltf",
+      "triangles": 216,
+      "triangleBudget": 500,
+      "materials": 2,
+      "animations": [],
+      "production": "assets/3d/production/habitat_marker.glb"
+    },
+    {
+      "id": "feed_crate",
+      "stage": "development",
+      "path": "assets/3d/development/feed_crate/feed_crate.gltf",
+      "triangles": 756,
+      "triangleBudget": 1000,
+      "materials": 3,
+      "animations": [],
+      "production": "assets/3d/production/feed_crate.glb"
+    },
+    {
+      "id": "litter",
+      "stage": "development",
+      "path": "assets/3d/development/litter/litter.gltf",
+      "triangles": 152,
+      "triangleBudget": 500,
+      "materials": 2,
+      "animations": [],
+      "production": "assets/3d/production/litter.glb"
+    },
+    {
+      "id": "capybara",
+      "stage": "development",
+      "path": "assets/3d/development/capybara/capybara.gltf",
+      "triangles": 1832,
+      "triangleBudget": 3000,
+      "materials": 2,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/capybara.glb"
+    },
+    {
+      "id": "flamingo",
+      "stage": "development",
+      "path": "assets/3d/development/flamingo/flamingo.gltf",
+      "triangles": 1136,
+      "triangleBudget": 2500,
+      "materials": 2,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/flamingo.glb"
+    },
+    {
+      "id": "zebra",
+      "stage": "development",
+      "path": "assets/3d/development/zebra/zebra.gltf",
+      "triangles": 2260,
+      "triangleBudget": 3500,
+      "materials": 2,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/zebra.glb"
+    },
+    {
+      "id": "giraffe",
+      "stage": "development",
+      "path": "assets/3d/development/giraffe/giraffe.gltf",
+      "triangles": 2432,
+      "triangleBudget": 3500,
+      "materials": 3,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/giraffe.glb"
+    },
+    {
+      "id": "elephant",
+      "stage": "development",
+      "path": "assets/3d/development/elephant/elephant.gltf",
+      "triangles": 1752,
+      "triangleBudget": 3500,
+      "materials": 3,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/elephant.glb"
+    },
+    {
+      "id": "penguin",
+      "stage": "development",
+      "path": "assets/3d/development/penguin/penguin.gltf",
+      "triangles": 1292,
+      "triangleBudget": 2500,
+      "materials": 4,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/penguin.glb"
+    },
+    {
+      "id": "guest",
+      "stage": "development",
+      "path": "assets/3d/development/guest/guest.gltf",
+      "triangles": 1200,
+      "triangleBudget": 2000,
+      "materials": 5,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/guest.glb"
+    },
+    {
+      "id": "keeper",
+      "stage": "development",
+      "path": "assets/3d/development/keeper/keeper.gltf",
+      "triangles": 1200,
+      "triangleBudget": 2000,
+      "materials": 5,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/keeper.glb"
+    },
+    {
+      "id": "janitor",
+      "stage": "development",
+      "path": "assets/3d/development/janitor/janitor.gltf",
+      "triangles": 1260,
+      "triangleBudget": 2000,
+      "materials": 6,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/janitor.glb"
+    },
+    {
+      "id": "mechanic",
+      "stage": "development",
+      "path": "assets/3d/development/mechanic/mechanic.gltf",
+      "triangles": 1308,
+      "triangleBudget": 2000,
+      "materials": 5,
+      "animations": [
+        "idle",
+        "walk"
+      ],
+      "production": "assets/3d/production/mechanic.glb"
+    }
+  ]
+}

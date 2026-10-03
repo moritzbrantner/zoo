@@ -44,6 +44,14 @@ const MAINTENANCE_FAILURE_THRESHOLD: u32 = 20;
 const FEED_DELIVERY_INTERVAL_MINUTES: u32 = 60;
 const FEED_DELIVERY_RETRY_MINUTES: u32 = 15;
 const FEED_DELIVERY_THRESHOLD: u32 = 90;
+const MAX_GUEST_HABITATS_PER_VISIT: usize = 3;
+const MIN_ENGAGING_HABITAT_WELFARE: u32 = 40;
+const GUEST_CONTINUE_MIN_HAPPINESS: u32 = 45;
+const GUEST_CONTINUE_MIN_ENERGY: u32 = 35;
+const GUEST_CONTINUE_MAX_HUNGER: u32 = 75;
+const GUEST_CONTINUE_MAX_THIRST: u32 = 75;
+const GUEST_CONTINUE_MIN_VALUE: u32 = 35;
+const GUEST_CLEANLINESS_CONCERN_THRESHOLD: u32 = 70;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -593,22 +601,54 @@ struct Guest {
     arrival_steps: u8,
     bought_food: bool,
     bought_drink: bool,
+    visited_habitats: Vec<u32>,
+    cleanliness_concern: bool,
 }
 
 impl Guest {
+    fn wants_another_habitat(&self) -> bool {
+        self.visited_habitats.len() < MAX_GUEST_HABITATS_PER_VISIT
+            && self.happiness >= GUEST_CONTINUE_MIN_HAPPINESS
+            && self.energy >= GUEST_CONTINUE_MIN_ENERGY
+            && self.hunger <= GUEST_CONTINUE_MAX_HUNGER
+            && self.thirst <= GUEST_CONTINUE_MAX_THIRST
+            && self.value_perception >= GUEST_CONTINUE_MIN_VALUE
+    }
+
     fn thought(&self) -> &'static str {
+        if self.route.is_empty()
+            && matches!(
+                self.state,
+                GuestState::Arriving | GuestState::WalkingToHabitat
+            )
+        {
+            return "The path to the animals is blocked.";
+        }
+        if (self.route.is_empty() && self.state == GuestState::WalkingToExit)
+            || (self.state == GuestState::Viewing && self.viewing_minutes == 0)
+        {
+            return "The path to the exit is blocked.";
+        }
         if self.thirst >= 60 {
             "I'm getting thirsty."
         } else if self.hunger >= 60 {
             "I could use something to eat."
         } else if self.energy <= 35 {
             "My feet are getting tired."
+        } else if self.cleanliness_concern {
+            "The paths need cleaning."
         } else if self.value_perception <= 40 {
             "I expected a little more for the price."
         } else {
             match self.state {
                 GuestState::Arriving => "I'm entering the zoo.",
+                GuestState::WalkingToHabitat if !self.visited_habitats.is_empty() => {
+                    "I'd like to see another habitat."
+                }
                 GuestState::WalkingToHabitat => "I want to see the animals.",
+                GuestState::Viewing if self.visited_habitats.len() > 1 => {
+                    "There is a lot to see here."
+                }
                 GuestState::Viewing => "The animals are wonderful.",
                 GuestState::WalkingToExit => "I'm ready to head home.",
             }
@@ -653,6 +693,8 @@ impl PlacementEvaluation {
         }
     }
 
+    /// A rejection before the candidate is known to be a bounded rectangle inside the park, so
+    /// no geometry is materialized for it.
     fn invalid(message: impl Into<String>, x: u32, y: u32, width: u32, height: u32) -> Self {
         Self {
             ok: false,
@@ -665,6 +707,25 @@ impl PlacementEvaluation {
             cost_cents: habitat_cost(width, height),
             occupied_tiles: Vec::new(),
             fence_segments: Vec::new(),
+        }
+    }
+
+    /// A rejection of an in-park, area-bounded candidate. It keeps the candidate footprint and
+    /// fence so the preview can show where the rejected loop would have gone.
+    fn rejected(
+        message: impl Into<String>,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        occupied_tiles: Vec<Position>,
+    ) -> Self {
+        Self {
+            ok: false,
+            message: message.into(),
+            fence_segments: fence_segments(x, y, width, height),
+            occupied_tiles,
+            ..Self::invalid("", x, y, width, height)
         }
     }
 }
@@ -736,7 +797,6 @@ struct GameState {
     feed_crates: u32,
     day: u32,
     minute_of_day: u32,
-    rating: u32,
     next_habitat_id: u32,
     next_concession_id: u32,
     next_keeper_id: u32,
@@ -770,7 +830,6 @@ impl Default for GameState {
             feed_crates: 0,
             day: 1,
             minute_of_day: 9 * 60,
-            rating: 400,
             next_habitat_id: 1,
             next_concession_id: 1,
             next_keeper_id: 1,
@@ -843,6 +902,7 @@ impl GameState {
             Some(TileKind::Grass) => match self.spend(PATH_COST, ExpenseCategory::Construction) {
                 Ok(()) => {
                     self.set_tile(x, y, TileKind::Path);
+                    self.refresh_guest_routes();
                     ActionResult::ok("Path built")
                 }
                 Err(message) => ActionResult::error(message),
@@ -966,12 +1026,13 @@ impl GameState {
             .iter()
             .any(|tile| self.tile(tile.x, tile.y) != Some(TileKind::Grass))
         {
-            return PlacementEvaluation::invalid(
+            return PlacementEvaluation::rejected(
                 "The enclosed area must be clear grass",
                 x,
                 y,
                 width,
                 height,
+                occupied_tiles,
             );
         }
 
@@ -984,18 +1045,26 @@ impl GameState {
             })
         });
         if !touches_path {
-            return PlacementEvaluation::invalid(
+            return PlacementEvaluation::rejected(
                 "The fence needs at least one path along its outside edge",
                 x,
                 y,
                 width,
                 height,
+                occupied_tiles,
             );
         }
 
         let cost = habitat_cost(width, height);
         if self.cash_cents < cost {
-            return PlacementEvaluation::invalid("Not enough cash", x, y, width, height);
+            return PlacementEvaluation::rejected(
+                "Not enough cash",
+                x,
+                y,
+                width,
+                height,
+                occupied_tiles,
+            );
         }
 
         PlacementEvaluation::valid(
@@ -1088,6 +1157,9 @@ impl GameState {
                 ActionResult::error("The park entrance cannot be demolished")
             }
             Some(TileKind::Path) => {
+                if self.guests.iter().any(|guest| guest.x == x && guest.y == y) {
+                    return ActionResult::error("A guest is standing on that path tile");
+                }
                 if self
                     .janitors
                     .iter()
@@ -1118,6 +1190,7 @@ impl GameState {
                     }
                 }
                 self.set_tile(x, y, TileKind::Grass);
+                self.refresh_guest_routes();
                 self.release_unreachable_mechanic_assignments();
                 ActionResult::ok("Path removed")
             }
@@ -1193,7 +1266,6 @@ impl GameState {
         let habitat = &mut self.habitats[index];
         habitat.species = Some(species);
         habitat.animals += 1;
-        self.recalculate_rating();
         ActionResult::ok(format!(
             "{} adopted into habitat #{habitat_id}",
             species.label()
@@ -1231,18 +1303,24 @@ impl GameState {
     }
 
     fn depot_staff_spawn(&self) -> Option<Position> {
-        self.neighbors(Position {
+        let access_tiles = self.neighbors(Position {
             x: ANIMAL_CARE_DEPOT_X,
             y: ANIMAL_CARE_DEPOT_Y,
-        })
-        .into_iter()
-        .find(|position| self.is_walkable(*position))
+        });
+        self.path_to_any(
+            Position {
+                x: ENTRANCE_X,
+                y: ENTRANCE_Y,
+            },
+            &access_tiles,
+        )
+        .and_then(|route| route.last().copied())
     }
 
     fn hire_janitor(&mut self) -> ActionResult {
         let Some(spawn) = self.depot_staff_spawn() else {
             return ActionResult::error(
-                "Connect the central operations depot to a path before hiring janitors",
+                "Connect the central operations depot to the park entrance before hiring janitors",
             );
         };
         if let Err(message) = self.spend(JANITOR_HIRE_COST, ExpenseCategory::JanitorHiring) {
@@ -1265,7 +1343,7 @@ impl GameState {
     fn hire_mechanic(&mut self) -> ActionResult {
         let Some(spawn) = self.depot_staff_spawn() else {
             return ActionResult::error(
-                "Connect the central operations depot to a path before hiring mechanics",
+                "Connect the central operations depot to the park entrance before hiring mechanics",
             );
         };
         if let Err(message) = self.spend(MECHANIC_HIRE_COST, ExpenseCategory::MechanicHiring) {
@@ -1460,7 +1538,6 @@ impl GameState {
             }
 
             self.advance_viewing();
-            self.recalculate_rating();
         }
     }
 
@@ -1530,25 +1607,26 @@ impl GameState {
     }
 
     fn try_spawn_guest(&mut self) {
-        let candidates: Vec<(u32, Position)> = self
+        let start = Position {
+            x: ENTRANCE_X,
+            y: ENTRANCE_Y,
+        };
+        let mut candidates: Vec<(u32, Vec<Position>)> = self
             .habitats
             .iter()
             .filter(|habitat| habitat.animals > 0)
-            .filter_map(|habitat| self.viewing_tile(habitat).map(|tile| (habitat.id, tile)))
+            .filter_map(|habitat| {
+                self.viewing_route(habitat, start)
+                    .map(|route| (habitat.id, route))
+            })
             .collect();
         if candidates.is_empty() {
             return;
         }
 
+        // Choose only among reachable attractions and reuse the selected search result.
         let choice = (self.next_guest_id as usize) % candidates.len();
-        let (target_habitat, target_tile) = candidates[choice];
-        let start = Position {
-            x: ENTRANCE_X,
-            y: ENTRANCE_Y,
-        };
-        let Some(route) = self.path_between(start, target_tile) else {
-            return;
-        };
+        let (target_habitat, route) = candidates.swap_remove(choice);
 
         self.earn(ADMISSION_PRICE, IncomeCategory::Admissions);
         self.guests.push(Guest {
@@ -1569,13 +1647,23 @@ impl GameState {
             arrival_steps: 2,
             bought_food: false,
             bought_drink: false,
+            visited_habitats: Vec::new(),
+            cleanliness_concern: false,
         });
         self.next_guest_id += 1;
     }
 
     fn advance_guest_needs(&mut self) {
+        let park_cleanliness = self.park_cleanliness();
+        let cleanliness_concern = park_cleanliness < GUEST_CLEANLINESS_CONCERN_THRESHOLD;
+        let cleanliness_penalty = GUEST_CLEANLINESS_CONCERN_THRESHOLD
+            .saturating_sub(park_cleanliness)
+            .div_ceil(20)
+            .max(1);
+
         for guest in &mut self.guests {
             guest.minutes_in_park += 1;
+            guest.cleanliness_concern = cleanliness_concern;
             if guest.minutes_in_park % 4 == 0 {
                 guest.energy = guest.energy.saturating_sub(1);
             }
@@ -1587,6 +1675,10 @@ impl GameState {
             }
             if guest.minutes_in_park % 10 == 0 {
                 guest.value_perception = guest.value_perception.saturating_sub(1);
+                if cleanliness_concern {
+                    guest.happiness = guest.happiness.saturating_sub(cleanliness_penalty);
+                    guest.value_perception = guest.value_perception.saturating_sub(1);
+                }
             }
             if guest.minutes_in_park % 5 == 0
                 && (guest.hunger >= 60 || guest.thirst >= 60 || guest.energy <= 35)
@@ -1603,6 +1695,79 @@ impl GameState {
             .map_or(0, |habitat| {
                 4 + habitat.welfare / 20 + habitat.appeal().min(300) / 30
             })
+    }
+
+    fn next_engaging_habitat(
+        &self,
+        guest: &Guest,
+        start: Position,
+    ) -> Option<(u32, Vec<Position>)> {
+        let mut candidates: Vec<&Habitat> = self
+            .habitats
+            .iter()
+            .filter(|habitat| habitat.animals > 0)
+            .filter(|habitat| habitat.welfare >= MIN_ENGAGING_HABITAT_WELFARE)
+            .filter(|habitat| !guest.visited_habitats.contains(&habitat.id))
+            .collect();
+
+        candidates.sort_by(|left, right| {
+            let left_score = left.appeal().saturating_add(left.welfare.saturating_mul(2));
+            let right_score = right
+                .appeal()
+                .saturating_add(right.welfare.saturating_mul(2));
+            right_score
+                .cmp(&left_score)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+
+        candidates.into_iter().find_map(|habitat| {
+            self.viewing_route(habitat, start)
+                .map(|route| (habitat.id, route))
+        })
+    }
+
+    fn refresh_guest_routes(&mut self) {
+        // Topology edits, not simulation ticks, retry blocked routes. Preserve valid
+        // cached routes so unrelated construction does not restart guest journeys.
+        for index in 0..self.guests.len() {
+            let guest = &self.guests[index];
+            if guest.state == GuestState::Viewing {
+                continue;
+            }
+            let still_walkable = guest
+                .route
+                .get(guest.route_index..)
+                .is_some_and(|remaining| {
+                    !remaining.is_empty()
+                        && remaining.iter().all(|position| self.is_walkable(*position))
+                });
+            if still_walkable {
+                continue;
+            }
+            let start = Position {
+                x: guest.x,
+                y: guest.y,
+            };
+            let route = match guest.state {
+                GuestState::Arriving | GuestState::WalkingToHabitat => self
+                    .habitats
+                    .iter()
+                    .find(|habitat| habitat.id == guest.target_habitat)
+                    .and_then(|habitat| self.viewing_route(habitat, start)),
+                GuestState::WalkingToExit => self.path_between(
+                    start,
+                    Position {
+                        x: ENTRANCE_X,
+                        y: ENTRANCE_Y,
+                    },
+                ),
+                GuestState::Viewing => unreachable!("viewing guests have no active walking route"),
+            };
+            let guest = &mut self.guests[index];
+            // An empty route means waiting in place, never having arrived.
+            guest.route = route.unwrap_or_default();
+            guest.route_index = 0;
+        }
     }
 
     fn advance_guest_movement(&mut self) {
@@ -1622,9 +1787,17 @@ impl GameState {
                 continue;
             }
 
+            if self.guests[index].route.is_empty() {
+                continue;
+            }
             let next_index = self.guests[index].route_index + 1;
             if next_index < self.guests[index].route.len() {
                 let position = self.guests[index].route[next_index];
+                if !self.is_walkable(position) {
+                    self.guests[index].route.clear();
+                    self.guests[index].route_index = 0;
+                    continue;
+                }
                 self.guests[index].route_index = next_index;
                 self.guests[index].x = position.x;
                 self.guests[index].y = position.y;
@@ -1636,8 +1809,11 @@ impl GameState {
                     let target_habitat = self.guests[index].target_habitat;
                     let experience_bonus = self.habitat_experience_bonus(target_habitat);
                     let guest = &mut self.guests[index];
+                    if !guest.visited_habitats.contains(&target_habitat) {
+                        guest.visited_habitats.push(target_habitat);
+                    }
                     guest.state = GuestState::Viewing;
-                    guest.viewing_minutes = 24;
+                    guest.viewing_minutes = 24 + (experience_bonus / 2).min(10);
                     guest.happiness = guest.happiness.saturating_add(experience_bonus).min(100);
                     guest.value_perception = guest
                         .value_perception
@@ -1753,12 +1929,12 @@ impl GameState {
     }
 
     fn advance_viewing(&mut self) {
-        let mut returning = Vec::new();
+        let mut decisions = Vec::new();
         for (index, guest) in self.guests.iter_mut().enumerate() {
             if matches!(guest.state, GuestState::Viewing) {
                 guest.viewing_minutes = guest.viewing_minutes.saturating_sub(1);
                 if guest.viewing_minutes == 0 {
-                    returning.push((
+                    decisions.push((
                         index,
                         Position {
                             x: guest.x,
@@ -1769,7 +1945,25 @@ impl GameState {
             }
         }
 
-        for (index, start) in returning {
+        for (index, start) in decisions {
+            let next_habitat = {
+                let guest = &self.guests[index];
+                if guest.wants_another_habitat() {
+                    self.next_engaging_habitat(guest, start)
+                } else {
+                    None
+                }
+            };
+
+            if let Some((habitat_id, route)) = next_habitat {
+                let guest = &mut self.guests[index];
+                guest.target_habitat = habitat_id;
+                guest.state = GuestState::WalkingToHabitat;
+                guest.route = route;
+                guest.route_index = 0;
+                continue;
+            }
+
             let exit = Position {
                 x: ENTRANCE_X,
                 y: ENTRANCE_Y,
@@ -2221,7 +2415,9 @@ impl GameState {
             .record_expense(ExpenseCategory::MechanicWages, mechanic_wages);
     }
 
-    fn recalculate_rating(&mut self) {
+    /// Park rating derived from the current state, so every command and tick reports a
+    /// self-consistent value without a separate refresh step.
+    fn rating(&self) -> u32 {
         let appeal: u32 = self.habitats.iter().map(Habitat::appeal).sum();
         let welfare = if self.habitats.iter().any(|habitat| habitat.animals > 0) {
             let total: u32 = self
@@ -2245,9 +2441,9 @@ impl GameState {
             self.guests.iter().map(|guest| guest.happiness).sum::<u32>() / self.guests.len() as u32
         };
         let cleanliness_penalty = (100_u32.saturating_sub(self.park_cleanliness())) * 2;
-        self.rating = (250 + appeal / 3 + welfare * 2 + guest_happiness)
+        (250 + appeal / 3 + welfare * 2 + guest_happiness)
             .saturating_sub(cleanliness_penalty)
-            .clamp(0, 999);
+            .clamp(0, 999)
     }
 
     fn neighbors(&self, position: Position) -> Vec<Position> {
@@ -2286,21 +2482,29 @@ impl GameState {
         )
     }
 
-    fn viewing_tile(&self, habitat: &Habitat) -> Option<Position> {
+    fn viewing_route(&self, habitat: &Habitat, start: Position) -> Option<Vec<Position>> {
+        let mut goals = Vec::new();
         for y in habitat.y..habitat.y + habitat.height {
             for x in habitat.x..habitat.x + habitat.width {
                 for neighbor in self.neighbors(Position { x, y }) {
-                    if self.is_walkable(neighbor) {
-                        return Some(neighbor);
+                    if self.is_walkable(neighbor) && !goals.contains(&neighbor) {
+                        goals.push(neighbor);
                     }
                 }
             }
         }
-        None
+        self.path_to_any(start, &goals)
     }
 
     fn path_between(&self, start: Position, goal: Position) -> Option<Vec<Position>> {
-        if !self.is_walkable(start) || !self.is_walkable(goal) {
+        if !self.is_walkable(goal) {
+            return None;
+        }
+        self.path_to_any(start, &[goal])
+    }
+
+    fn path_to_any(&self, start: Position, goals: &[Position]) -> Option<Vec<Position>> {
+        if !self.is_walkable(start) || goals.is_empty() {
             return None;
         }
 
@@ -2308,8 +2512,10 @@ impl GameState {
         let mut previous: HashMap<(u32, u32), Option<Position>> =
             HashMap::from([((start.x, start.y), None)]);
 
+        // One BFS considers all access points. Equal-length routes follow the
+        // existing neighbor order; randomized HashMap iteration is never used.
         while let Some(current) = queue.pop_front() {
-            if current == goal {
+            if goals.contains(&current) {
                 let mut route = vec![current];
                 let mut cursor = current;
                 while let Some(Some(parent)) = previous.get(&(cursor.x, cursor.y)) {
@@ -2759,6 +2965,7 @@ impl GameState {
                 thirst: guest.thirst,
                 value_perception: guest.value_perception,
                 target_habitat: guest.target_habitat,
+                habitats_viewed: guest.visited_habitats.len() as u32,
                 state: guest.state,
                 thought: guest.thought().to_owned(),
             })
@@ -2770,7 +2977,7 @@ impl GameState {
             day: self.day,
             minute_of_day: self.minute_of_day,
             cash_cents: self.cash_cents,
-            rating: self.rating,
+            rating: self.rating(),
             guest_count: self.guests.len() as u32,
             entrance: EntranceView {
                 x: ENTRANCE_X,
@@ -2994,6 +3201,7 @@ struct GuestView {
     thirst: u32,
     value_perception: u32,
     target_habitat: u32,
+    habitats_viewed: u32,
     state: GuestState,
     thought: String,
 }
@@ -3302,6 +3510,63 @@ mod tests {
     }
 
     #[test]
+    fn rejected_in_park_candidates_keep_their_preview_geometry() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat_rect(3, 8, 6, 10).ok);
+
+        let overlap = state.evaluate_habitat_rect(4, 9, 8, 12);
+        let disconnected = state.evaluate_habitat_rect(10, 1, 13, 4);
+        state.cash_cents = 0;
+        let unaffordable = state.evaluate_habitat_rect(3, 3, 5, 6);
+
+        for (evaluation, message) in [
+            (&overlap, "The enclosed area must be clear grass"),
+            (
+                &disconnected,
+                "The fence needs at least one path along its outside edge",
+            ),
+            (&unaffordable, "Not enough cash"),
+        ] {
+            assert!(!evaluation.ok);
+            assert_eq!(evaluation.message, message);
+            let (width, height) = (evaluation.width, evaluation.height);
+            assert_eq!(
+                evaluation.occupied_tiles.len(),
+                (width * height) as usize,
+                "{message}"
+            );
+            assert_eq!(
+                evaluation.fence_segments,
+                fence_segments(evaluation.x, evaluation.y, width, height),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejected_unbounded_candidates_materialize_no_geometry() {
+        let state = GameState::default();
+        for evaluation in [
+            state.evaluate_habitat_rect(3, 8, 4, 9),
+            state.evaluate_habitat_rect(0, 0, u32::MAX, u32::MAX),
+            state.evaluate_habitat_rect(17, 10, 21, 12),
+        ] {
+            assert!(!evaluation.ok);
+            assert!(evaluation.occupied_tiles.is_empty());
+            assert!(evaluation.fence_segments.is_empty());
+        }
+    }
+
+    #[test]
+    fn releasing_a_rejected_candidate_changes_nothing() {
+        let mut state = GameState::default();
+        let before = serde_json::to_string(&state.snapshot()).expect("snapshot serializes");
+        assert!(!state.place_habitat_rect(3, 5, 5, 8).ok);
+        let after = serde_json::to_string(&state.snapshot()).expect("snapshot serializes");
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn legacy_habitat_api_remains_compatible() {
         let mut state = GameState::default();
         let preview = state.evaluate_habitat(3, 8, HabitatOrientation::Horizontal);
@@ -3398,6 +3663,106 @@ mod tests {
     }
 
     #[test]
+    fn engaged_guests_continue_to_distinct_reachable_habitats() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat_rect(5, 5, 8, 7).ok);
+        let first_id = state.habitats[0].id;
+        staff_habitat(&mut state, first_id);
+        assert!(state.adopt(first_id, "capybara").ok);
+
+        assert!(state.place_path(10, ENTRANCE_Y).ok);
+        assert!(state.place_habitat_rect(11, 5, 14, 7).ok);
+        let second_id = state.habitats[1].id;
+        staff_habitat(&mut state, second_id);
+        assert!(state.adopt(second_id, "giraffe").ok);
+        for x in 4..=10 {
+            assert!(state.place_path(x, ENTRANCE_Y + 1).ok);
+        }
+
+        let mut observed_two_habitats = false;
+        for _ in 0..180 {
+            state.tick(1);
+            if let Some(guest) = state.guests.iter().find(|guest| guest.id == 1)
+                && guest.visited_habitats.len() >= 2
+            {
+                assert_ne!(guest.visited_habitats[0], guest.visited_habitats[1]);
+                observed_two_habitats = true;
+                break;
+            }
+        }
+
+        assert!(observed_two_habitats);
+    }
+
+    #[test]
+    fn dirty_paths_reduce_guest_engagement_without_changing_routing() {
+        let mut clean = GameState::default();
+        assert!(clean.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = clean.habitats[0].id;
+        staff_habitat(&mut clean, habitat_id);
+        assert!(clean.adopt(habitat_id, "capybara").ok);
+        clean.tick(24);
+
+        let mut dirty = clean.clone();
+        for x in 1..=3 {
+            assert!(dirty.add_litter(Position { x, y: ENTRANCE_Y }));
+        }
+        assert!(dirty.park_cleanliness() < GUEST_CLEANLINESS_CONCERN_THRESHOLD);
+
+        clean.tick(10);
+        dirty.tick(10);
+
+        let clean_guest = clean.guests.iter().find(|guest| guest.id == 1).unwrap();
+        let dirty_guest = dirty.guests.iter().find(|guest| guest.id == 1).unwrap();
+        assert!(dirty_guest.cleanliness_concern);
+        assert!(dirty_guest.happiness < clean_guest.happiness);
+        assert!(dirty_guest.value_perception < clean_guest.value_perception);
+        assert_eq!(
+            (dirty_guest.x, dirty_guest.y),
+            (clean_guest.x, clean_guest.y)
+        );
+    }
+
+    #[test]
+    fn severe_needs_end_a_visit_before_another_reachable_habitat() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat_rect(5, 5, 8, 7).ok);
+        let first_id = state.habitats[0].id;
+        staff_habitat(&mut state, first_id);
+        assert!(state.adopt(first_id, "capybara").ok);
+
+        assert!(state.place_path(10, ENTRANCE_Y).ok);
+        assert!(state.place_habitat_rect(11, 5, 14, 7).ok);
+        let second_id = state.habitats[1].id;
+        staff_habitat(&mut state, second_id);
+        assert!(state.adopt(second_id, "giraffe").ok);
+        for x in 4..=10 {
+            assert!(state.place_path(x, ENTRANCE_Y + 1).ok);
+        }
+
+        for _ in 0..120 {
+            state.tick(1);
+            if state
+                .guests
+                .iter()
+                .find(|guest| guest.id == 1)
+                .is_some_and(|guest| guest.state == GuestState::Viewing)
+            {
+                break;
+            }
+        }
+
+        let guest = state.guests.iter_mut().find(|guest| guest.id == 1).unwrap();
+        guest.thirst = GUEST_CONTINUE_MAX_THIRST + 1;
+        guest.viewing_minutes = 1;
+        state.advance_viewing();
+
+        let guest = state.guests.iter().find(|guest| guest.id == 1).unwrap();
+        assert_eq!(guest.state, GuestState::WalkingToExit);
+        assert_eq!(guest.visited_habitats.len(), 1);
+    }
+
+    #[test]
     fn habitat_care_actions_remain_idempotent() {
         let mut state = GameState::default();
         assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
@@ -3487,14 +3852,12 @@ mod tests {
     #[test]
     fn unstaffed_litter_degrades_cleanliness_and_rating_over_time() {
         let mut state = GameState::default();
-        state.recalculate_rating();
-        let clean_rating = state.rating;
+        let clean_rating = state.rating();
         assert!(state.add_litter(Position {
             x: 2,
             y: ENTRANCE_Y,
         }));
-        state.recalculate_rating();
-        let dirty_rating = state.rating;
+        let dirty_rating = state.rating();
 
         assert!(state.park_cleanliness() < 100);
         assert!(dirty_rating < clean_rating);
@@ -3907,6 +4270,78 @@ mod tests {
         assert!(state.bulldoze(3, 8).ok);
         assert!(state.habitats.is_empty());
         assert_eq!(state.keepers[0].assigned_habitat_id, None);
+    }
+
+    /// Rating of a park with no habitats, no guests and no litter.
+    const EMPTY_CLEAN_PARK_RATING: u32 = 250 + 50 * 2 + 60;
+
+    #[test]
+    fn demolishing_the_last_habitat_updates_the_rating_immediately() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "zebra").ok);
+        assert!(state.adopt(habitat_id, "zebra").ok);
+        assert_ne!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+
+        let (cash, ledger, day, minute) = (
+            state.cash_cents,
+            state.finance_today,
+            state.day,
+            state.minute_of_day,
+        );
+        assert!(state.bulldoze(3, 8).ok);
+
+        assert!(state.habitats.is_empty());
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+        assert_eq!(state.cash_cents, cash);
+        assert_eq!(state.finance_today, ledger);
+        assert_eq!((state.day, state.minute_of_day), (day, minute));
+    }
+
+    #[test]
+    fn demolition_that_removes_guests_updates_the_rating_immediately() {
+        let mut state = GameState::default();
+        assert!(state.place_habitat(3, 8, HabitatOrientation::Horizontal).ok);
+        let habitat_id = state.habitats[0].id;
+        staff_habitat(&mut state, habitat_id);
+        assert!(state.adopt(habitat_id, "zebra").ok);
+        let mut ticks = 0;
+        while !state
+            .guests
+            .iter()
+            .any(|guest| guest.target_habitat == habitat_id)
+        {
+            state.tick(1);
+            ticks += 1;
+            assert!(ticks < 24 * 60, "no guest targeted the habitat");
+        }
+        state
+            .guests
+            .retain(|guest| guest.target_habitat == habitat_id);
+        state.litter.clear();
+
+        assert!(state.bulldoze(3, 8).ok);
+
+        assert!(state.guests.is_empty());
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+    }
+
+    #[test]
+    fn demolishing_a_littered_path_updates_the_rating_immediately() {
+        let mut state = GameState::default();
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
+        assert!(state.add_litter(Position {
+            x: 4,
+            y: ENTRANCE_Y,
+        }));
+        assert!(state.snapshot().rating < EMPTY_CLEAN_PARK_RATING);
+
+        assert!(state.bulldoze(4, ENTRANCE_Y).ok);
+
+        assert!(state.litter.is_empty());
+        assert_eq!(state.snapshot().rating, EMPTY_CLEAN_PARK_RATING);
     }
 
     #[test]
