@@ -18,14 +18,32 @@
     "e2e": ["test:e2e:smoke", "test:accessibility"],
     "performance": ["benchmark:smoke"]
   },
-  "requiredCapabilities": ["format:check", "lint", "typecheck", "build", "test:unit"],
+  "requiredCapabilities": [
+    "format:check",
+    "lint",
+    "typecheck",
+    "build",
+    "test:unit",
+    "benchmark:smoke"
+  ],
   "optionalCapabilities": [
     "test:integration",
     "test:e2e:smoke",
-    "test:accessibility",
-    "benchmark:smoke"
+    "test:accessibility"
   ],
   "capabilityCommands": {
+    ".": {
+      "benchmark:smoke": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "zoo-core",
+        "--example",
+        "performance_smoke"
+      ]
+    },
     "@zoo/web": {
       "format:check": ["bun", "run", "format:check"],
       "lint": ["bun", "run", "lint"],
